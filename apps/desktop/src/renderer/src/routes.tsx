@@ -4,6 +4,8 @@ import type { RouteObject } from "react-router-dom";
 import { IssueDetailPage } from "./pages/issue-detail-page";
 import { ProjectDetailPage } from "./pages/project-detail-page";
 import { AutopilotDetailPage } from "./pages/autopilot-detail-page";
+import { WorkflowTemplateDetailPage } from "./pages/workflow-template-detail-page";
+import { WorkflowRunDetailPage } from "./pages/workflow-run-detail-page";
 import { SkillDetailPage } from "./pages/skill-detail-page";
 import { AgentDetailPage } from "./pages/agent-detail-page";
 import { AiBuilderSessionPage } from "./pages/ai-builder-session-page";
@@ -13,10 +15,14 @@ import {
   RuntimeSettingsPage,
 } from "./pages/runtime-detail-page";
 import { AttachmentPreviewRoute } from "./pages/attachment-preview-page";
-import { IssuesPage } from "@multica/views/issues/components";
+import { IssuesPage, WorkflowIssuesPage } from "@multica/views/issues/components";
 import { ProjectsPage } from "@multica/views/projects/components";
 import { DashboardPage } from "@multica/views/dashboard";
 import { AutopilotsPage } from "@multica/views/autopilots/components";
+import {
+  WorkflowsPage,
+  WorkflowRunsPage,
+} from "@multica/views/workflows/components";
 import { MyIssuesPage } from "@multica/views/my-issues";
 import { SkillsPage } from "@multica/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
@@ -138,6 +144,11 @@ export const appRoutes: RouteObject[] = [
             handle: { title: "Issue" },
           },
           {
+            path: "workflow-issues",
+            element: <WorkflowIssuesPage />,
+            handle: { title: "Workflow Issues" },
+          },
+          {
             path: "projects",
             element: <ProjectsPage />,
             handle: { title: "Projects" },
@@ -156,6 +167,36 @@ export const appRoutes: RouteObject[] = [
             path: "autopilots/:id",
             element: <AutopilotDetailPage />,
             handle: { title: "Autopilot" },
+          },
+          // Workflow templates sit next to autopilots: both are "how work gets
+          // driven" surfaces. Renderer-only wiring by design (plan section 16)
+          // — no Electron main-process menu/deep-link entry is added here.
+          {
+            path: "workflows",
+            element: <WorkflowsPage />,
+            handle: { title: "Workflows" },
+          },
+          {
+            path: "workflows/:id",
+            // Static handle title is the fallback; the wrapper overrides it
+            // with the template name once the detail query resolves.
+            element: <WorkflowTemplateDetailPage />,
+            handle: { title: "Workflow" },
+          },
+          // Runs are a top-level segment rather than `workflows/:id/runs/:runId`
+          // — a run is reached from an issue or a shared link with no template
+          // in hand. See the paths module.
+          {
+            path: "workflow-runs",
+            element: <WorkflowRunsPage />,
+            handle: { title: "Runs" },
+          },
+          {
+            path: "workflow-runs/:id",
+            // Fallback title; the wrapper replaces it with the run's own input
+            // title once the detail resolves.
+            element: <WorkflowRunDetailPage />,
+            handle: { title: "Run" },
           },
           {
             path: "my-issues",

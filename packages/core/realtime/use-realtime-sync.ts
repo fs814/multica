@@ -13,6 +13,7 @@ import { issueKeys } from "../issues/queries";
 import { projectKeys } from "../projects/queries";
 import { pinKeys } from "../pins/queries";
 import { autopilotKeys } from "../autopilots/queries";
+import { workflowRunKeys } from "../workflows/queries";
 import { runtimeKeys } from "../runtimes/queries";
 import { labelKeys } from "../labels/queries";
 import { propertyKeys } from "../properties/queries";
@@ -638,6 +639,13 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
     qc.invalidateQueries({ queryKey: chatKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: labelKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: propertyKeys.all(wsId) });
+    // Workflow runs advance entirely through events (a step queues, an agent
+    // submits, a gate opens), so a run page open across a dropped socket keeps
+    // showing whatever trace it had when the connection died — indistinguishable
+    // from a run that stopped making progress. The live handler already
+    // invalidates these keys; omitting them here is what made the recovery path
+    // silently incomplete.
+    qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
   }
   // Cross-workspace, so outside the wsId guard: a reconnect may have missed
   // inbox events from any workspace, so re-pull the switcher-dot summary.
@@ -808,6 +816,28 @@ export function useRealtimeSync(
       autopilot: () => {
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: autopilotKeys.all(wsId) });
+      },
+      // Every `workflow:*` event the engine emits (run_changed / run_started /
+      // run_completed / run_failed / run_blocked / run_cancelled /
+      // step_queued / step_submitted / step_blocked / acceptance_open) means
+      // exactly one thing to this client: refetch the run. The engine's own
+      // comment in protocol/events.go explains why - a single command can move
+      // a step through activated -> queued and then activate the next node, so
+      // a client that reassembled a run from a stream of deltas would disagree
+      // with the server the first time one was dropped or reordered. The
+      // payload carries only ids; the refetched run cannot drift.
+      //
+      // Invalidating the whole `all(wsId)` subtree rather than one run's detail
+      // is deliberate: the fine-grained event names exist for the *server's*
+      // metric labels, not for cache surgery here, and the run id in the
+      // payload would only let us skip work that costs nothing - React Query
+      // refetches the mounted run and merely marks the rest stale. It also
+      // means the runs list and the acceptance queue pick up `acceptance_open`
+      // without a second mapping. The 100ms debounce below collapses the burst
+      // a single engine command produces into one invalidation.
+      workflow: () => {
+        const wsId = getCurrentWsId();
+        if (wsId) qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
       },
       github_installation: () => {
         const wsId = getCurrentWsId();

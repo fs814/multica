@@ -385,6 +385,9 @@ export function useIssueSurfaceController({
         queryScope = {
           kind: "workspace",
           ...(assigneeTypes ? { assignee_types: assigneeTypes } : {}),
+          ...(scope.excludeWorkflowIssues
+            ? { exclude_workflow_issues: true }
+            : {}),
         };
         break;
       }
@@ -397,6 +400,12 @@ export function useIssueSurfaceController({
         };
         break;
       }
+      case "workflow":
+        queryScope = {
+          kind: "workflow",
+          workflow_template_id: scope.templateId,
+        };
+        break;
       case "my":
         queryScope = {
           kind: "my",

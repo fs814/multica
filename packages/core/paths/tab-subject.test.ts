@@ -9,6 +9,7 @@ describe("parseTabSubject", () => {
   const cases: Array<[string, TabSubject]> = [
     // Collection / tool pages
     ["/acme/issues", { kind: "page", page: "issues" }],
+    ["/acme/workflow-issues?template=wf-1", { kind: "page", page: "workflowIssues" }],
     ["/acme/my-issues", { kind: "page", page: "myIssues" }],
     ["/acme/projects", { kind: "page", page: "projects" }],
     ["/acme/autopilots", { kind: "page", page: "autopilots" }],

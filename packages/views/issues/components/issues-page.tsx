@@ -58,7 +58,11 @@ export function IssuesPage() {
       </PageHeader>
 
       <IssueSurface
-        scope={{ type: "workspace", actorKind: scope }}
+        scope={{
+          type: "workspace",
+          actorKind: scope,
+          excludeWorkflowIssues: true,
+        }}
         modes={["board", "list", "table", "swimlane"]}
         batchToolbar="list"
         renderHeader={({ controller }) => (

@@ -64,9 +64,15 @@ export function buildIssueSurfaceQueryPlan(
   switch (scope.type) {
     case "workspace": {
       const assigneeTypes = assigneeTypesForActorKind(scope.actorKind);
+      const queryFilter: MyIssuesFilter = {
+        ...(assigneeTypes ? { assignee_types: assigneeTypes } : {}),
+        ...(scope.excludeWorkflowIssues
+          ? { exclude_workflow_issues: true }
+          : {}),
+      };
       return {
         scopeKey,
-        queryFilter: assigneeTypes ? { assignee_types: assigneeTypes } : {},
+        queryFilter,
         createDefaults: {},
       };
     }
@@ -78,6 +84,14 @@ export function buildIssueSurfaceQueryPlan(
           ? { project_id: scope.projectId, assignee_types: assigneeTypes }
           : { project_id: scope.projectId },
         createDefaults: { project_id: scope.projectId },
+      };
+    }
+    case "workflow": {
+      const queryFilter = { workflow_template_id: scope.templateId };
+      return {
+        scopeKey,
+        queryFilter,
+        createDefaults: {},
       };
     }
     case "my":

@@ -189,6 +189,34 @@ import type {
   CreateCloudRuntimeNodeRequest,
   ListCloudRuntimeNodesParams,
 } from "../runtimes/cloud-runtime";
+import {
+  WorkflowTemplateSchema,
+  WorkflowTemplateDetailSchema,
+  WorkflowTemplateListResponseSchema,
+  WorkflowValidationResultSchema,
+  WorkflowRunSchema,
+  WorkflowRunDetailSchema,
+  WorkflowRunListResponseSchema,
+  EMPTY_WORKFLOW_TEMPLATE_LIST_RESPONSE,
+  EMPTY_WORKFLOW_TEMPLATE_DETAIL,
+  EMPTY_WORKFLOW_RUN_LIST_RESPONSE,
+  EMPTY_WORKFLOW_RUN_DETAIL,
+  UNREADABLE_WORKFLOW_VALIDATION_RESULT,
+} from "../workflows/schemas";
+import type {
+  CreateWorkflowTemplateRequest,
+  UpdateWorkflowTemplateRequest,
+  WorkflowDefinitionInput,
+  WorkflowTemplate,
+  WorkflowTemplateDetail,
+  WorkflowTemplateListResponse,
+  WorkflowValidationResult,
+  RunWorkflowTemplateRequest,
+  DecideWorkflowAcceptanceRequest,
+  WorkflowRun,
+  WorkflowRunDetail,
+  WorkflowRunListResponse,
+} from "../workflows/schemas";
 import { type Logger, noopLogger } from "../logger";
 import { createRequestId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
@@ -722,6 +750,8 @@ export class ApiClient {
     if (params?.assignee_types?.length) search.set("assignee_types", params.assignee_types.join(","));
     if (params?.creator_id) search.set("creator_id", params.creator_id);
     if (params?.project_id) search.set("project_id", params.project_id);
+    if (params?.workflow_template_id) search.set("workflow_template_id", params.workflow_template_id);
+    if (params?.exclude_workflow_issues) search.set("exclude_workflow_issues", "true");
     if (params?.assignee_filters?.length) {
       search.set("assignee_filters", params.assignee_filters.map((f) => `${f.type}:${f.id}`).join(","));
     }
@@ -783,6 +813,8 @@ export class ApiClient {
     if (params.assignee_ids?.length) search.set("assignee_ids", params.assignee_ids.join(","));
     if (params.creator_id) search.set("creator_id", params.creator_id);
     if (params.project_id) search.set("project_id", params.project_id);
+    if (params.workflow_template_id) search.set("workflow_template_id", params.workflow_template_id);
+    if (params.exclude_workflow_issues) search.set("exclude_workflow_issues", "true");
     if (params.involves_user_id) search.set("involves_user_id", params.involves_user_id);
     if (params.metadata && Object.keys(params.metadata).length > 0) {
       search.set("metadata", JSON.stringify(params.metadata));
@@ -1281,6 +1313,21 @@ export class ApiClient {
       method: "PUT",
       body: JSON.stringify({ draft }),
     });
+  }
+
+  async createWorkflowBuilderSession(data: {
+    runtime_id: string;
+  }): Promise<AgentBuilderSession> {
+    const raw = await this.fetch<unknown>("/api/workflow-builder/sessions", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(
+      raw,
+      AgentBuilderSessionSchema,
+      EMPTY_AGENT_BUILDER_SESSION,
+      { endpoint: "POST /api/workflow-builder/sessions" },
+    );
   }
 
   /** Rebinds a live builder conversation to another runtime. Callers must not
@@ -3383,6 +3430,268 @@ export class ApiClient {
       WebhookDeliveryResponseSchema,
       { ...EMPTY_WEBHOOK_DELIVERY, autopilot_id: autopilotId },
       { endpoint: "POST /api/autopilots/:id/deliveries/:deliveryId/replay" },
+    );
+  }
+
+  // Workflow templates
+  //
+  // The workspace is NOT a URL segment on these routes: the server resolves it
+  // from the X-Workspace-Slug / X-Workspace-ID header (authHeaders() above),
+  // exactly like /api/autopilots. Keep it that way - a workspace id in the path
+  // would be a second, drift-prone source of truth for the same fact.
+  //
+  // Every response is parsed with a lenient schema because the graph
+  // vocabulary is deliberately forward-looking (condition / fan_out / join are
+  // published contract before they have executors). An installed client that
+  // met an unknown node type must still render the template list.
+
+  /** GET also runs the idempotent built-in seeder server-side, which is how
+   *  the Bug Fix template appears in workspaces created before it existed -
+   *  no migration and no client-side seeding step. */
+  async listWorkflowTemplates(): Promise<WorkflowTemplateListResponse> {
+    const raw = await this.fetch<unknown>("/api/workflow-templates");
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateListResponseSchema,
+      EMPTY_WORKFLOW_TEMPLATE_LIST_RESPONSE,
+      { endpoint: "GET /api/workflow-templates" },
+    );
+  }
+
+  async getWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
+    const raw = await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(id)}`);
+    // The fallback carries the requested id so the detail page keeps a stable
+    // identity (and its breadcrumb/back link) after a parse miss.
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateDetailSchema,
+      { ...EMPTY_WORKFLOW_TEMPLATE_DETAIL, id },
+      { endpoint: "GET /api/workflow-templates/:id" },
+    );
+  }
+
+  async createWorkflowTemplate(
+    body: CreateWorkflowTemplateRequest,
+  ): Promise<WorkflowTemplateDetail> {
+    const raw = await this.fetch<unknown>("/api/workflow-templates", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateDetailSchema,
+      EMPTY_WORKFLOW_TEMPLATE_DETAIL,
+      { endpoint: "POST /api/workflow-templates" },
+    );
+  }
+
+  /** Forks a seeded built-in into an ordinary member-authored draft. The
+   * server owns copy naming and collision-safe key generation, so clients do
+   * not race by trying to derive the next copy key themselves. */
+  async duplicateWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}/duplicate`,
+      { method: "POST" },
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateDetailSchema,
+      EMPTY_WORKFLOW_TEMPLATE_DETAIL,
+      { endpoint: "POST /api/workflow-templates/:id/duplicate" },
+    );
+  }
+
+  /** Publishing freezes the draft version's definition - it is immutable from
+   *  then on so a run can pin the exact graph it started with. The response is
+   *  the full detail (including the new `current_version`), so callers refresh
+   *  without a second round-trip. */
+  async publishWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}/publish`,
+      { method: "POST" },
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateDetailSchema,
+      { ...EMPTY_WORKFLOW_TEMPLATE_DETAIL, id },
+      { endpoint: "POST /api/workflow-templates/:id/publish" },
+    );
+  }
+
+  /** Archive returns the summary shape (no graph) - archiving is a status
+   *  change on the template, not an edit to any version's definition. */
+  async archiveWorkflowTemplate(id: string): Promise<WorkflowTemplate> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}/archive`,
+      { method: "POST" },
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateSchema,
+      { ...EMPTY_WORKFLOW_TEMPLATE_DETAIL, id, status: "archived" } as WorkflowTemplate,
+      { endpoint: "POST /api/workflow-templates/:id/archive" },
+    );
+  }
+
+  /** PATCH is the editor's draft save: `name`, `description` and `definition`
+   *  are independent, and an omitted field is left untouched server-side.
+   *
+   *  Two response behaviours the caller must expect, both intentional:
+   *  saving over a *published* template creates a new draft version but the
+   *  returned `definition` is still the published bytes (the draft is invisible
+   *  to Runs until publish), and repeated saves overwrite the same draft rather
+   *  than stacking versions. So an editor must keep its own just-saved graph in
+   *  local state instead of re-rendering from this response. */
+  async updateWorkflowTemplate(
+    id: string,
+    body: UpdateWorkflowTemplateRequest,
+  ): Promise<WorkflowTemplateDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}`,
+      { method: "PATCH", body: JSON.stringify(body) },
+    );
+    // Only `id` is spread onto the fallback, matching the other by-id routes so
+    // the page keeps its identity after a parse miss. `key` stays empty on
+    // purpose: it is the one field that still tells a fallback apart from a real
+    // detail, and the caller gates saving/publishing on it.
+    return parseWithFallback(
+      raw,
+      WorkflowTemplateDetailSchema,
+      { ...EMPTY_WORKFLOW_TEMPLATE_DETAIL, id },
+      { endpoint: "PATCH /api/workflow-templates/:id" },
+    );
+  }
+
+  /** Checks a graph that may not correspond to anything stored yet, which is why
+   *  it takes no template id. Always a 200 - "your graph is wrong" is a
+   *  successful answer here - so an invalid graph arrives as `valid: false`
+   *  rather than as a thrown ApiError; only a malformed request body is a 4xx.
+   *
+   *  An unreadable response resolves to `valid: false` (see
+   *  UNREADABLE_WORKFLOW_VALIDATION_RESULT) rather than rejecting: the editor
+   *  needs a verdict to render, and the one verdict we must never invent is
+   *  "publishable". */
+  async validateWorkflowDefinition(
+    definition: WorkflowDefinitionInput,
+  ): Promise<WorkflowValidationResult> {
+    const raw = await this.fetch<unknown>("/api/workflow-templates/validate", {
+      method: "POST",
+      body: JSON.stringify({ definition }),
+    });
+    return parseWithFallback(
+      raw,
+      WorkflowValidationResultSchema,
+      UNREADABLE_WORKFLOW_VALIDATION_RESULT,
+      { endpoint: "POST /api/workflow-templates/validate" },
+    );
+  }
+
+  // Workflow runs
+  //
+  // Same header-scoped workspace resolution as the template routes above.
+  //
+  // One convention differs from every other by-id method in this class, and it
+  // is deliberate: the run fallbacks carry the requested `id` (so the detail
+  // page keeps its identity after a parse miss) but NEVER a `status`. `status`
+  // is the field a caller reads to tell "we could not read this run" apart from
+  // "this run genuinely has no steps yet" - see EMPTY_WORKFLOW_RUN_DETAIL. On
+  // the template routes that role is played by `key`.
+
+  /** Starts a run of the template's *published* version. The server creates the
+   *  Issue and the Run in one transaction and derives the idempotency key
+   *  itself, so a double-clicked button cannot start two runs - do not send one.
+   *
+   *  409 when the template has no published version (nothing to pin) and 422
+   *  when the pinned graph fails validation; both are thrown as ApiError rather
+   *  than degraded, because "your run did not start" is not something a fallback
+   *  can represent. */
+  async runWorkflowTemplate(
+    id: string,
+    body: RunWorkflowTemplateRequest,
+  ): Promise<WorkflowRunDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}/run`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    // No id to spread: the run's id is what this call *returns*. An empty id
+    // here therefore also means "unreadable", and callers must not navigate to
+    // it. `status: ""` says the same thing for the fields that follow.
+    return parseWithFallback(
+      raw,
+      WorkflowRunDetailSchema,
+      EMPTY_WORKFLOW_RUN_DETAIL,
+      { endpoint: "POST /api/workflow-templates/:id/run" },
+    );
+  }
+
+  async listWorkflowRuns(params?: {
+    status?: string;
+    template_id?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<WorkflowRunListResponse> {
+    const search = new URLSearchParams();
+    if (params?.status) search.set("status", params.status);
+    if (params?.template_id) search.set("template_id", params.template_id);
+    if (params?.limit !== undefined) search.set("limit", String(params.limit));
+    if (params?.offset !== undefined) search.set("offset", String(params.offset));
+    const raw = await this.fetch<unknown>(`/api/workflow-runs?${search}`);
+    return parseWithFallback(
+      raw,
+      WorkflowRunListResponseSchema,
+      EMPTY_WORKFLOW_RUN_LIST_RESPONSE,
+      { endpoint: "GET /api/workflow-runs" },
+    );
+  }
+
+  /** The run plus its full trace: every step attempt, each step's submission,
+   *  and the open acceptance if the run is waiting on a reviewer. */
+  async getWorkflowRun(id: string): Promise<WorkflowRunDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-runs/${encodeURIComponent(id)}`,
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowRunDetailSchema,
+      { ...EMPTY_WORKFLOW_RUN_DETAIL, id },
+      { endpoint: "GET /api/workflow-runs/:id" },
+    );
+  }
+
+  /** Cancel is terminal and returns the summary shape - it stops the run, it
+   *  does not rewrite its trace. In-flight agent tasks are cancelled
+   *  server-side, so the caller must not also cancel them itself. */
+  async cancelWorkflowRun(id: string): Promise<WorkflowRun> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-runs/${encodeURIComponent(id)}/cancel`,
+      { method: "POST" },
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowRunSchema,
+      { ...EMPTY_WORKFLOW_RUN_DETAIL, id } as WorkflowRun,
+      { endpoint: "POST /api/workflow-runs/:id/cancel" },
+    );
+  }
+
+  /** Records the reviewer's verdict on the run's open acceptance gate.
+   *
+   *  `accept: false` REQUIRES both a `reason` and a `rework_target` drawn from
+   *  the acceptance's own `rework_targets` - the server 422s otherwise, since a
+   *  rejection that names no target would leave the run with nowhere to go. */
+  async decideWorkflowAcceptance(
+    id: string,
+    body: DecideWorkflowAcceptanceRequest,
+  ): Promise<WorkflowRunDetail> {
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-runs/${encodeURIComponent(id)}/acceptance`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    return parseWithFallback(
+      raw,
+      WorkflowRunDetailSchema,
+      { ...EMPTY_WORKFLOW_RUN_DETAIL, id },
+      { endpoint: "POST /api/workflow-runs/:id/acceptance" },
     );
   }
 

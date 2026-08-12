@@ -119,6 +119,10 @@ export interface ListIssuesParams {
   assignee_types?: IssueAssigneeType[];
   creator_id?: string;
   project_id?: string;
+  /** Restrict to issues attached to at least one run of this workflow template. */
+  workflow_template_id?: string;
+  /** Exclude descendants of every workflow run in the workspace. */
+  exclude_workflow_issues?: boolean;
   /** Actor-aware table facets. OR within each field. */
   assignee_filters?: IssueActorRef[];
   include_no_assignee?: boolean;
@@ -190,6 +194,10 @@ export interface ListGroupedIssuesParams {
   assignee_ids?: string[];
   creator_id?: string;
   project_id?: string;
+  /** Restrict to issues attached to at least one run of this workflow template. */
+  workflow_template_id?: string;
+  /** Exclude descendants of every workflow run in the workspace. */
+  exclude_workflow_issues?: boolean;
   /** See `ListIssuesParams.involves_user_id` — same semantics. */
   involves_user_id?: string;
   /** JSONB containment filter on `issue.metadata`. AND across keys. */
@@ -244,8 +252,13 @@ export interface GroupedIssuesResponse {
 // are evaluated against the complete result set; the browser only owns view
 // state such as collapsed groups/parents.
 export type IssueTableScope =
-  | { kind: "workspace"; assignee_types?: IssueAssigneeType[] }
+  | {
+      kind: "workspace";
+      assignee_types?: IssueAssigneeType[];
+      exclude_workflow_issues?: boolean;
+    }
   | { kind: "project"; project_id: string; assignee_types?: IssueAssigneeType[] }
+  | { kind: "workflow"; workflow_template_id: string }
   | { kind: "assignee"; actor: IssueActorRef }
   | { kind: "creator"; actor: IssueActorRef }
   | { kind: "my"; relation: "assigned" | "created" | "involved" | "any" };

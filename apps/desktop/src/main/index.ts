@@ -331,7 +331,8 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 16, y: 17 },
-    show: false,
+    // Windows launcher opt-in for hosts where ready-to-show never fires.
+    show: process.env.MULTICA_FORCE_SHOW_WINDOW === "1",
     autoHideMenuBar: true,
     // Windows/Linux pick up the window/taskbar icon from this option.
     // On macOS it's ignored (dock comes from app.dock.setIcon below).
@@ -584,6 +585,12 @@ if (is.dev) {
   // (declared in electron-builder.yml) survive a regression in
   // productName / the build pipeline. Must run before requestSingleInstanceLock().
   app.setName("Multica");
+}
+
+if (process.env.MULTICA_DISABLE_HARDWARE_ACCELERATION === "1") {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-direct-composition");
 }
 
 // --- Protocol registration -----------------------------------------------

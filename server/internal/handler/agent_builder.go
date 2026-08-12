@@ -37,6 +37,28 @@ Rules:
 - Never request, expose, or place secrets, tokens, passwords, or environment-variable values in the draft.
 - Do not claim that the agent has been created. The user must review and confirm the draft in the UI.`
 
+const workflowBuilderInstructions = `You are Multica Workflow Builder. Turn the user's description into one practical, reviewable workflow draft. You design configuration only; never create resources yourself.
+
+Every response MUST end with exactly one <workflow_draft> JSON block using this shape:
+<workflow_draft>{"name":"","key":"","description":"","definition":{"schema_version":1,"entry_node":"input","nodes":[]}}</workflow_draft>
+
+Rules:
+- The JSON must be valid compact JSON on one physical line, without Markdown fences.
+- The user message is a JSON envelope. Its available_codex_agents array is the complete AVAILABLE CODEX AGENTS catalog; its user_request is the concrete task the workflow must accept at run time.
+- key must start with a lowercase letter or digit and contain only lowercase letters, digits, hyphens, and underscores.
+- Use only executable node types: input, agent, acceptance, and end. Prefer a clear linear flow.
+- Every node uses "key" (never "id") and "next" is always a JSON array of node keys, even when it contains one item. Agent assignment is always nested as "routing":{"strategy":"explicit","agent_id":"<listed id>"}; never put agent_id directly on a node. acceptance_criteria and rework_targets are always JSON string arrays; never use rework_target.
+- Declare exactly one input node, make it entry_node, give it exactly one next edge, and use input_fields to collect the information the workflow needs.
+- Every agent node must have exactly one next edge, a specific instruction, and explicit routing to an id listed in AVAILABLE CODEX AGENTS. Never invent an agent id.
+- Split the work into separate agent nodes when the request names distinct responsibilities. Use distinct listed agent ids when the catalog permits it; otherwise reuse only listed ids and make each node's responsibility explicit.
+- For requirement-to-implementation workflows, prefer input(task) -> analyze/split child issues -> implement the child issues -> verify by running functional checks -> acceptance -> end. The verify agent must report checks it actually ran; test or functional failure must rework the implementation agent, while an unclear or wrongly split requirement may rework the analysis agent.
+- If AVAILABLE CODEX AGENTS is empty, return a valid input -> end draft and explain that a Codex agent must be created before agent steps can be assigned.
+- Acceptance nodes must have exactly one next edge, non-empty acceptance_criteria, and rework_targets pointing to an earlier agent node.
+- End nodes have no outgoing edges. Every node must be reachable, and ordinary next edges must be acyclic.
+- Use on_failure "block" unless a bounded rework path is clearly useful. Omit fields that do not apply.
+- Preserve the user's language for human-facing names, labels, descriptions, and instructions.
+- Do not claim the workflow has been created. The user must review and confirm the generated draft in the UI.`
+
 type CreateAgentBuilderSessionRequest struct {
 	RuntimeID string `json:"runtime_id"`
 	Model     string `json:"model,omitempty"`
@@ -329,6 +351,103 @@ func (h *Handler) SaveAgentBuilderDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type CreateWorkflowBuilderSessionRequest struct {
+	RuntimeID string `json:"runtime_id"`
+}
+
+// CreateWorkflowBuilderSession starts a one-shot workflow design conversation.
+// It deliberately uses the same hidden-agent/chat pipeline as Agent Builder so
+// the user's authenticated Codex CLI is the model provider; no server LLM key
+// and no Claude runtime can be used by this endpoint.
+func (h *Handler) CreateWorkflowBuilderSession(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req CreateWorkflowBuilderSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	runtimeID := strings.TrimSpace(req.RuntimeID)
+	if runtimeID == "" {
+		writeError(w, http.StatusBadRequest, "runtime_id is required")
+		return
+	}
+
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	if !ok {
+		return
+	}
+	runtime, ok := h.resolveBuilderRuntime(w, r, workspaceID, workspaceUUID, runtimeID, "start")
+	if !ok {
+		return
+	}
+	if runtime.Provider != "codex" {
+		writeError(w, http.StatusConflict, "workflow builder requires an online Codex runtime")
+		return
+	}
+
+	flowID := uuid.NewString()
+	ownerUUID := parseUUID(userID)
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start workflow builder session")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	if _, err := qtx.LockWorkspaceForChatSessionCreate(r.Context(), workspaceUUID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to lock workspace")
+		return
+	}
+
+	builder, err := qtx.CreateAgentBuilder(r.Context(), db.CreateAgentBuilderParams{
+		WorkspaceID:  workspaceUUID,
+		Name:         fmt.Sprintf(".multica-workflow-builder-%s", flowID),
+		RuntimeMode:  runtime.RuntimeMode,
+		RuntimeID:    runtime.ID,
+		OwnerID:      ownerUUID,
+		Instructions: workflowBuilderInstructions,
+		SystemKey: pgtype.Text{
+			String: fmt.Sprintf("agent_builder:workflow:%s", flowID),
+			Valid:  true,
+		},
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to prepare workflow builder")
+		return
+	}
+
+	session, err := qtx.CreateChatSession(r.Context(), db.CreateChatSessionParams{
+		WorkspaceID: workspaceUUID,
+		AgentID:     builder.ID,
+		CreatorID:   ownerUUID,
+		Title:       "Create a workflow",
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create workflow builder session")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit workflow builder session")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, CreateAgentBuilderSessionResponse{
+		SessionID:      uuidToString(session.ID),
+		BuilderAgentID: uuidToString(builder.ID),
+		RuntimeID:      runtimeID,
+	})
 }
 
 // resolveBuilderRuntime loads a runtime the caller is allowed to execute a

@@ -20,11 +20,24 @@ function workspaceScoped(slug: string) {
     root: () => `${ws}/issues`,
     usage: () => `${ws}/usage`,
     issues: () => `${ws}/issues`,
+    workflowIssues: () => `${ws}/workflow-issues`,
     issueDetail: (id: string) => `${ws}/issues/${encode(id)}`,
     projects: () => `${ws}/projects`,
     projectDetail: (id: string) => `${ws}/projects/${encode(id)}`,
     autopilots: () => `${ws}/autopilots`,
     autopilotDetail: (id: string) => `${ws}/autopilots/${encode(id)}`,
+    // Route segment is `workflows` (plural, user-facing) while the API resource
+    // is `workflow-templates`. The UI surface is "the workflows you can run";
+    // "template" is an implementation detail of versioning, not a nav concept.
+    workflows: () => `${ws}/workflows`,
+    workflowDetail: (id: string) => `${ws}/workflows/${encode(id)}`,
+    // Runs are a TOP-LEVEL segment, not `/workflows/{id}/runs/{runId}`. A run
+    // outlives the version it pinned and is reached from an issue, an inbox
+    // notification or a shared link with no template in hand, so nesting it
+    // under a template id would force every one of those callers to look up an
+    // id they do not need.
+    workflowRuns: () => `${ws}/workflow-runs`,
+    workflowRunDetail: (id: string) => `${ws}/workflow-runs/${encode(id)}`,
     agents: () => `${ws}/agents`,
     newAgent: () => `${ws}/agents/new`,
     // The two creation methods behind the chooser. Each is a real route so a

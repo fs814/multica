@@ -23,8 +23,11 @@ import type { LinkClickIntent } from "../../navigation/click-intent";
 const WORKSPACE_ROUTE_SEGMENTS = new Set([
   "usage",
   "issues",
+  "workflow-issues",
   "projects",
   "autopilots",
+  "workflows",
+  "workflow-runs",
   "agents",
   "chat",
   "inbox",

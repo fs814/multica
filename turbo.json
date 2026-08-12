@@ -20,6 +20,7 @@
     "DESKTOP_RENDERER_PORT",
     "DESKTOP_APP_SUFFIX"
   ],
+  "globalPassThroughEnv": ["npm_config_script_shell"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

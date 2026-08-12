@@ -15,6 +15,7 @@ import {
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { autopilotDetailOptions } from "@multica/core/autopilots/queries";
+import { workflowRunDetailOptions } from "@multica/core/workflows";
 import {
   skillDetailOptions,
   agentListOptions,
@@ -64,6 +65,7 @@ const PENDING_RESOURCE_KEYS: ReadonlySet<TabLabelKey> = new Set<TabLabelKey>([
   "issue",
   "project",
   "autopilot",
+  "workflow_run",
   "agent",
   "member",
   "squad",
@@ -128,6 +130,16 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
     ...skillDetailOptions(wsId, subject.kind === "skill" ? subject.id : NONE),
     enabled: false,
   }).data;
+  // `enabled: false` on top of the option's own `id !== ""` guard: this is a
+  // cache read, and the run detail is a heavy payload (whole trace) that the
+  // run page itself is already fetching and keeping fresh through realtime.
+  const workflowRun = useQuery({
+    ...workflowRunDetailOptions(
+      wsId,
+      subject.kind === "workflowRun" ? subject.id : "",
+    ),
+    enabled: false,
+  }).data;
 
   const agents = useQuery({ ...agentListOptions(wsId), enabled: false }).data;
   const members = useQuery({ ...memberListOptions(wsId), enabled: false }).data;
@@ -155,6 +167,25 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
     case "skill":
       if (skill) data.skill = { name: skill.name };
       break;
+    case "workflowRun": {
+      // Gated on `status`, not on truthiness: an unreadable detail resolves to
+      // EMPTY_WORKFLOW_RUN_DETAIL with the requested id spread on, which would
+      // otherwise title the tab with a blank template name and an empty input.
+      // See EMPTY_WORKFLOW_RUN_DETAIL in @multica/core/workflows.
+      if (workflowRun?.status) {
+        const inputTitle =
+          typeof workflowRun.input.title === "string"
+            ? workflowRun.input.title.trim()
+            : "";
+        // The run has no name of its own. The template alone would give every
+        // run of Bug Fix the same tab title, so the input's own title is what
+        // separates them; the template name is the fallback when it is absent.
+        data.workflowRun = {
+          label: inputTitle || workflowRun.template_name,
+        };
+      }
+      break;
+    }
     case "actor": {
       const name =
         subject.actorType === "agent"

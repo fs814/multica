@@ -26,6 +26,16 @@ export type TabSubject =
   | { kind: "project"; id: string }
   /** A single autopilot detail. */
   | { kind: "autopilot"; id: string }
+  /**
+   * A single workflow run - the execution trace, not the graph.
+   *
+   * This case exists because the runs *page* and a run *detail* share the
+   * `workflow-runs` segment, and `pageForSegment` would happily answer for
+   * both: without it every open run tab would be titled "Runs" and the trace
+   * a reader is looking at would be indistinguishable from the list they came
+   * from.
+   */
+  | { kind: "workflowRun"; id: string }
   /** An agent / member / squad detail (has an avatar identity). */
   | { kind: "actor"; actorType: TabActorType; id: string }
   /** A single skill detail. */
@@ -84,6 +94,10 @@ export function parseTabSubject(url: string): TabSubject {
       return id ? { kind: "project", id } : { kind: "page", page: "projects" };
     case "autopilots":
       return id ? { kind: "autopilot", id } : { kind: "page", page: "autopilots" };
+    case "workflow-runs":
+      return id
+        ? { kind: "workflowRun", id }
+        : { kind: "page", page: "workflowRuns" };
     case "agents":
       if (id === "new") return { kind: "flow", flow: "create-agent" };
       return id
@@ -147,6 +161,8 @@ export function tabSubjectKey(subject: TabSubject): string {
       return `project:${subject.id}`;
     case "autopilot":
       return `autopilot:${subject.id}`;
+    case "workflowRun":
+      return `workflow-run:${subject.id}`;
     case "actor":
       return `actor:${subject.actorType}:${subject.id}`;
     case "skill":

@@ -37,6 +37,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
 	"github.com/multica-ai/multica/server/pkg/llm"
@@ -329,7 +330,18 @@ type Handler struct {
 	// so the feature degrades cleanly on deployments without a private key.
 	// Wired in cmd/server/router.go after New.
 	PRRefresh *ghsnapshot.Manager
-	cfg       Config
+	// WorkflowEngine executes the multi-agent workflow control plane: StartRun,
+	// SubmitResult, RecordTaskTerminal, DecideAcceptance, CancelRun. Constructed
+	// in cmd/server/router.go after New — it needs the routing policy, the
+	// post-commit notifier, and the TaskService that New builds — following the
+	// same post-wiring convention as h.Metrics and h.TaskService.Wakeup.
+	//
+	// Nil in tests and in any construction path that does not wire it, so the run
+	// endpoints must nil-check and refuse rather than panic: a deployment with no
+	// engine has no workflow execution, which is a configuration state and not a
+	// crash.
+	WorkflowEngine *workflow.Engine
+	cfg            Config
 }
 
 func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {

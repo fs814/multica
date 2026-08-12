@@ -132,6 +132,29 @@ const (
 	EventSquadUpdated = "squad:updated"
 	EventSquadDeleted = "squad:deleted"
 
+	// Workflow events. A workflow Run advances through several state changes per
+	// step (activated -> queued -> submitted -> passed -> next node activated),
+	// all inside ONE engine command, so the front-end does not need an event per
+	// transition: it needs to know "this Run changed, refetch it".
+	// EventWorkflowRunChanged is that signal, and it is what the engine's
+	// Notifier emits after commit.
+	//
+	// The finer-grained names exist because the Run trace and the acceptance
+	// queue react differently to "a step needs your review" than to routine
+	// progress, and because these end up as metric labels - bounded, normalized,
+	// no ids embedded (plan section 12). Declared here rather than invented at
+	// each call site so the set stays enumerable.
+	EventWorkflowRunChanged     = "workflow:run_changed"
+	EventWorkflowRunStarted     = "workflow:run_started"
+	EventWorkflowRunCompleted   = "workflow:run_completed"
+	EventWorkflowRunFailed      = "workflow:run_failed"
+	EventWorkflowRunBlocked     = "workflow:run_blocked"
+	EventWorkflowRunCancelled   = "workflow:run_cancelled"
+	EventWorkflowStepQueued     = "workflow:step_queued"
+	EventWorkflowStepSubmitted  = "workflow:step_submitted"
+	EventWorkflowStepBlocked    = "workflow:step_blocked"
+	EventWorkflowAcceptanceOpen = "workflow:acceptance_open"
+
 	// Daemon events
 	EventDaemonHeartbeat              = "daemon:heartbeat"
 	EventDaemonHeartbeatAck           = "daemon:heartbeat_ack"

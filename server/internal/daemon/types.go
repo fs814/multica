@@ -110,6 +110,24 @@ type Task struct {
 	QuickCreateAttachmentIDs      []string               `json:"quick_create_attachment_ids,omitempty"`      // attachments uploaded in the quick-create prompt and bound by issue create
 	HandoffNote                   string                 `json:"handoff_note,omitempty"`                     // assignment handoff instruction; rendered into the opening prompt + issue_context.md
 
+	// Workflow step tasks. The server renders the whole brief - the node
+	// instruction, the run input, the upstream submission, and the submission
+	// contract - into WorkflowPrompt server-side (workflow.TaskContext.RenderPrompt)
+	// precisely so the daemon assembles nothing: this binary is versioned
+	// separately, so anything it has to build is something an older build builds
+	// wrongly. The remaining ids are context for logs and for the CLI, not inputs
+	// to prompt assembly.
+	//
+	// These tags must match the server's AgentTaskResponse exactly. A field the
+	// daemon fails to declare is silently discarded by json.Unmarshal, and the
+	// consequence here is total: without WorkflowPrompt the agent is never told to
+	// emit the delimited submission block, so every step of every run blocks with
+	// submission_contract_invalid even though the work was done correctly.
+	WorkflowPrompt         string `json:"workflow_prompt,omitempty"`
+	WorkflowRunID          string `json:"workflow_run_id,omitempty"`
+	WorkflowStepInstanceID string `json:"workflow_step_instance_id,omitempty"`
+	WorkflowNodeKey        string `json:"workflow_node_key,omitempty"`
+
 	SquadID               string `json:"squad_id,omitempty"`                // when the picker was a squad, the squad's UUID; Agent is still the resolved leader
 	SquadName             string `json:"squad_name,omitempty"`              // display name for the picker squad, used in prompt text
 	ParentIssueID         string `json:"parent_issue_id,omitempty"`         // for quick-create tasks opened from "Add sub issue" — UUID of the parent issue the new issue should be filed under

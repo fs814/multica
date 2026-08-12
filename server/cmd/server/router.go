@@ -38,6 +38,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	composiosdk "github.com/multica-ai/multica/server/pkg/composio"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
@@ -272,6 +273,34 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		h.WebhookIPRateLimiter = handler.NewRedisWebhookIPRateLimiter(rdb, handler.DefaultWebhookIPRateLimit())
 		h.WebhookAbsoluteIPRateLimiter = handler.NewRedisWebhookAbsoluteIPRateLimiter(rdb, handler.DefaultWebhookAbsoluteIPRateLimit())
 	}
+
+	// Workflow engine. Built here rather than inside handler.New because it needs
+	// three things New produces or does not own: the TaskService (for the daemon
+	// wakeup on the notifier), the routing policy (which lives in package service
+	// so it can reach AgentReadiness and the invocation-permission rule), and the
+	// event bus. Assigned onto the handler afterwards, the same way h.Metrics and
+	// h.TaskService.Wakeup are.
+	//
+	// The engine and TaskService reference each other, deliberately and in one
+	// direction each:
+	//
+	//	engine -> TaskService   via the notifier, to wake a daemon after commit
+	//	TaskService -> engine   via the WorkflowTerminal observer, to advance a Run
+	//	                        when one of its tasks finishes
+	//
+	// Both are optional fields set after construction, which is what lets the
+	// cycle be wired at all without either package importing the other.
+	workflowEngine := &workflow.Engine{
+		Queries:   queries,
+		TxStarter: pool,
+		Router:    service.NewWorkflowRouter(queries),
+		Notifier:  service.NewWorkflowNotifier(bus, h.TaskService),
+		Schemas:   workflow.DefaultSchemaRegistry,
+	}
+	h.WorkflowEngine = workflowEngine
+	// Without this line a finished workflow task never advances its Run: the Step
+	// stays queued and the Run stalls with no error recorded anywhere.
+	h.TaskService.WorkflowTerminal = workflowEngine
 
 	// Channel engine (MUL-3620): the platform-agnostic inbound runtime.
 	// Built UNCONDITIONALLY — it drives any channel.Channel, not just
@@ -1493,6 +1522,60 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				})
 			})
 
+			// Workflow templates. Workspace comes from the
+			// X-Workspace-Slug/X-Workspace-ID header (like /api/autopilots),
+			// not a URL segment. Reads are open to any workspace member;
+			// publish/archive gate on owner|admin inside the handler because
+			// publishing decides which graph - and which cost/rework budget -
+			// every future Run of this process pins.
+			r.Route("/api/workflow-templates", func(r chi.Router) {
+				// GET also runs the idempotent built-in seeder, so an existing
+				// workspace picks up a newly shipped built-in with no backfill.
+				r.Get("/", h.ListWorkflowTemplates)
+				r.Post("/", h.CreateWorkflowTemplate)
+				// Registered before /{id} so chi does not bind "validate" as an
+				// id. It writes nothing and is open to any member: a member must
+				// be able to see why their own draft is rejected.
+				r.Post("/validate", h.ValidateWorkflowDefinition)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetWorkflowTemplate)
+					r.Post("/duplicate", h.DuplicateBuiltinWorkflowTemplate)
+					// PATCH is the editor's save. It gates on owner|admin like
+					// publish, because the draft it writes is exactly what
+					// publish later freezes into every future Run.
+					r.Patch("/", h.UpdateWorkflowTemplate)
+					r.Post("/publish", h.PublishWorkflowTemplate)
+					r.Post("/archive", h.ArchiveWorkflowTemplate)
+					// Starting a Run is nested under the template because the
+					// template plus its published version IS the thing being
+					// run; there is nothing to POST to /api/workflow-runs
+					// that would not just be a template id in a body. Open to
+					// any member, unlike publish: publishing decides which
+					// graph and budget every future Run pins, running an
+					// already-published process is the ordinary use of it.
+					r.Post("/run", h.RunWorkflowTemplate)
+				})
+			})
+
+			// Workflow runs. Same header-based workspace resolution as
+			// templates. Reads are open to any workspace member; cancel and
+			// acceptance require membership only, because a Run is workspace
+			// work rather than one member's - the person who has to stop a
+			// runaway Run at 3am is rarely the one who started it, and the
+			// engine independently pins accountability on the Run's
+			// accountable_user_id for routing.
+			r.Route("/api/workflow-runs", func(r chi.Router) {
+				r.Get("/", h.ListWorkflowRuns)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.GetWorkflowRun)
+					r.Post("/cancel", h.CancelWorkflowRun)
+					// The human accept/reject gate. This is the seam that
+					// makes "the agent said it was done" different from "a
+					// human agreed it was done" (plan section 4).
+					r.Post("/acceptance", h.DecideWorkflowAcceptance)
+				})
+			})
+
 			// Pins
 			r.Route("/api/pins", func(r chi.Router) {
 				r.Get("/", h.ListPins)
@@ -1592,6 +1675,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// but not sent. Read back through the list above.
 				r.Put("/{sessionId}/draft", h.SaveAgentBuilderDraft)
 			})
+			r.Post("/api/workflow-builder/sessions", h.CreateWorkflowBuilderSession)
 
 			// Skills
 			r.Route("/api/skills", func(r chi.Router) {

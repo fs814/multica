@@ -186,6 +186,8 @@ export type MyIssuesFilter = Pick<
   | "assignee_types"
   | "creator_id"
   | "project_id"
+  | "workflow_template_id"
+  | "exclude_workflow_issues"
   | "involves_user_id"
 >;
 

@@ -26,6 +26,8 @@ export type RouteIconName =
   | "ListTodo"
   | "FolderKanban"
   | "Zap"
+  | "Workflow"
+  | "Play"
   | "Bot"
   | "Users"
   | "BarChart3"
@@ -48,8 +50,11 @@ export type NavLabelKey =
   | "chat"
   | "my_issues"
   | "issues"
+  | "workflow_issues"
   | "projects"
   | "autopilots"
+  | "workflows"
+  | "workflow_runs"
   | "agents"
   | "squads"
   | "usage"
@@ -63,8 +68,11 @@ export type WorkspacePageKey =
   | "chat"
   | "myIssues"
   | "issues"
+  | "workflowIssues"
   | "projects"
   | "autopilots"
+  | "workflows"
+  | "workflowRuns"
   | "agents"
   | "squads"
   | "usage"
@@ -90,9 +98,26 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   chat: { segment: "chat", icon: "MessageSquare", navKey: "chat" },
   myIssues: { segment: "my-issues", icon: "CircleUser", navKey: "my_issues" },
   issues: { segment: "issues", icon: "ListTodo", navKey: "issues" },
+  workflowIssues: {
+    segment: "workflow-issues",
+    icon: "ListTodo",
+    navKey: "workflow_issues",
+  },
   projects: { segment: "projects", icon: "FolderKanban", navKey: "projects" },
   autopilots: { segment: "autopilots", icon: "Zap", navKey: "autopilots" },
+  // `Workflow` (two linked nodes) reads as a graph, which is what the page
+  // shows - deliberately distinct from Autopilots' `Zap` (a trigger).
+  workflows: { segment: "workflows", icon: "Workflow", navKey: "workflows" },
   agents: { segment: "agents", icon: "Bot", navKey: "agents" },
+  // Runs get `Play` (an execution), deliberately distinct from Workflows'
+  // `Workflow` (a graph you author): the two pages answer different questions -
+  // "what can I run" vs "what is running" - and one shared icon would make a
+  // runs tab indistinguishable from the editor's in the tab bar.
+  workflowRuns: {
+    segment: "workflow-runs",
+    icon: "Play",
+    navKey: "workflow_runs",
+  },
   squads: { segment: "squads", icon: "Users", navKey: "squads" },
   usage: { segment: "usage", icon: "BarChart3", navKey: "usage" },
   runtimes: { segment: "runtimes", icon: "Monitor", navKey: "runtimes" },

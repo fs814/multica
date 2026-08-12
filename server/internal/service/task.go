@@ -70,6 +70,18 @@ type TaskService struct {
 	// shedding everything.
 	quickActionsInFlight sync.Map
 	quickActionsRunning  atomic.Int64
+	// WorkflowTerminal advances a workflow Run when one of its Agent Tasks
+	// reaches a terminal state. Optional: nil (every deployment before the
+	// workflow engine is wired, and every test that does not care) turns the
+	// hook into a no-op and TaskService behaves exactly as before. Wired in
+	// router.go to the *workflow.Engine, which satisfies the interface
+	// structurally so package service does not import internal/workflow here.
+	//
+	// TaskService remains canonical for Task terminal state; this only lets the
+	// workflow layer learn about it. Without the hook a finished workflow task
+	// never advances its Run - the Step sits queued forever and the Run stalls
+	// with no error anywhere, which is the worst failure shape available.
+	WorkflowTerminal WorkflowTaskTerminalObserver
 
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
@@ -99,6 +111,63 @@ type ComposioOverlayBuilder interface {
 
 type TaskWakeupNotifier interface {
 	NotifyTaskAvailable(runtimeID, taskID string)
+}
+
+// WorkflowTaskTerminalObserver is the seam through which a terminal Agent Task
+// advances the workflow Run that created it.
+//
+// The interface is declared HERE, in package service, and the method set is
+// chosen to match *workflow.Engine.OnAgentTaskTerminal structurally. That is what
+// keeps the dependency one-directional: package service already imports package
+// workflow (builtin_workflows.go), and the engine creating tasks means the engine
+// cannot import service, so the two must meet at an interface owned by whichever
+// side does not need the other's types. Only a UUID and strings cross the seam.
+//
+// There is deliberately no workspace parameter. The engine resolves the
+// authoritative workspace from the Step row it looks up by task id, so a
+// workspace passed from here would be either redundant or, if it disagreed,
+// wrong - and TaskService's terminal paths are keyed on a task id and have no
+// workspace to hand, so supplying one would mean an extra query per completion
+// for a value the callee discards.
+//
+// Contract:
+//   - Called AFTER the terminal transaction commits, next to broadcastTaskEvent.
+//     Calling it inside would let the workflow layer observe a task state a
+//     rollback then erased.
+//   - A NON-workflow task must be a no-op. notifyWorkflowTaskTerminal short-
+//     circuits on workflow_step_instance_id being NULL before doing any work, so
+//     every legacy issue / chat / autopilot / quick-create task pays one boolean
+//     check and nothing else.
+//   - An error is logged, never propagated: the Task is already terminal and
+//     canonical. Failing the caller would report a task that genuinely finished
+//     as failed, which is a worse outcome than a Run that stalls visibly.
+type WorkflowTaskTerminalObserver interface {
+	OnAgentTaskTerminal(ctx context.Context, taskID pgtype.UUID, taskStatus, result, failureReason, errorDetail string) error
+}
+
+// notifyWorkflowTaskTerminal invokes the workflow hook for a task that just
+// reached a terminal state. Nil-guarded so a deployment without the engine wired
+// behaves exactly as before, and error-swallowing for the reason given on
+// WorkflowTaskTerminalObserver.
+func (s *TaskService) notifyWorkflowTaskTerminal(ctx context.Context, task db.AgentTaskQueue, taskStatus, result, failureReason, errorDetail string) {
+	if s.WorkflowTerminal == nil {
+		return
+	}
+	// The fence that keeps a non-workflow task a true no-op. Checked here, on a
+	// column the caller already has in hand, rather than inside the engine: every
+	// task completion in the system reaches this line, so it must not cost a
+	// query to learn that a task has nothing to do with workflows.
+	if !task.WorkflowStepInstanceID.Valid {
+		return
+	}
+	if err := s.WorkflowTerminal.OnAgentTaskTerminal(ctx, task.ID,
+		taskStatus, result, failureReason, errorDetail); err != nil {
+		slog.Error("workflow: advancing run after terminal task failed",
+			"task_id", util.UUIDToString(task.ID),
+			"workflow_step_instance_id", util.UUIDToString(task.WorkflowStepInstanceID),
+			"task_status", taskStatus,
+			"error", err)
+	}
 }
 
 // triggerSummaryMaxLen caps the snapshot length so the row stays cheap to
@@ -2395,6 +2464,12 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
 	s.NotifyTaskFinished(task)
 
+	// Advance the workflow Run this task belonged to, if any. A cancel is
+	// terminal and never retried, so it always reaches the engine, which maps it
+	// to the `cancelled` reason rather than a failure - a Step whose task a human
+	// stopped is not a Step whose work failed.
+	s.notifyWorkflowTaskTerminal(ctx, task, "cancelled", "", "", "")
+
 	return &CancelTaskResult{
 		Task:                 task,
 		CancelledChatMessage: cancelledChatMessage,
@@ -3674,7 +3749,58 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	// Broadcast
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCompleted, task)
 
+	// Advance the workflow Run this task belonged to, if any. After commit and
+	// after the broadcast, so the workflow layer never observes state a rollback
+	// would have erased and the UI has already seen the task finish. A no-op for
+	// every non-workflow task.
+	s.notifyWorkflowTaskTerminal(ctx, task, "completed", workflowAgentOutput(result), "", "")
+
 	return &task, nil
+}
+
+// workflowAgentOutput extracts the agent's final message from a task result blob
+// for the workflow engine.
+//
+// The `result` column is a protocol.TaskCompletedPayload envelope, not the agent's
+// text. Handing the raw envelope to the engine would be a subtle and total
+// failure: json.Marshal escapes `<` as `<`, so the submission block's
+// `<<<MULTICA_SUBMISSION>>>` delimiters would be unfindable inside it,
+// ExtractDelimitedSubmission would report "no block", and EVERY step of EVERY run
+// would block with submission_contract_invalid while the agent had in fact
+// submitted correctly. That is the same class of bug this whole change set exists
+// to fix, so it is unwrapped here rather than left to the engine, which has no
+// business knowing the task-queue's storage format.
+//
+// The agent's text is returned exactly as json.Unmarshal produced it. It is
+// deliberately NOT run through util.UnescapeBackslashEscapes: the decoder has
+// already turned every JSON escape into the real character, so unescaping a
+// second time corrupts any legitimate backslash the agent wrote. A summary
+// mentioning a Windows path (C:\Users\...), a regex, or containing a real
+// newline would come back out as invalid JSON, and the step would block with
+// submission_contract_invalid on a perfectly good submission — the exact failure
+// this unwrapping exists to prevent.
+//
+// That unescape belongs to the RAW-STDOUT paths (quickCreateFailureDetail and
+// the comment fallback), which read text that never passed through a JSON
+// decoder. If some runtime is ever found to double-escape its envelope, handle
+// it by detecting "no extractable block" and THEN retrying with unescaping —
+// never unconditionally, or the fix costs more submissions than it saves.
+//
+// Returns the raw blob as a last resort when the envelope does not parse: the
+// engine's contract validation will reject it and record the raw text as evidence,
+// which shows a human what actually arrived instead of silently reporting nothing.
+func workflowAgentOutput(result []byte) string {
+	if len(result) == 0 {
+		return ""
+	}
+	var payload protocol.TaskCompletedPayload
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return string(result)
+	}
+	if payload.Output == "" {
+		return ""
+	}
+	return payload.Output
 }
 
 // chatNoResponseFallback is the non-empty English body stored on a no_response
@@ -4154,6 +4280,24 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// was persisted in the chat transcript. A retry-pending attempt stays silent
 	// because its child reports the eventual terminal outcome.
 	s.broadcastTaskFailedEvent(ctx, task, errMsg, failureReason, retried != nil)
+
+	// Advance the workflow Run this task belonged to, if any.
+	//
+	// Skipped when an auto-retry is pending, for the same reason the quick-create
+	// failure notice is: the failure is not yet final. The retry child inherits
+	// nothing about the workflow Step (CreateRetryTask does not copy
+	// workflow_step_instance_id), so the parent stays the Step's bound task and
+	// its terminal outcome is the one that must reach the engine - reporting a
+	// transient daemon hiccup as a Step failure would burn a workflow attempt and
+	// could trip the node's rework budget over infrastructure flakiness. If the
+	// retry also fails with no further retry, THAT call advances the Run. A retry
+	// chain that ends without ever reaching here (process death mid-chain) is what
+	// the ListWorkflowTasksAwaitingStepProgress repair query exists for; the worker
+	// that drives it is not wired yet, so such a Run stalls visibly as a queued
+	// Step rather than silently reporting the wrong outcome.
+	if retried == nil {
+		s.notifyWorkflowTaskTerminal(ctx, task, "failed", "", failureReason, errMsg)
+	}
 
 	return &task, nil
 }

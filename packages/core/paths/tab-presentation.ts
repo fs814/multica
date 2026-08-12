@@ -40,6 +40,7 @@ export type TabLabelKey =
   | "issue"
   | "project"
   | "autopilot"
+  | "workflow_run"
   | "agent"
   | "member"
   | "squad"
@@ -78,6 +79,12 @@ export interface TabEntityData {
   issue?: { identifier: string; title: string; status: IssueStatus };
   project?: { icon: string | null; title: string };
   autopilot?: { title: string };
+  /**
+   * A run's own label. The run has no name of its own, so the view layer
+   * composes one from the template name plus the input title - which is what a
+   * reader with four run tabs open actually needs to tell them apart.
+   */
+  workflowRun?: { label: string };
   /** Resolved display name for an actor subject. */
   actorName?: string;
   skill?: { name: string };
@@ -168,6 +175,13 @@ export function resolveTabPresentation(
       return {
         visual: { kind: "icon", icon: "Zap" },
         title: textOr(data.autopilot?.title, "autopilot"),
+      };
+    case "workflowRun":
+      // `Play`, matching the runs page - a run tab is an execution, and the
+      // editor's `Workflow` glyph on it would read as "the graph".
+      return {
+        visual: { kind: "icon", icon: "Play" },
+        title: textOr(data.workflowRun?.label, "workflow_run"),
       };
     case "actor":
       return {

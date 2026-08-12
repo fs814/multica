@@ -67,11 +67,13 @@ type issueTableActorRef struct {
 }
 
 type issueTableScope struct {
-	Kind          string              `json:"kind"`
-	AssigneeTypes []string            `json:"assignee_types,omitempty"`
-	ProjectID     string              `json:"project_id,omitempty"`
-	Actor         *issueTableActorRef `json:"actor,omitempty"`
-	Relation      string              `json:"relation,omitempty"`
+	Kind                  string              `json:"kind"`
+	AssigneeTypes         []string            `json:"assignee_types,omitempty"`
+	ExcludeWorkflowIssues bool                `json:"exclude_workflow_issues,omitempty"`
+	ProjectID             string              `json:"project_id,omitempty"`
+	WorkflowTemplateID    string              `json:"workflow_template_id,omitempty"`
+	Actor                 *issueTableActorRef `json:"actor,omitempty"`
+	Relation              string              `json:"relation,omitempty"`
 }
 
 type issueTableDateFilterRequest struct {
@@ -451,6 +453,9 @@ func (h *Handler) compileIssueTableQuery(w http.ResponseWriter, r *http.Request,
 		if !appendAssigneeTypes() {
 			return issueTableSQL{}, false
 		}
+		if spec.Scope.ExcludeWorkflowIssues {
+			where = append(where, "NOT ("+workflowRunDescendantPredicate("i", "$1", "")+")")
+		}
 	case "project":
 		projectID, err := util.ParseUUID(spec.Scope.ProjectID)
 		if err != nil {
@@ -461,6 +466,13 @@ func (h *Handler) compileIssueTableQuery(w http.ResponseWriter, r *http.Request,
 		if !appendAssigneeTypes() {
 			return issueTableSQL{}, false
 		}
+	case "workflow":
+		templateID, err := util.ParseUUID(spec.Scope.WorkflowTemplateID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid scope.workflow_template_id")
+			return issueTableSQL{}, false
+		}
+		where = append(where, workflowTemplateIssuePredicate("i", "$1", addArg(templateID)))
 	case "assignee":
 		if spec.Scope.Actor == nil {
 			writeError(w, http.StatusBadRequest, "scope.actor is required")

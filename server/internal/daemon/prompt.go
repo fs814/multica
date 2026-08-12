@@ -86,6 +86,9 @@ func perTurnContextBlocks(task Task) string {
 // post with `--content-file`) because the shell-layer corruption it guards
 // against is not specific to any one provider or host (MUL-2904, #4182).
 func BuildPrompt(task Task, provider string) string {
+	if task.WorkflowPrompt != "" {
+		return task.WorkflowPrompt
+	}
 	body := buildPromptBody(task, provider)
 	// Run-scoped context is appended, never prepended: everything ahead of it
 	// is stable across runs of a resumed session, and appending keeps it after

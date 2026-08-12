@@ -27,6 +27,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
@@ -2410,11 +2411,66 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	// resp came from above), so the daemon's prompt + issue_context.md render the
 	// assignment-handoff branch. Empty for all other task kinds.
 
+	// Workflow Step task: the entire brief lives in the task's context JSONB, the
+	// same way a quick-create task's prompt does. Surfaced here, next to that
+	// precedent, so the two "the job description is in context" paths stay
+	// side by side.
+	//
+	// This is the delivery end of the fix for the engine's central defect: a Step
+	// used to dispatch a task carrying nothing but ids, so the agent had no work
+	// description, replied in prose, and the Step blocked on the submission
+	// contract. WorkflowPrompt is what the agent actually reads.
+	//
+	// Resolved BEFORE the quick-create branch and independently of it: a workflow
+	// task may or may not carry an issue link (the Run's issue_id, which is
+	// optional), whereas a quick-create task never does. Keying this branch on
+	// workflow_step_instance_id rather than on "has no issue/chat/autopilot" is
+	// what keeps an issue-linked workflow task from being invisible here.
+	hasWorkflowStep := false
+	if task.WorkflowStepInstanceID.Valid {
+		if wf, ok := workflow.ParseTaskContext(task.Context); ok {
+			hasWorkflowStep = true
+			resp.WorkflowPrompt = wf.RenderPrompt()
+			resp.WorkflowRunID = wf.RunID
+			resp.WorkflowStepInstanceID = wf.StepInstanceID
+			resp.WorkflowNodeKey = wf.NodeKey
+			if resp.ThreadName == "" {
+				// A recognisable session title. The node name alone ("Implement")
+				// is meaningless across runs, so pair it with the run's title.
+				resp.ThreadName = strings.TrimSpace(wf.NodeName + " — " + wf.RunTitle)
+			}
+			// A Run need not be attached to an issue, so this may be the only
+			// authority for the workspace. The isolation check below compares it
+			// against the runtime's workspace and cancels the task on a mismatch,
+			// so trusting the stored value cannot cross a tenant boundary.
+			if resp.WorkspaceID == "" {
+				resp.WorkspaceID = wf.WorkspaceID
+			}
+			if len(resp.Repos) == 0 {
+				if ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(resp.WorkspaceID)); err == nil && ws.Repos != nil {
+					var repos []RepoData
+					if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
+						resp.Repos = repos
+					}
+				}
+			}
+		} else {
+			// The row says it belongs to a Step but its context is not a workflow
+			// brief. Log loudly: the agent is about to run with no instructions,
+			// and the cause is upstream of here (a hand-written row, or a context
+			// overwritten after activation).
+			slog.Error("task claim: workflow task has no readable brief in context",
+				"task_id", uuidToString(task.ID),
+				"workflow_step_instance_id", uuidToString(task.WorkflowStepInstanceID),
+			)
+		}
+	}
+
 	// Quick-create task: no issue / chat / autopilot link — workspace and
 	// prompt come from the task's context JSONB. Resolve workspace from
 	// there so the isolation check below has something to compare.
 	hasQuickCreate := false
-	if task.Context != nil && !task.IssueID.Valid && !task.ChatSessionID.Valid && !task.AutopilotRunID.Valid {
+	if task.Context != nil && !task.WorkflowStepInstanceID.Valid && !task.IssueID.Valid && !task.ChatSessionID.Valid && !task.AutopilotRunID.Valid {
 		var qc service.QuickCreateContext
 		if json.Unmarshal(task.Context, &qc) == nil && qc.Type == service.QuickCreateContextType {
 			hasQuickCreate = true
@@ -2564,6 +2620,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			"has_chat", task.ChatSessionID.Valid,
 			"has_autopilot_run", task.AutopilotRunID.Valid,
 			"has_quick_create", hasQuickCreate,
+			"has_workflow_step", hasWorkflowStep,
 		)
 		if _, cerr := h.TaskService.CancelTask(r.Context(), task.ID); cerr != nil {
 			slog.Error("task claim: cancel after workspace check failed",

@@ -3,13 +3,18 @@ import type { IssueAssigneeType } from "../../types";
 export type WorkspaceIssueActorKind = "all" | "members" | "agents";
 
 export type IssueScope =
-  | { type: "workspace"; actorKind?: WorkspaceIssueActorKind }
+  | {
+      type: "workspace";
+      actorKind?: WorkspaceIssueActorKind;
+      excludeWorkflowIssues?: boolean;
+    }
   | {
       type: "my";
       relation: "all" | "assigned" | "created" | "involved";
       userId: string;
     }
   | { type: "project"; projectId: string; actorKind?: WorkspaceIssueActorKind }
+  | { type: "workflow"; templateId: string }
   | {
       type: "actor";
       actorType: Extract<IssueAssigneeType, "member" | "agent">;
@@ -63,7 +68,7 @@ export class UnsupportedIssueScopeError extends Error {
 export function issueScopeKey(scope: IssueScope): string {
   switch (scope.type) {
     case "workspace":
-      return `workspace:${scope.actorKind ?? "all"}`;
+      return `workspace:${scope.actorKind ?? "all"}${scope.excludeWorkflowIssues ? ":exclude-workflow-issues" : ""}`;
     case "my":
       return `my:${scope.userId}:${scope.relation}`;
     case "project":
@@ -73,6 +78,8 @@ export function issueScopeKey(scope: IssueScope): string {
       return scope.actorKind === "members" || scope.actorKind === "agents"
         ? `project:${scope.projectId}:${scope.actorKind}`
         : `project:${scope.projectId}`;
+    case "workflow":
+      return `workflow:${scope.templateId}`;
     case "actor":
       return `actor:${scope.actorType}:${scope.actorId}:${scope.relation}`;
     case "team":

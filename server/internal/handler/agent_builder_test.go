@@ -29,6 +29,26 @@ func TestAgentBuilderInstructionsConstrainModelsToRuntimeCatalog(t *testing.T) {
 	}
 }
 
+func TestWorkflowBuilderInstructionsConstrainDrafts(t *testing.T) {
+	for _, requirement := range []string{
+		"<workflow_draft>",
+		"AVAILABLE CODEX AGENTS",
+		"Never invent an agent id",
+		"input, agent, acceptance, and end",
+		"available_codex_agents",
+		"analyze/split child issues",
+		"functional failure must rework",
+		"never \"id\"",
+		"next\" is always a JSON array",
+		"never put agent_id directly on a node",
+		"never use rework_target",
+	} {
+		if !strings.Contains(workflowBuilderInstructions, requirement) {
+			t.Fatalf("workflow builder instructions missing constraint %q", requirement)
+		}
+	}
+}
+
 func TestCreateAgentBuilderSessionCreatesIsolatedHiddenBuilder(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -120,6 +140,68 @@ func TestCreateAgentBuilderSessionCreatesIsolatedHiddenBuilder(t *testing.T) {
 	}
 	if remaining != 0 {
 		t.Fatalf("builder agent survived chat deletion")
+	}
+}
+
+func TestCreateWorkflowBuilderSessionUsesCodexHiddenCarrier(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	codexRuntimeID := newTestRuntime(t, "codex", "online")
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `
+			DELETE FROM agent
+			WHERE workspace_id = $1 AND kind = 'system'
+			  AND system_key LIKE 'agent_builder:workflow:%'
+		`, testWorkspaceID)
+	})
+
+	w := httptest.NewRecorder()
+	testHandler.CreateWorkflowBuilderSession(w, newRequest(
+		http.MethodPost,
+		"/api/workflow-builder/sessions",
+		map[string]any{"runtime_id": codexRuntimeID},
+	))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateWorkflowBuilderSession: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var response CreateAgentBuilderSessionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.SessionID == "" || response.BuilderAgentID == "" {
+		t.Fatalf("missing workflow builder identifiers: %+v", response)
+	}
+
+	var systemKey, instructions string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT system_key, instructions FROM agent WHERE id = $1
+	`, response.BuilderAgentID).Scan(&systemKey, &instructions); err != nil {
+		t.Fatalf("load workflow builder: %v", err)
+	}
+	if !strings.HasPrefix(systemKey, "agent_builder:workflow:") {
+		t.Fatalf("unexpected workflow builder system key %q", systemKey)
+	}
+	if !strings.Contains(instructions, "<workflow_draft>") {
+		t.Fatal("workflow builder did not receive the structured workflow prompt")
+	}
+}
+
+func TestCreateWorkflowBuilderSessionRejectsNonCodexRuntime(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	w := httptest.NewRecorder()
+	testHandler.CreateWorkflowBuilderSession(w, newRequest(
+		http.MethodPost,
+		"/api/workflow-builder/sessions",
+		map[string]any{"runtime_id": testRuntimeID},
+	))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected non-Codex runtime to be rejected with 409, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "requires an online Codex runtime") {
+		t.Fatalf("unexpected provider rejection: %s", w.Body.String())
 	}
 }
 

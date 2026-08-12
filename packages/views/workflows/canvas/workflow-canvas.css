@@ -1,0 +1,154 @@
+/*
+ * Theme bridge for the workflow graph canvas.
+ *
+ * @xyflow/react ships its own light/dark palette and switches between them with
+ * a `.dark` class it puts on the flow container itself, driven by its
+ * `colorMode` prop ("system" reads a media query). This app does NOT decide dark
+ * mode from a media query - next-themes writes a `.dark` class on the document
+ * root and the user can pin light or dark explicitly - so honouring xyflow's own
+ * switch would let the canvas disagree with the rest of the page whenever the OS
+ * preference and the user's choice differ.
+ *
+ * So instead of using `colorMode`, every `--xy-*` variable the canvas actually
+ * shows is redirected at one of this app's design tokens. Those tokens are
+ * already redefined under `.dark` (packages/ui/styles/tokens.css), which makes
+ * the canvas follow the theme for free and keeps a single source of truth for
+ * "what colour is a border".
+ *
+ * The raw token names (`--border`, `--card`, ...) are used rather than Tailwind's
+ * `--color-*` aliases, matching editor/styles/zoom-canvas.css: the aliases are
+ * declared in an `@theme inline` block whose whole point is that utilities inline
+ * the resolved value, so they are not guaranteed to exist as custom properties at
+ * runtime. The underlying tokens always are.
+ */
+
+.workflow-canvas {
+  /* Dotted grid + pane. */
+  --xy-background-color: var(--background);
+  --xy-background-pattern-color: var(--border);
+
+  /* Edges. Only the fallback matters here: every workflow edge sets its own
+     stroke inline (see workflow-edge.tsx) because an edge's colour encodes its
+     kind, which is semantics rather than theming. This covers the connection
+     line the user drags before an edge exists. */
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-selected: var(--foreground);
+  --xy-connectionline-stroke: var(--muted-foreground);
+
+  /* Handles. Ring-coloured so a connectable port reads as interactive without
+     competing with the node's own type accent. */
+  --xy-handle-background-color: var(--muted-foreground);
+  --xy-handle-border-color: var(--card);
+
+  /* Zoom / fit-view controls.
+   *
+   * These five variables are declared for completeness but they are NOT what
+   * styles the buttons: they exist only in xyflow's `style.css`, and this canvas
+   * deliberately imports the leaner `base.css` (see workflow-canvas.tsx). base.css
+   * gives `.react-flow__controls-button` geometry but no palette at all, so with
+   * Tailwind preflight zeroing borders and backgrounds the buttons would render as
+   * transparent boxes with unstyled chevrons. The explicit rules further down are
+   * the ones that actually paint them. */
+  --xy-controls-button-background-color: var(--card);
+  --xy-controls-button-background-color-hover: var(--accent);
+  --xy-controls-button-color: var(--foreground);
+  --xy-controls-button-color-hover: var(--accent-foreground);
+  --xy-controls-button-border-color: var(--border);
+
+  /* Minimap. The mask is the *unviewed* area, so it is tinted rather than
+     opaque - a solid fill would hide the part of the graph the minimap exists
+     to let you navigate to. */
+  --xy-minimap-background-color: var(--card);
+  --xy-minimap-mask-background-color: color-mix(in oklab, var(--muted) 55%, transparent);
+  --xy-minimap-node-background-color: var(--muted-foreground);
+
+  --xy-selection-background-color: color-mix(in oklab, var(--ring) 12%, transparent);
+  --xy-selection-border: 1px dotted var(--ring);
+
+  /* The attribution sits bottom-LEFT here (see workflow-canvas.tsx) so it cannot
+     overlap the minimap. A transparent backplate is therefore safe: it is over
+     the dotted grid rather than over another panel. */
+  --xy-attribution-background-color: transparent;
+
+  /*
+   * Edge colours, keyed on what the edge *means* rather than on the theme.
+   *
+   * These are fixed hues in both themes (only lightness shifts) because the
+   * green/red split is the one thing on the canvas that must survive a
+   * screenshot pasted into a bug report: emerald is "this is the success path",
+   * rose is "this is the failure path", and a bounded rework loop is drawn rose
+   * AND dashed because rework targets are the only cycles the server permits
+   * (validateAcyclic in server/internal/workflow/validate.go). An author who
+   * cannot tell a declared loop from an accidental forward cycle cannot fix
+   * either one.
+   */
+  --wf-edge-pass: oklch(0.62 0.16 155);
+  --wf-edge-fail: oklch(0.6 0.21 22);
+  --wf-edge-blocked: oklch(0.7 0.16 75);
+  --wf-edge-default: var(--muted-foreground);
+  --wf-edge-rework: oklch(0.6 0.21 22);
+}
+
+.dark .workflow-canvas {
+  --wf-edge-pass: oklch(0.72 0.15 155);
+  --wf-edge-fail: oklch(0.7 0.19 22);
+  --wf-edge-blocked: oklch(0.78 0.15 75);
+  --wf-edge-rework: oklch(0.7 0.19 22);
+}
+
+/* The library sizes handles from `min-width/min-height` and a background
+   colour; the node components add the rest. Centralised here so all six node
+   types cannot drift apart on port size. */
+.workflow-canvas .react-flow__handle {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--xy-handle-border-color);
+  border-radius: 9999px;
+}
+
+/* A read-only graph still pans, zooms and selects - only editing is off. Making
+   the ports inert is what communicates that, since a port that looks draggable
+   but refuses to connect reads as a broken canvas rather than a locked one. */
+.workflow-canvas[data-read-only="true"] .react-flow__handle {
+  opacity: 0.4;
+}
+
+.workflow-canvas .react-flow__controls {
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--surface-shadow);
+}
+
+/* base.css styles the control buttons' geometry but not their palette (the
+   --xy-controls-button-* variables live only in style.css), and Tailwind
+   preflight resets borders and backgrounds to nothing. Without these rules the
+   zoom / fit-view cluster renders as invisible boxes. The chevron glyphs are
+   inline SVG with fill=currentColor, so setting `color` is what makes them
+   visible. */
+.workflow-canvas .react-flow__controls-button {
+  background-color: var(--card);
+  color: var(--foreground);
+  border-bottom: 1px solid var(--border);
+}
+
+.workflow-canvas .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+
+.workflow-canvas .react-flow__controls-button:hover {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.workflow-canvas .react-flow__controls-button:disabled {
+  opacity: 0.5;
+}
+
+.workflow-canvas .react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.workflow-canvas .react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}

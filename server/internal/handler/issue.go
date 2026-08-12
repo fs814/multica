@@ -225,6 +225,35 @@ type groupedIssueRow struct {
 	GroupTotal int64
 }
 
+// workflowRunDescendantPredicate selects descendants of workflow runs. An empty
+// template argument includes runs from every template; roots are excluded.
+func workflowRunDescendantPredicate(issueAlias, workspaceArg, templateArg string) string {
+	templateFilter := ""
+	if templateArg != "" {
+		templateFilter = fmt.Sprintf("\n\t\t\t  AND wr.template_id = %s::uuid", templateArg)
+	}
+	return fmt.Sprintf(`%s.id IN (
+		WITH RECURSIVE workflow_issue_tree(id) AS (
+			SELECT child.id
+			FROM workflow_run wr
+			JOIN issue child ON child.parent_issue_id = wr.issue_id
+			WHERE wr.workspace_id = %s::uuid
+			  %s
+			  AND child.workspace_id = %s::uuid
+			UNION
+			SELECT child.id
+			FROM issue child
+			JOIN workflow_issue_tree parent ON child.parent_issue_id = parent.id
+			WHERE child.workspace_id = %s::uuid
+		)
+		SELECT id FROM workflow_issue_tree
+	)`, issueAlias, workspaceArg, templateFilter, workspaceArg, workspaceArg)
+}
+
+func workflowTemplateIssuePredicate(issueAlias, workspaceArg, templateArg string) string {
+	return workflowRunDescendantPredicate(issueAlias, workspaceArg, templateArg)
+}
+
 func assigneeGroupID(assigneeType pgtype.Text, assigneeID pgtype.UUID) string {
 	if assigneeType.Valid && assigneeID.Valid {
 		return "assignee:" + assigneeType.String + ":" + uuidToString(assigneeID)
@@ -856,6 +885,14 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		}
 		projectFilter = id
 	}
+	var workflowTemplateFilter pgtype.UUID
+	if raw := r.URL.Query().Get("workflow_template_id"); raw != "" {
+		id, ok := parseUUIDOrBadRequest(w, raw, "workflow_template_id")
+		if !ok {
+			return
+		}
+		workflowTemplateFilter = id
+	}
 	// involves_user_id widens the assignee filter to surface issues where the
 	// user is the indirect assignee (their owned agent, or a squad they belong
 	// to / lead / have an agent inside). Direct member-assignment is excluded
@@ -883,8 +920,10 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	excludeWorkflowIssues := r.URL.Query().Get("exclude_workflow_issues") == "true"
+
 	// open_only=true returns all non-done/cancelled issues (no limit).
-	if r.URL.Query().Get("open_only") == "true" {
+	if r.URL.Query().Get("open_only") == "true" && !workflowTemplateFilter.Valid && !excludeWorkflowIssues {
 		// Serialize the parsed AND-of-ORs groups into the single jsonb param
 		// the static query unrolls (see properties_filter in ListOpenIssues).
 		var openPropertiesFilter []byte
@@ -1065,6 +1104,15 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	if projectFilter.Valid {
 		where = append(where, fmt.Sprintf("i.project_id = %s::uuid", addArg(projectFilter)))
+	}
+	if workflowTemplateFilter.Valid {
+		where = append(where, workflowTemplateIssuePredicate("i", "$1", addArg(workflowTemplateFilter)))
+	}
+	if excludeWorkflowIssues {
+		where = append(where, "NOT ("+workflowRunDescendantPredicate("i", "$1", "")+")")
+	}
+	if r.URL.Query().Get("open_only") == "true" {
+		where = append(where, "i.status NOT IN ('done', 'cancelled')")
 	}
 
 	// Table facets must be part of the server window. Applying them after
@@ -1557,6 +1605,16 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		where = append(where, fmt.Sprintf("i.project_id = %s::uuid", addArg(id)))
+	}
+	if raw := r.URL.Query().Get("workflow_template_id"); raw != "" {
+		id, ok := parseUUIDOrBadRequest(w, raw, "workflow_template_id")
+		if !ok {
+			return
+		}
+		where = append(where, workflowTemplateIssuePredicate("i", "$1", addArg(id)))
+	}
+	if r.URL.Query().Get("exclude_workflow_issues") == "true" {
+		where = append(where, "NOT ("+workflowRunDescendantPredicate("i", "$1", "")+")")
 	}
 	if filter, ok := parseMetadataFilterParam(w, r.URL.Query().Get("metadata")); !ok {
 		return

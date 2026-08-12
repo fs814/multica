@@ -885,6 +885,7 @@ export function IssuesHeader({
   tableFacetCounts,
   onTableFacetChange,
   saveViewScope = { kind: "workspace" },
+  showScopeTabs = true,
 }: {
   scopedIssues: Issue[];
   /** See IssueSurfaceController.workingAgents — the surface-scoped projection
@@ -902,6 +903,8 @@ export function IssuesHeader({
    *  default; the project-detail fallback passes its project scope; `null`
    *  hides the save affordance entirely. */
   saveViewScope?: SaveViewScope | null;
+  /** Workspace actor tabs do not apply to narrower server-owned scopes. */
+  showScopeTabs?: boolean;
 }) {
   const { t } = useT("issues");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
@@ -999,7 +1002,7 @@ export function IssuesHeader({
         {/* Left: the view bar — built-in tabs and saved views as one flat,
             per-user ordered row; wraps instead of overflowing. */}
         <div className="hidden min-w-0 flex-1 md:block">
-          {saveViewScope && viewListScope && (
+          {showScopeTabs && saveViewScope && viewListScope && (
             <ViewBar
               wsId={headerWsId}
               scope={viewListScope}

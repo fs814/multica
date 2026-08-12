@@ -376,11 +376,28 @@ type AgentTaskResponse struct {
 	QuickCreatePriority      string                 `json:"quick_create_priority,omitempty"`       // explicit priority selected in quick-create
 	QuickCreateDueDate       string                 `json:"quick_create_due_date,omitempty"`       // explicit calendar due date selected in quick-create
 	QuickCreateAttachmentIDs []string               `json:"quick_create_attachment_ids,omitempty"` // attachment ids uploaded in the quick-create prompt and bound on issue create
-	HandoffNote              string                 `json:"handoff_note,omitempty"`                // assignment handoff instruction; rendered into the run's opening prompt + issue_context.md (omitempty so old daemons ignore it)
-	SquadID                  string                 `json:"squad_id,omitempty"`                    // for quick-create tasks where the picker was a squad; Agent is still the resolved leader
-	SquadName                string                 `json:"squad_name,omitempty"`                  // display name for the picker squad
-	ParentIssueID            string                 `json:"parent_issue_id,omitempty"`             // for quick-create tasks opened from "Add sub issue" — UUID of the parent issue the new issue should be filed under
-	ParentIssueIdentifier    string                 `json:"parent_issue_identifier,omitempty"`     // human-readable identifier (e.g. MUL-123) of the quick-create parent issue, resolved on claim for prompt context
+	// WorkflowPrompt is the complete brief for a workflow Step's task: the node
+	// instruction, the run input the human supplied, the previous step's
+	// deliverable, any rework reason, and — critically — the submission-contract
+	// instructions. Added exactly like QuickCreatePrompt (a single server-rendered
+	// string, omitempty so older daemons ignore it) because the daemon is a
+	// separately versioned binary: anything it has to assemble itself is
+	// something an older build assembles wrongly or not at all, and a workflow
+	// step whose agent was not told the submission format blocks the whole run
+	// with submission_contract_invalid.
+	WorkflowPrompt string `json:"workflow_prompt,omitempty"`
+	// WorkflowRunID / WorkflowStepInstanceID / WorkflowNodeKey identify the Step
+	// this task executes. Surfaced separately from the prompt so the daemon can
+	// label the run and so the agent's submission can name the step it answers
+	// (ParseSubmission rejects a submission carrying a different step id).
+	WorkflowRunID          string `json:"workflow_run_id,omitempty"`
+	WorkflowStepInstanceID string `json:"workflow_step_instance_id,omitempty"`
+	WorkflowNodeKey        string `json:"workflow_node_key,omitempty"`
+	HandoffNote            string `json:"handoff_note,omitempty"`            // assignment handoff instruction; rendered into the run's opening prompt + issue_context.md (omitempty so old daemons ignore it)
+	SquadID                string `json:"squad_id,omitempty"`                // for quick-create tasks where the picker was a squad; Agent is still the resolved leader
+	SquadName              string `json:"squad_name,omitempty"`              // display name for the picker squad
+	ParentIssueID          string `json:"parent_issue_id,omitempty"`         // for quick-create tasks opened from "Add sub issue" — UUID of the parent issue the new issue should be filed under
+	ParentIssueIdentifier  string `json:"parent_issue_identifier,omitempty"` // human-readable identifier (e.g. MUL-123) of the quick-create parent issue, resolved on claim for prompt context
 	// RequestingUserName + RequestingUserProfileDescription mirror the user
 	// the agent is acting on behalf of (see daemon/types.go). v1 sources them
 	// from the runtime owner so they're populated for daemon runtimes and

@@ -114,8 +114,11 @@ type NavKey =
   | "chat"
   | "myIssues"
   | "issues"
+  | "workflowIssues"
   | "projects"
   | "autopilots"
+  | "workflows"
+  | "workflowRuns"
   | "agents"
   | "squads"
   | "usage"
@@ -130,8 +133,11 @@ type NavLabelKey =
   | "chat"
   | "my_issues"
   | "issues"
+  | "workflow_issues"
   | "projects"
   | "autopilots"
+  | "workflows"
+  | "workflow_runs"
   | "agents"
   | "squads"
   | "usage"
@@ -150,8 +156,18 @@ const personalNav: { key: NavKey; labelKey: NavLabelKey }[] = [
 
 const workspaceNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "issues", labelKey: "issues" },
+  { key: "workflowIssues", labelKey: "workflow_issues" },
   { key: "projects", labelKey: "projects" },
   { key: "autopilots", labelKey: "autopilots" },
+  // Workflows sits next to Autopilot because they are the two automation
+  // surfaces: Autopilot fires one agent on a trigger, Workflows coordinates
+  // several across a pinned graph with acceptance and bounded rework.
+  { key: "workflows", labelKey: "workflows" },
+  // Runs sits directly under Workflows: authoring a graph and watching one
+  // execute are the two halves of the same surface, and a run that blocks on
+  // `routing_no_candidate` or opens an acceptance gate needs a person - so the
+  // page where that shows up has to be one click away, not buried in a template.
+  { key: "workflowRuns", labelKey: "workflow_runs" },
   { key: "agents", labelKey: "agents" },
   { key: "squads", labelKey: "squads" },
   { key: "usage", labelKey: "usage" },
