@@ -210,7 +210,7 @@ export function AiWorkflowBuilder({
           {t(($) => $.page.create.ai.runtime_label)}
         </Label>
         {runtimesLoading ? (
-          <div className="flex h-9 items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex h-9 items-center gap-2 text-body text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             {t(($) => $.page.create.ai.loading_runtimes)}
           </div>
@@ -224,7 +224,7 @@ export function AiWorkflowBuilder({
               setDraft(null);
               setError("");
             }}
-            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-body outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {codexRuntimes.map((runtime) => (
               <option key={runtime.id} value={runtime.id}>
@@ -235,7 +235,7 @@ export function AiWorkflowBuilder({
         ) : (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-body text-destructive"
           >
             <AlertCircle className="mt-0.5 size-4 shrink-0" />
             <span>{t(($) => $.page.create.ai.no_codex_runtime)}</span>
@@ -261,7 +261,7 @@ export function AiWorkflowBuilder({
             setError("");
           }}
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {t(($) => $.page.create.ai.request_hint)}
         </p>
       </div>
@@ -270,10 +270,10 @@ export function AiWorkflowBuilder({
         <div className="flex items-center gap-3 rounded-md border bg-muted/30 px-3 py-3">
           <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
           <div>
-            <p className="text-sm font-medium">
+            <p className="text-body font-medium">
               {t(($) => $.page.create.ai.generating)}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {t(($) => $.page.create.ai.generating_hint)}
             </p>
           </div>
@@ -325,7 +325,7 @@ export function AiWorkflowBuilder({
             </div>
           </div>
           {draft.description ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body text-muted-foreground">
               {draft.description}
             </p>
           ) : null}
@@ -333,21 +333,21 @@ export function AiWorkflowBuilder({
             {draft.definition.nodes.map((node, index) => (
               <li
                 key={node.key}
-                className="flex items-center gap-2 text-sm"
+                className="flex items-center gap-2 text-body"
               >
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs text-primary">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-caption text-primary">
                   {index + 1}
                 </span>
                 <span className="min-w-0 flex-1 truncate">
                   {node.name || node.key}
                 </span>
-                <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 text-micro text-muted-foreground">
                   {node.type}
                 </span>
               </li>
             ))}
           </ol>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             {t(($) => $.page.create.ai.review_hint)}
           </p>
         </div>
@@ -356,7 +356,7 @@ export function AiWorkflowBuilder({
       {error ? (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-body text-destructive"
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
           <span className="whitespace-pre-wrap">{error}</span>

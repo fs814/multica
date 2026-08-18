@@ -67,6 +67,7 @@ const targetPlatform = normalizeRuntimePlatform(
   runtimePlatformFromArgs(process.argv.slice(2)),
 );
 const targetArch = normalizeRuntimeArch(runtimeArchFromArgs(process.argv.slice(2)));
+const allowLockedDestination = process.argv.includes("--allow-locked-destination");
 const goos = PLATFORM_TO_GOOS[targetPlatform];
 const goarch = targetArch === "x64" ? "amd64" : targetArch;
 const binName = binaryNameForPlatform(targetPlatform);
@@ -155,7 +156,27 @@ if (!(await exists(srcBinary))) {
   process.exit(0);
 }
 
-await rm(destDir, { recursive: true, force: true });
+try {
+  await rm(destDir, { recursive: true, force: true });
+} catch (error) {
+  const destinationLocked =
+    process.platform === "win32" &&
+    error instanceof Error &&
+    "code" in error &&
+    ["EACCES", "EBUSY", "EPERM"].includes(error.code);
+  if (!allowLockedDestination || !destinationLocked) throw error;
+
+  // A running development daemon holds multica.exe open on Windows, where an
+  // executable cannot be replaced in place. Compilation builds do not package
+  // resources, so keep the currently running binary and let electron-vite
+  // validate the app bundles. Release/package paths remain strict and still
+  // fail here rather than silently shipping a stale CLI.
+  console.warn(
+    `[bundle-cli] ${destBinary} is in use; keeping it for this compilation-only build. ` +
+      "Stop the running Desktop daemon before packaging or refreshing the bundled CLI.",
+  );
+  process.exit(0);
+}
 await mkdir(destDir, { recursive: true });
 await copyFile(srcBinary, destBinary);
 await chmod(destBinary, 0o755);

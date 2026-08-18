@@ -1776,6 +1776,8 @@ const AutopilotListItemSchema = z.object({
   title: z.string(),
   description: z.string().nullable().optional(),
   project_id: z.string().nullable().optional(),
+  workflow_template_id: z.string().nullable().optional(),
+  workflow_template_version_id: z.string().nullable().optional(),
   // Older servers (pre-MUL-2429) omit assignee_type; "agent" is the
   // documented default.
   assignee_type: z.string().default("agent"),
@@ -1821,6 +1823,7 @@ export const AutopilotRunSchema = z.object({
   status: z.string().default("failed"),
   issue_id: z.string().nullable().default(null),
   task_id: z.string().nullable().default(null),
+  workflow_run_id: z.string().nullable().optional(),
   triggered_at: z.string().default(""),
   completed_at: z.string().nullable().default(null),
   failure_reason: z.string().nullable().default(null),

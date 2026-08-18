@@ -1027,6 +1027,8 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             assignee_type: autopilot.assignee_type,
             assignee_id: autopilot.assignee_id,
             execution_mode: autopilot.execution_mode as AutopilotExecutionMode,
+            workflow_template_id: autopilot.workflow_template_id ?? null,
+            workflow_template_version_id: autopilot.workflow_template_version_id ?? null,
             subscriber_user_ids:
               autopilot.subscribers
                 ?.filter((s) => s.user_type === "member")

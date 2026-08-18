@@ -725,6 +725,13 @@ func computeHermesExternalDirs(sharedHome string, existing []string, env map[str
 				entry = filepath.Join(home, strings.TrimPrefix(entry, "~"))
 			}
 		}
+		// Hermes is a Python program and accepts POSIX-rooted config paths even
+		// when the daemon runs on Windows. Preserve that spelling: filepath.Clean
+		// would otherwise turn /srv/... into \srv\... on the Windows host.
+		if strings.HasPrefix(entry, "/") {
+			add(entry)
+			continue
+		}
 		if !filepath.IsAbs(entry) {
 			entry = filepath.Join(sharedHome, entry)
 		}

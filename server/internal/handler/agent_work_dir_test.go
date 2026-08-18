@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
@@ -199,7 +200,7 @@ func TestShortTaskIDMatchesDaemon(t *testing.T) {
 		taskID         = "5c57b65b-ee7a-4603-a72d-a548b2390cb2"
 	)
 	daemonRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
-	expected := workspacesRoot + "/" + workspaceID + "/" + shortTaskID(taskID)
+	expected := filepath.Join(workspacesRoot, workspaceID, shortTaskID(taskID))
 	if daemonRoot != expected {
 		t.Fatalf("daemon PredictRootDir = %q, handler-side reconstruction = %q — shortTaskID is out of sync with execenv.shortID", daemonRoot, expected)
 	}

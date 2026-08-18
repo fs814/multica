@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/util/secretbox"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -23,6 +24,13 @@ const testSigningSecret = "this-is-a-test-secret-32-chars-x"
 
 func setSigningSecretViaHandler(t *testing.T, apID, triggerID, secret string) {
 	t.Helper()
+	if testHandler.VCSSecretBox == nil {
+		box, err := secretbox.New(make([]byte, secretbox.KeySize))
+		if err != nil {
+			t.Fatalf("create test secretbox: %v", err)
+		}
+		testHandler.VCSSecretBox = box
+	}
 	w := httptest.NewRecorder()
 	req := newRequest("PUT", fmt.Sprintf("/api/autopilots/%s/triggers/%s/signing-secret", apID, triggerID), map[string]any{
 		"signing_secret": secret,
@@ -206,6 +214,28 @@ func TestWebhookHandler_DedupeViaIdempotencyKey(t *testing.T) {
 	}
 }
 
+func TestWebhookHandler_IdempotencyKeyRejectsDifferentPayload(t *testing.T) {
+	agentID := createWebhookTestAgent(t, "DeliveryConflict Agent")
+	apID := createWebhookTestAutopilot(t, agentID, "active", "run_only")
+	trig := createWebhookTriggerViaHandler(t, apID)
+	headers := map[string]string{"Idempotency-Key": "same-key-different-body"}
+
+	first := postWebhook(t, *trig.WebhookToken, map[string]any{"value": "first"}, headers)
+	deliveryID := requireAcceptedWebhookResponse(t, first)
+	second := postWebhook(t, *trig.WebhookToken, map[string]any{"value": "second"}, headers)
+	if second.Code != http.StatusConflict {
+		t.Fatalf("conflicting replay = %d %s, want 409", second.Code, second.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(second.Body.Bytes(), &response); err != nil || response["error"] != "idempotency_conflict" {
+		t.Fatalf("conflict response = %s", second.Body.String())
+	}
+	processQueuedWebhookDelivery(t, deliveryID)
+	if deliveries := listDeliveries(t, apID); len(deliveries) != 1 {
+		t.Fatalf("conflicting replay created %d deliveries, want one", len(deliveries))
+	}
+}
+
 func TestWebhookHandler_DedupeViaGitHubDelivery(t *testing.T) {
 	agentID := createWebhookTestAgent(t, "DeliveryGH Agent")
 	apID := createWebhookTestAutopilot(t, agentID, "active", "run_only")
@@ -322,6 +352,16 @@ func TestSigningSecretNotEchoedInTriggerResponse(t *testing.T) {
 	apID := createWebhookTestAutopilot(t, agentID, "active", "run_only")
 	trig := createWebhookTriggerViaHandler(t, apID)
 	setSigningSecretViaHandler(t, apID, trig.ID, testSigningSecret)
+	var legacy pgtype.Text
+	var encrypted []byte
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT signing_secret, signing_secret_encrypted
+		FROM autopilot_trigger WHERE id = $1`, trig.ID).Scan(&legacy, &encrypted); err != nil {
+		t.Fatalf("load stored signing secret: %v", err)
+	}
+	if legacy.Valid || len(encrypted) == 0 || bytes.Contains(encrypted, []byte(testSigningSecret)) {
+		t.Fatalf("signing secret storage is not encrypted-only: legacy_valid=%v encrypted_len=%d", legacy.Valid, len(encrypted))
+	}
 
 	// GET the autopilot — trigger response embedded.
 	w := httptest.NewRecorder()
@@ -339,6 +379,61 @@ func TestSigningSecretNotEchoedInTriggerResponse(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte(`"signing_secret_hint":"`+testSigningSecret[len(testSigningSecret)-4:]+`"`)) {
 		t.Fatalf("hint should be last 4 chars: %s", w.Body.String())
+	}
+}
+
+func TestBackfillAutopilotTriggerSigningSecretsEncryptsAndClearsLegacyPlaintext(t *testing.T) {
+	agentID := createWebhookTestAgent(t, "WebhookSecretBackfill Agent")
+	apID := createWebhookTestAutopilot(t, agentID, "active", "run_only")
+	trig := createWebhookTriggerViaHandler(t, apID)
+	const legacySecret = "legacy-signing-secret-must-migrate"
+
+	if _, err := testPool.Exec(context.Background(),
+		"UPDATE autopilot_trigger SET signing_secret = $2, signing_secret_encrypted = NULL WHERE id = $1",
+		trig.ID, legacySecret,
+	); err != nil {
+		t.Fatalf("seed legacy signing secret: %v", err)
+	}
+
+	box, err := secretbox.New(bytes.Repeat([]byte("b"), secretbox.KeySize))
+	if err != nil {
+		t.Fatalf("create backfill secretbox: %v", err)
+	}
+	previousBox := testHandler.VCSSecretBox
+	testHandler.VCSSecretBox = box
+	t.Cleanup(func() { testHandler.VCSSecretBox = previousBox })
+
+	migrated, err := testHandler.BackfillAutopilotTriggerSigningSecrets(context.Background())
+	if err != nil {
+		t.Fatalf("backfill signing secrets: %v", err)
+	}
+	if migrated < 1 {
+		t.Fatalf("migrated = %d, want at least the seeded legacy row", migrated)
+	}
+
+	var legacy pgtype.Text
+	var encrypted []byte
+	if err := testPool.QueryRow(context.Background(),
+		"SELECT signing_secret, signing_secret_encrypted FROM autopilot_trigger WHERE id = $1",
+		trig.ID,
+	).Scan(&legacy, &encrypted); err != nil {
+		t.Fatalf("load backfilled signing secret: %v", err)
+	}
+	if legacy.Valid {
+		t.Fatal("legacy plaintext signing_secret was not cleared")
+	}
+	if len(encrypted) == 0 || bytes.Contains(encrypted, []byte(legacySecret)) {
+		t.Fatalf("backfill did not persist opaque encrypted material: encrypted_len=%d", len(encrypted))
+	}
+	plain, err := box.Open(encrypted)
+	if err != nil {
+		t.Fatalf("decrypt backfilled signing secret: %v", err)
+	}
+	if string(plain) != legacySecret {
+		t.Fatalf("decrypted secret = %q, want original legacy value", plain)
+	}
+	if migrated, err := testHandler.BackfillAutopilotTriggerSigningSecrets(context.Background()); err != nil || migrated != 0 {
+		t.Fatalf("idempotent backfill = (%d, %v), want (0, nil)", migrated, err)
 	}
 }
 
@@ -968,8 +1063,7 @@ func TestWebhookDelivery_FailedRowDoesNotBlockDedupe(t *testing.T) {
 	}
 }
 
-// Confirm a column-level write — sqlc params for narg('signing_secret')
-// must allow nullable NULL to clear the column, not just non-NULL strings.
+// Confirm a column-level write allows empty ciphertext to clear the secret.
 func TestSetSigningSecretParams_NullableWrite(t *testing.T) {
 	agentID := createWebhookTestAgent(t, "SigSqlcNull Agent")
 	apID := createWebhookTestAutopilot(t, agentID, "active", "run_only")
@@ -977,8 +1071,8 @@ func TestSetSigningSecretParams_NullableWrite(t *testing.T) {
 
 	if _, err := testHandler.Queries.SetAutopilotTriggerSigningSecret(context.Background(),
 		db.SetAutopilotTriggerSigningSecretParams{
-			ID:            parseUUID(trig.ID),
-			SigningSecret: pgtype.Text{}, // explicit NULL
+			ID:                     parseUUID(trig.ID),
+			SigningSecretEncrypted: nil,
 		}); err != nil {
 		t.Fatalf("sqlc NULL write: %v", err)
 	}

@@ -40,7 +40,15 @@ func writeExecStub(t *testing.T, path string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir for stub %s: %v", path, err)
 	}
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+	body := []byte("#!/bin/sh\nexit 0\n")
+	if runtime.GOOS == "windows" {
+		var err error
+		body, err = os.ReadFile(os.Args[0])
+		if err != nil {
+			t.Fatalf("read native test executable: %v", err)
+		}
+	}
+	if err := os.WriteFile(path, body, 0o755); err != nil {
 		t.Fatalf("write stub %s: %v", path, err)
 	}
 }
@@ -333,6 +341,9 @@ func TestResolveAgentEntry_NoCommandNoHeal(t *testing.T) {
 func TestRefreshHealedVersion_KeepsHealedPairCurrentAfterInPlaceUpgrade(t *testing.T) {
 	d := newSelfHealTestDaemon()
 	healed := filepath.Join(t.TempDir(), "codex")
+	if runtime.GOOS == "windows" {
+		healed += ".exe"
+	}
 	writeExecStub(t, healed)
 
 	// State after a self-heal: path + the version detected for it at that time.

@@ -97,7 +97,7 @@ export function WorkflowNodeCard({
         <div className="flex items-center gap-1.5">
           <span
             className={cn(
-              "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-micro font-semibold uppercase tracking-wide",
               accent.badge,
             )}
           >
@@ -107,25 +107,25 @@ export function WorkflowNodeCard({
           {/* The key is right-aligned and muted because it is an identifier the
               author only needs when cross-referencing the properties panel or a
               validator message - not part of the sentence the card reads as. */}
-          <code className="ml-auto min-w-0 truncate font-mono text-[10px] text-muted-foreground">
+          <code className="ml-auto min-w-0 truncate font-mono text-micro text-muted-foreground">
             {data.nodeKey}
           </code>
         </div>
 
         {data.isEntry ? (
-          <span className="inline-flex w-fit items-center rounded border border-dashed px-1 py-px text-[10px] text-muted-foreground">
+          <span className="inline-flex w-fit items-center rounded border border-dashed px-1 py-px text-micro text-muted-foreground">
             {t(($) => $.canvas.entry_badge)}
           </span>
         ) : null}
 
         {/* Falls back to the key so a node the author has not named yet is still
             identifiable; `name` is optional in the wire schema. */}
-        <div className="truncate text-sm font-semibold leading-tight">
+        <div className="truncate text-body font-semibold leading-tight">
           {data.node.name || data.nodeKey}
         </div>
 
         {summary ? (
-          <div className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-1 text-micro text-muted-foreground">
             {summary}
           </div>
         ) : null}

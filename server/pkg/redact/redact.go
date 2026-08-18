@@ -4,7 +4,7 @@ package redact
 
 import (
 	"os"
-	"os/user"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -158,8 +158,11 @@ var username string
 
 func init() {
 	homeDir, _ = os.UserHomeDir()
-	if u, err := user.Current(); err == nil {
-		username = u.Username
+	if homeDir != "" {
+		// user.Current().Username may be DOMAIN\\name on Windows while the
+		// home path contains only name. Derive the redaction token from the
+		// home directory itself so the path is masked on every platform.
+		username = filepath.Base(filepath.Clean(homeDir))
 	}
 }
 

@@ -29,6 +29,8 @@ export interface Autopilot {
   title: string;
   description: string | null;
   project_id?: string | null;
+  workflow_template_id?: string | null;
+  workflow_template_version_id?: string | null;
   assignee_type: AutopilotAssigneeType;
   assignee_id: string;
   status: AutopilotStatus;
@@ -122,6 +124,7 @@ export interface AutopilotRun {
   status: AutopilotRunStatus;
   issue_id: string | null;
   task_id: string | null;
+  workflow_run_id?: string | null;
   triggered_at: string;
   completed_at: string | null;
   failure_reason: string | null;
@@ -144,6 +147,8 @@ export interface CreateAutopilotRequest {
   title: string;
   description?: string;
   project_id?: string | null;
+  workflow_template_id?: string | null;
+  workflow_template_version_id?: string | null;
   // Optional on the wire — when omitted the server defaults to "agent" so
   // older clients keep working.
   assignee_type?: AutopilotAssigneeType;
@@ -157,6 +162,8 @@ export interface UpdateAutopilotRequest {
   title?: string;
   description?: string | null;
   project_id?: string | null;
+  workflow_template_id?: string | null;
+  workflow_template_version_id?: string | null;
   // Send `assignee_type` together with `assignee_id` whenever you change the
   // assignee — the server requires both for a type swap.
   assignee_type?: AutopilotAssigneeType;

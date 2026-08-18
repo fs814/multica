@@ -469,6 +469,40 @@ func (q *Queries) DeleteWorkspaceTasks(ctx context.Context, workspaceID pgtype.U
 	return err
 }
 
+const deleteWorkspaceWorkflowData = `-- name: DeleteWorkspaceWorkflowData :exec
+WITH
+deleted_callback_deliveries AS (
+    DELETE FROM workflow_callback_delivery WHERE workflow_callback_delivery.workspace_id = $1
+),
+deleted_callback_destinations AS (
+    DELETE FROM workflow_callback_destination WHERE workflow_callback_destination.workspace_id = $1
+),
+deleted_submissions AS (
+    DELETE FROM workflow_submission WHERE workflow_submission.workspace_id = $1
+),
+deleted_acceptances AS (
+    DELETE FROM workflow_acceptance WHERE workflow_acceptance.workspace_id = $1
+),
+deleted_events AS (
+    DELETE FROM workflow_event WHERE workflow_event.workspace_id = $1
+),
+deleted_steps AS (
+    DELETE FROM workflow_step_instance WHERE workflow_step_instance.workspace_id = $1
+),
+deleted_runs AS (
+    DELETE FROM workflow_run WHERE workflow_run.workspace_id = $1
+),
+deleted_versions AS (
+    DELETE FROM workflow_template_version WHERE workflow_template_version.workspace_id = $1
+)
+DELETE FROM workflow_template WHERE workflow_template.workspace_id = $1
+`
+
+func (q *Queries) DeleteWorkspaceWorkflowData(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteWorkspaceWorkflowData, workspaceID)
+	return err
+}
+
 const lockTaskUsageRollupForWorkspaceDelete = `-- name: LockTaskUsageRollupForWorkspaceDelete :exec
 SELECT pg_advisory_xact_lock(4246)
 `

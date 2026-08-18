@@ -448,7 +448,7 @@ export function InputFieldsSection({
                     />
 
                     <label
-                      className={`flex items-center gap-2 text-xs ${
+                      className={`flex items-center gap-2 text-caption ${
                         readOnly ? "opacity-50" : "cursor-pointer"
                       }`}
                     >
@@ -526,7 +526,7 @@ function OptionsEditor({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-medium">
+      <span className="text-caption font-medium">
         {t(($) => $.panel.input_fields.options)}
       </span>
       {options.length === 0 ? (

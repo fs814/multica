@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/issueposition"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -31,10 +33,11 @@ type TxStarter interface {
 }
 
 type AutopilotService struct {
-	Queries   *db.Queries
-	TxStarter TxStarter
-	Bus       *events.Bus
-	TaskSvc   *TaskService
+	Queries        *db.Queries
+	TxStarter      TxStarter
+	Bus            *events.Bus
+	TaskSvc        *TaskService
+	WorkflowEngine *workflow.Engine
 }
 
 // DefaultAutopilotTriggerTimezone is the timezone used to render Autopilot
@@ -58,10 +61,12 @@ func NewAutopilotService(q *db.Queries, tx TxStarter, bus *events.Bus, taskSvc *
 // rule (recording the editing member + timestamp), the summary just carries the
 // autopilot row's core config.
 type autopilotRuleConfigSummary struct {
-	AssigneeType  string `json:"assignee_type"`
-	AssigneeID    string `json:"assignee_id"`
-	Status        string `json:"status"`
-	ExecutionMode string `json:"execution_mode"`
+	AssigneeType              string `json:"assignee_type"`
+	AssigneeID                string `json:"assignee_id"`
+	Status                    string `json:"status"`
+	ExecutionMode             string `json:"execution_mode"`
+	WorkflowTemplateID        string `json:"workflow_template_id,omitempty"`
+	WorkflowTemplateVersionID string `json:"workflow_template_version_id,omitempty"`
 }
 
 // RecordAutopilotRuleVersion appends one rule-version snapshot for a substantive
@@ -73,10 +78,12 @@ type autopilotRuleConfigSummary struct {
 // auto-pause monitor).
 func RecordAutopilotRuleVersion(ctx context.Context, q *db.Queries, ap db.Autopilot, publishedByType string, publishedByID pgtype.UUID) error {
 	summary, err := json.Marshal(autopilotRuleConfigSummary{
-		AssigneeType:  ap.AssigneeType,
-		AssigneeID:    util.UUIDToString(ap.AssigneeID),
-		Status:        ap.Status,
-		ExecutionMode: ap.ExecutionMode,
+		AssigneeType:              ap.AssigneeType,
+		AssigneeID:                util.UUIDToString(ap.AssigneeID),
+		Status:                    ap.Status,
+		ExecutionMode:             ap.ExecutionMode,
+		WorkflowTemplateID:        util.UUIDToString(ap.WorkflowTemplateID),
+		WorkflowTemplateVersionID: util.UUIDToString(ap.WorkflowTemplateVersionID),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal rule version config summary: %w", err)
@@ -468,9 +475,9 @@ func (s *AutopilotService) dispatchAutopilot(
 		return run, code, err
 	}
 
-	// Determine initial status based on execution mode.
+	// Determine initial status based on execution mode or bound workflow.
 	initialStatus := "issue_created"
-	if autopilot.ExecutionMode == "run_only" {
+	if autopilot.ExecutionMode == "run_only" || autopilot.WorkflowTemplateID.Valid {
 		initialStatus = "running"
 	}
 
@@ -503,6 +510,16 @@ func (s *AutopilotService) dispatchAutopilotRun(
 	run *db.AutopilotRun,
 	actorUserID pgtype.UUID,
 ) (*db.AutopilotRun, dispatch.ReasonCode, error) {
+	if autopilot.WorkflowTemplateID.Valid {
+		if err := s.dispatchWorkflow(ctx, autopilot, run, actorUserID); err != nil {
+			s.failRun(ctx, run.ID, err.Error())
+			s.captureAutopilotRunFailed(autopilot, *run, source, err.Error())
+			return run, dispatchFailReasonCode(err), fmt.Errorf("dispatch workflow: %w", err)
+		}
+		s.Queries.UpdateAutopilotLastRunAt(ctx, autopilot.ID)
+		s.Bus.Publish(events.Event{Type: protocol.EventAutopilotRunStart, WorkspaceID: util.UUIDToString(autopilot.WorkspaceID), ActorType: "system", Payload: map[string]any{"run_id": util.UUIDToString(run.ID), "autopilot_id": util.UUIDToString(autopilot.ID), "source": source, "status": run.Status}})
+		return run, "", nil
+	}
 	switch autopilot.ExecutionMode {
 	case "create_issue":
 		triggerTimezone := s.resolveAutopilotTriggerTimezone(ctx, triggerID)
@@ -546,6 +563,98 @@ func (s *AutopilotService) dispatchAutopilotRun(
 	})
 
 	return run, "", nil
+}
+
+func (s *AutopilotService) dispatchWorkflow(ctx context.Context, ap db.Autopilot, run *db.AutopilotRun, actorUserID pgtype.UUID) error {
+	if s.WorkflowEngine == nil {
+		return fmt.Errorf("workflow engine is unavailable")
+	}
+	accountable := actorUserID
+	if !accountable.Valid {
+		attr := triggerOwnerAttribution(ctx, s.Queries, run.TriggerID, ap.WorkspaceID, ap.ID, attribution.EvidenceAutopilotRun, run.ID)
+		accountable = attr.AccountableUserID
+	}
+	if !accountable.Valid {
+		return &errDispatchSkipped{reason: formatAdmissionReason(ap, "workspace fail-closed: no accountable human for workflow run"), code: dispatch.ReasonAttributionBlocked}
+	}
+	input := map[string]any{"title": ap.Title, "description": ap.Description.String}
+	if len(run.TriggerPayload) > 0 {
+		var payload map[string]any
+		if json.Unmarshal(run.TriggerPayload, &payload) == nil {
+			if eventPayload, ok := payload["eventPayload"].(map[string]any); ok {
+				for key, value := range eventPayload {
+					input[key] = value
+				}
+			}
+			for key, value := range payload {
+				input[key] = value
+			}
+		}
+	}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return err
+	}
+	template, err := s.Queries.GetWorkflowTemplate(ctx, db.GetWorkflowTemplateParams{ID: ap.WorkflowTemplateID, WorkspaceID: ap.WorkspaceID})
+	if err != nil {
+		return fmt.Errorf("load bound workflow template: %w", err)
+	}
+	if supplied, ok := input["template_key"].(string); ok && supplied != "" && !strings.EqualFold(strings.TrimSpace(supplied), template.Key) {
+		return fmt.Errorf("webhook template_key %q does not match bound workflow template %q", supplied, template.Key)
+	}
+	subscribers := []workflow.RunIssueSubscriber{{UserType: "member", UserID: accountable, Reason: "autopilot"}}
+	templateSubscribers, err := s.Queries.ListAutopilotSubscribers(ctx, ap.ID)
+	if err != nil {
+		return fmt.Errorf("list workflow autopilot subscribers: %w", err)
+	}
+	seenSubscribers := map[string]bool{"member:" + util.UUIDToString(accountable): true}
+	for _, sub := range templateSubscribers {
+		key := sub.UserType + ":" + util.UUIDToString(sub.UserID)
+		if seenSubscribers[key] {
+			continue
+		}
+		seenSubscribers[key] = true
+		subscribers = append(subscribers, workflow.RunIssueSubscriber{UserType: sub.UserType, UserID: sub.UserID, Reason: "autopilot"})
+	}
+	started, err := s.WorkflowEngine.StartRun(ctx, workflow.StartRunInput{
+		WorkspaceID:       ap.WorkspaceID,
+		TemplateID:        ap.WorkflowTemplateID,
+		TemplateVersionID: ap.WorkflowTemplateVersionID,
+		Source:            "autopilot",
+		SourceEventID:     util.UUIDToString(run.ID),
+		IdempotencyKey:    "autopilot:" + util.UUIDToString(run.ID),
+		RequestHash:       fmt.Sprintf("%x", sha256.Sum256(raw)),
+		AccountableUserID: accountable,
+		AutopilotRunID:    run.ID,
+		Issue: &workflow.RunIssueInput{
+			Title:       ap.Title,
+			Description: ap.Description.String,
+			CreatorType: "member",
+			CreatorID:   accountable,
+			ProjectID:   ap.ProjectID,
+			OriginType:  pgtype.Text{String: "autopilot", Valid: true},
+			OriginID:    ap.ID,
+			Subscribers: subscribers,
+		},
+		Input:     raw,
+		ActorType: "system",
+	})
+	if err != nil {
+		return err
+	}
+	updated, err := s.Queries.GetAutopilotRun(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("reload linked autopilot workflow run: %w", err)
+	}
+	if updated.WorkflowRunID != started.Run.ID || updated.IssueID != started.Run.IssueID {
+		return fmt.Errorf("autopilot workflow linkage was not committed atomically")
+	}
+	*run = updated
+	if !started.AlreadyExisted && started.Issue != nil {
+		prefix := s.getIssuePrefix(ap.WorkspaceID)
+		s.Bus.Publish(events.Event{Type: protocol.EventIssueCreated, WorkspaceID: util.UUIDToString(ap.WorkspaceID), ActorType: "member", ActorID: util.UUIDToString(accountable), Payload: map[string]any{"issue": IssueToMap(*started.Issue, prefix)}})
+	}
+	return nil
 }
 
 // dispatchFailReasonCode types a dispatch error that fell through to failRun.
@@ -1184,6 +1293,12 @@ func (s *AutopilotService) failRun(ctx context.Context, runID pgtype.UUID, reaso
 //     agent assignee being missing is now a real condition the gate must
 //     handle (previously cascade-deleted).
 func (s *AutopilotService) shouldSkipDispatch(ctx context.Context, ap db.Autopilot, actorUserID pgtype.UUID) (string, dispatch.ReasonCode, bool) {
+	// A workflow-bound Autopilot routes and checks readiness at each Agent node.
+	// Its legacy assignee remains populated for backwards-compatible CRUD, but
+	// must not prevent an otherwise runnable graph from starting.
+	if ap.WorkflowTemplateID.Valid {
+		return "", "", false
+	}
 	if !ap.AssigneeID.Valid {
 		return "autopilot has no assignee", dispatch.ReasonTargetUnavailable, true
 	}

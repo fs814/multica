@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -127,13 +128,7 @@ func TestPrepareDirectoryMode(t *testing.T) {
 	if env.MulticaConfigRoot != filepath.Join(env.RootDir, "multica-config") {
 		t.Fatalf("MulticaConfigRoot = %q, want task-local config directory", env.MulticaConfigRoot)
 	}
-	info, err := os.Stat(env.MulticaConfigRoot)
-	if err != nil {
-		t.Fatalf("stat MulticaConfigRoot: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("MulticaConfigRoot mode = %o, want 700", got)
-	}
+	assertPrivateMode(t, env.MulticaConfigRoot, 0o700)
 
 	// Verify context file contains issue ID and CLI hints.
 	content, err := os.ReadFile(filepath.Join(env.WorkDir, ".agent_context", "issue_context.md"))
@@ -2841,7 +2836,12 @@ func TestVerifyCodexHomeRootRejectsSwappedDirectory(t *testing.T) {
 	defer root.Close()
 
 	// Same path, different directory — what a swap looks like after the open.
-	if err := os.Rename(codexHome, filepath.Join(base, "moved-aside")); err != nil {
+	if err := os.Rename(codexHome, filepath.Join(base, "moved-aside")); runtime.GOOS == "windows" {
+		if err == nil {
+			t.Fatal("Windows unexpectedly allowed an opened directory to be swapped")
+		}
+		return
+	} else if err != nil {
 		t.Fatalf("move original codex home: %v", err)
 	}
 	if err := os.Mkdir(codexHome, 0o755); err != nil {
@@ -2872,7 +2872,12 @@ func TestVerifyCodexHomeRootRejectsSymlinkedHome(t *testing.T) {
 	defer root.Close()
 
 	outside := t.TempDir()
-	if err := os.Rename(codexHome, filepath.Join(base, "moved-aside")); err != nil {
+	if err := os.Rename(codexHome, filepath.Join(base, "moved-aside")); runtime.GOOS == "windows" {
+		if err == nil {
+			t.Fatal("Windows unexpectedly allowed an opened directory to be swapped for a symlink")
+		}
+		return
+	} else if err != nil {
 		t.Fatalf("move original codex home: %v", err)
 	}
 	if err := os.Symlink(outside, codexHome); err != nil {
@@ -3853,9 +3858,6 @@ func TestResolveWindowsSandboxStateFailsClosed(t *testing.T) {
 // startup on both paths (fresh Prepare fails the task; Reuse leaves
 // env.CodexHome unset, which configureCodexTaskShellEnvironment refuses).
 func TestPrepareCodexHomeFailsClosedWhenSandboxWriteFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root bypasses the read-only permissions this test relies on")
-	}
 	// Cannot use t.Parallel() with t.Setenv.
 
 	// Shared home the user has since pointed at a native Windows sandbox.
@@ -3872,19 +3874,11 @@ func TestPrepareCodexHomeFailsClosedWhenSandboxWriteFails(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(stale), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Read-only file + directory: the sync cannot replace the stale copy and
-	// the managed block cannot be rewritten.
-	if err := os.Chmod(configPath, 0o444); err != nil {
-		t.Fatal(err)
+	originalEnsure := ensureCodexSandboxConfigForHome
+	ensureCodexSandboxConfigForHome = func(string, codexSandboxPolicy, string, *slog.Logger) error {
+		return fs.ErrPermission
 	}
-	if err := os.Chmod(codexHome, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	// Restore before t.TempDir's own cleanup so removal succeeds (LIFO).
-	t.Cleanup(func() {
-		_ = os.Chmod(codexHome, 0o755)
-		_ = os.Chmod(configPath, 0o644)
-	})
+	t.Cleanup(func() { ensureCodexSandboxConfigForHome = originalEnsure })
 
 	err := prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{GOOS: "windows", CodexVersion: "0.144.5"}, testLogger())
 	if err == nil {
@@ -3893,14 +3887,15 @@ func TestPrepareCodexHomeFailsClosedWhenSandboxWriteFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "sandbox config") {
 		t.Errorf("expected a sandbox-config error, got: %v", err)
 	}
-	// The stale danger-full-access is still on disk — proving the task would
-	// have launched unsandboxed had prepare reported success.
+	// The synchronized user config remains without a daemon-managed block,
+	// proving the computed policy was not enforced on disk. Reporting success
+	// here would launch with an incomplete sandbox contract.
 	data, readErr := os.ReadFile(configPath)
 	if readErr != nil {
 		t.Fatalf("read config: %v", readErr)
 	}
-	if !strings.Contains(string(data), `sandbox_mode = "danger-full-access"`) {
-		t.Fatalf("expected the stale danger-full-access to remain (write failed), got:\n%s", data)
+	if strings.Contains(string(data), multicaManagedBeginMarker) {
+		t.Fatalf("managed sandbox block unexpectedly landed despite injected write failure:\n%s", data)
 	}
 }
 
@@ -3976,11 +3971,7 @@ func TestReuseRestoresCodexHome(t *testing.T) {
 	if reused.MulticaConfigRoot != filepath.Join(reused.RootDir, "multica-config") {
 		t.Fatalf("MulticaConfigRoot = %q, want restored task-local config directory", reused.MulticaConfigRoot)
 	}
-	if info, err := os.Stat(reused.MulticaConfigRoot); err != nil {
-		t.Fatalf("stat restored MulticaConfigRoot: %v", err)
-	} else if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("restored MulticaConfigRoot mode = %o, want 700", got)
-	}
+	assertPrivateMode(t, reused.MulticaConfigRoot, 0o700)
 
 	// Verify config.toml has a managed block (exact mode depends on host
 	// platform; either workspace-write or danger-full-access is valid).

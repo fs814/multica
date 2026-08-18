@@ -9,6 +9,28 @@ import (
 	"testing"
 )
 
+func TestWindowsLocalRepoNamesStayShortSafeAndDistinct(t *testing.T) {
+	t.Parallel()
+
+	a := `C:\Users\tester\AppData\Local\Temp\very-long-parent\foo\bar-baz`
+	b := `C:\Users\tester\AppData\Local\Temp\very-long-parent\foo-bar\baz`
+	aName := bareDirName(a)
+	bName := bareDirName(b)
+
+	if aName == bName {
+		t.Fatalf("distinct local repositories share cache name %q", aName)
+	}
+	if len(aName) > 64 || strings.ContainsAny(aName, `\/:`) {
+		t.Fatalf("local cache name is not short and filesystem-safe: %q", aName)
+	}
+	if got := bareDirName("file://" + a); got != aName {
+		t.Fatalf("file URL cache name = %q, want direct-path identity %q", got, aName)
+	}
+	if got := repoNameFromURL(a); got != "bar-baz" {
+		t.Fatalf("local repository name = %q, want bar-baz", got)
+	}
+}
+
 // The isolated checkout exists so a Codex task can commit inside its own
 // workdir (multica-ai/multica#2925 on Linux, #6449 on Windows). The rest of
 // the suite proves the shape of that checkout on whatever platform CI runs,

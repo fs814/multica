@@ -87,19 +87,20 @@ func assertPiPromptSurvivesShim(t *testing.T) {
 	argvPath := filepath.Join(dir, "argv.txt")
 	stdinPath := filepath.Join(dir, "stdin.txt")
 	sessionPath := filepath.Join(dir, "session.jsonl")
+	selfBytes, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatalf("read test binary to use as native child: %v", err)
+	}
+	nativeChild := filepath.Join(dir, "pi-shim-helper.exe")
+	writeTestExecutable(t, nativeChild, selfBytes)
 
 	cmdPath := filepath.Join(dir, "pi.cmd")
 	writeFile(t, cmdPath, "@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0pi.ps1\" %*\r\n")
 	ps1 := fmt.Sprintf(""+
-		"$env:%s = '1'\r\n"+
-		"$env:%s = '%s'\r\n"+
-		"$env:%s = '%s'\r\n"+
-		"& '%s' '-test.run=^TestPiShimHelperProcess$' '--' $args\r\n"+
-		"exit $LASTEXITCODE\r\n",
-		piShimHelperEnv,
-		piShimHelperArgvFile, argvPath,
-		piShimHelperInFile, stdinPath,
-		self)
+		"$childArgs = @('%s', '%s', '%s', '--') + $args\r\n"+
+		"$child = Start-Process -FilePath '%s' -ArgumentList $childArgs -NoNewWindow -Wait -PassThru\r\n"+
+		"exit $child.ExitCode\r\n",
+		piShimHelperArg, argvPath, stdinPath, nativeChild)
 	writeFile(t, filepath.Join(dir, "pi.ps1"), ps1)
 
 	prompt := "MULTICA_AGENT_BUILDER_INPUT\n" +

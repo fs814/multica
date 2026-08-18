@@ -31,11 +31,13 @@ func computeNextRun(cronExpr, timezone string) (time.Time, error) {
 // ── Response types ──────────────────────────────────────────────────────────
 
 type AutopilotResponse struct {
-	ID          string  `json:"id"`
-	WorkspaceID string  `json:"workspace_id"`
-	Title       string  `json:"title"`
-	Description *string `json:"description"`
-	ProjectID   *string `json:"project_id"`
+	ID                        string  `json:"id"`
+	WorkspaceID               string  `json:"workspace_id"`
+	Title                     string  `json:"title"`
+	Description               *string `json:"description"`
+	ProjectID                 *string `json:"project_id"`
+	WorkflowTemplateID        *string `json:"workflow_template_id"`
+	WorkflowTemplateVersionID *string `json:"workflow_template_version_id"`
 	// AssigneeType is "agent" or "squad". Path A from MUL-2429: when set
 	// to "squad", AssigneeID points at squad(id) rather than agent(id) and
 	// dispatch resolves to squad.leader_id at run time.
@@ -152,6 +154,7 @@ type AutopilotRunResponse struct {
 	Status        string  `json:"status"`
 	IssueID       *string `json:"issue_id"`
 	TaskID        *string `json:"task_id"`
+	WorkflowRunID *string `json:"workflow_run_id"`
 	TriggeredAt   string  `json:"triggered_at"`
 	CompletedAt   *string `json:"completed_at"`
 	FailureReason *string `json:"failure_reason"`
@@ -185,23 +188,25 @@ func autopilotToResponse(a db.Autopilot, subscribers []db.AutopilotSubscriber) A
 		}
 	}
 	return AutopilotResponse{
-		ID:                 uuidToString(a.ID),
-		WorkspaceID:        uuidToString(a.WorkspaceID),
-		Title:              a.Title,
-		Description:        textToPtr(a.Description),
-		ProjectID:          uuidToPtr(a.ProjectID),
-		AssigneeType:       assigneeType,
-		AssigneeID:         uuidToString(a.AssigneeID),
-		Status:             a.Status,
-		PauseReason:        textToPtr(a.PauseReason),
-		ExecutionMode:      a.ExecutionMode,
-		IssueTitleTemplate: textToPtr(a.IssueTitleTemplate),
-		CreatedByType:      a.CreatedByType,
-		CreatedByID:        uuidToString(a.CreatedByID),
-		LastRunAt:          timestampToPtr(a.LastRunAt),
-		CreatedAt:          timestampToString(a.CreatedAt),
-		UpdatedAt:          timestampToString(a.UpdatedAt),
-		Subscribers:        subResp,
+		ID:                        uuidToString(a.ID),
+		WorkspaceID:               uuidToString(a.WorkspaceID),
+		Title:                     a.Title,
+		Description:               textToPtr(a.Description),
+		ProjectID:                 uuidToPtr(a.ProjectID),
+		WorkflowTemplateID:        uuidToPtr(a.WorkflowTemplateID),
+		WorkflowTemplateVersionID: uuidToPtr(a.WorkflowTemplateVersionID),
+		AssigneeType:              assigneeType,
+		AssigneeID:                uuidToString(a.AssigneeID),
+		Status:                    a.Status,
+		PauseReason:               textToPtr(a.PauseReason),
+		ExecutionMode:             a.ExecutionMode,
+		IssueTitleTemplate:        textToPtr(a.IssueTitleTemplate),
+		CreatedByType:             a.CreatedByType,
+		CreatedByID:               uuidToString(a.CreatedByID),
+		LastRunAt:                 timestampToPtr(a.LastRunAt),
+		CreatedAt:                 timestampToString(a.CreatedAt),
+		UpdatedAt:                 timestampToString(a.UpdatedAt),
+		Subscribers:               subResp,
 	}
 }
 
@@ -232,9 +237,9 @@ func (h *Handler) triggerToResponse(t db.AutopilotTrigger) AutopilotTriggerRespo
 			provider = "generic"
 		}
 		resp.Provider = &provider
-		if t.SigningSecret.Valid && t.SigningSecret.String != "" {
+		if secret, err := h.autopilotTriggerSigningSecret(t.SigningSecret, t.SigningSecretEncrypted); err == nil && secret != "" {
 			resp.HasSigningSecret = true
-			hint := signingSecretHint(t.SigningSecret.String)
+			hint := signingSecretHint(secret)
 			resp.SigningSecretHint = &hint
 		}
 		if len(t.EventFilters) > 0 {
@@ -262,6 +267,58 @@ func signingSecretHint(secret string) string {
 	return secret[len(secret)-4:]
 }
 
+func (h *Handler) autopilotTriggerSigningSecret(legacy pgtype.Text, encrypted []byte) (string, error) {
+	if len(encrypted) > 0 {
+		if h.VCSSecretBox == nil {
+			return "", errors.New("webhook secret encryption is not configured")
+		}
+		plain, err := h.VCSSecretBox.Open(encrypted)
+		if err != nil {
+			return "", err
+		}
+		return string(plain), nil
+	}
+	if legacy.Valid {
+		return "", errors.New("legacy plaintext webhook secret requires encrypted backfill")
+	}
+	return "", nil
+}
+
+// BackfillAutopilotTriggerSigningSecrets encrypts legacy plaintext webhook
+// secrets with the deployment's existing secretbox key and clears the old
+// column. It is safe to rerun: each conditional update succeeds only if the
+// plaintext value observed by the scan is still current and no encrypted value
+// has appeared concurrently.
+func (h *Handler) BackfillAutopilotTriggerSigningSecrets(ctx context.Context) (int, error) {
+	if h.VCSSecretBox == nil {
+		return 0, errors.New("webhook secret encryption is not configured")
+	}
+	rows, err := h.Queries.ListLegacyAutopilotTriggerSigningSecrets(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list legacy webhook signing secrets: %w", err)
+	}
+	migrated := 0
+	for _, row := range rows {
+		if !row.SigningSecret.Valid {
+			continue
+		}
+		sealed, err := h.VCSSecretBox.Seal([]byte(row.SigningSecret.String))
+		if err != nil {
+			return migrated, fmt.Errorf("encrypt legacy webhook signing secret: %w", err)
+		}
+		affected, err := h.Queries.BackfillAutopilotTriggerSigningSecret(ctx, db.BackfillAutopilotTriggerSigningSecretParams{
+			ID:                     row.ID,
+			SigningSecretEncrypted: sealed,
+			LegacySigningSecret:    row.SigningSecret,
+		})
+		if err != nil {
+			return migrated, fmt.Errorf("persist encrypted webhook signing secret: %w", err)
+		}
+		migrated += int(affected)
+	}
+	return migrated, nil
+}
+
 // webhookPathForToken composes the path used by the public ingress route.
 // Kept as a free function (no Handler receiver) so test code that builds
 // expected URLs without instantiating a Handler can call it.
@@ -286,6 +343,7 @@ func runToResponse(r db.AutopilotRun) AutopilotRunResponse {
 		Status:        r.Status,
 		IssueID:       uuidToPtr(r.IssueID),
 		TaskID:        uuidToPtr(r.TaskID),
+		WorkflowRunID: uuidToPtr(r.WorkflowRunID),
 		TriggeredAt:   timestampToString(r.TriggeredAt),
 		CompletedAt:   timestampToPtr(r.CompletedAt),
 		FailureReason: textToPtr(r.FailureReason),
@@ -318,22 +376,26 @@ type CreateAutopilotRequest struct {
 	ProjectID   *string `json:"project_id"`
 	// AssigneeType is optional and defaults to "agent" — preserves backward
 	// compatibility with desktop clients shipped before MUL-2429.
-	AssigneeType       *string           `json:"assignee_type"`
-	AssigneeID         string            `json:"assignee_id"`
-	ExecutionMode      string            `json:"execution_mode"`
-	IssueTitleTemplate *string           `json:"issue_title_template"`
-	Subscribers        []SubscriberInput `json:"subscribers"`
+	AssigneeType              *string           `json:"assignee_type"`
+	AssigneeID                string            `json:"assignee_id"`
+	ExecutionMode             string            `json:"execution_mode"`
+	IssueTitleTemplate        *string           `json:"issue_title_template"`
+	WorkflowTemplateID        *string           `json:"workflow_template_id"`
+	WorkflowTemplateVersionID *string           `json:"workflow_template_version_id"`
+	Subscribers               []SubscriberInput `json:"subscribers"`
 }
 
 type UpdateAutopilotRequest struct {
-	Title              *string `json:"title"`
-	Description        *string `json:"description"`
-	ProjectID          *string `json:"project_id"`
-	AssigneeType       *string `json:"assignee_type"`
-	AssigneeID         *string `json:"assignee_id"`
-	Status             *string `json:"status"`
-	ExecutionMode      *string `json:"execution_mode"`
-	IssueTitleTemplate *string `json:"issue_title_template"`
+	Title                     *string `json:"title"`
+	Description               *string `json:"description"`
+	ProjectID                 *string `json:"project_id"`
+	AssigneeType              *string `json:"assignee_type"`
+	AssigneeID                *string `json:"assignee_id"`
+	Status                    *string `json:"status"`
+	ExecutionMode             *string `json:"execution_mode"`
+	IssueTitleTemplate        *string `json:"issue_title_template"`
+	WorkflowTemplateID        *string `json:"workflow_template_id"`
+	WorkflowTemplateVersionID *string `json:"workflow_template_version_id"`
 	// Wholesale replacement when present; omit to leave subscribers untouched.
 	Subscribers []SubscriberInput `json:"subscribers"`
 }
@@ -341,6 +403,40 @@ type UpdateAutopilotRequest struct {
 type SubscriberInput struct {
 	UserType string `json:"user_type"`
 	UserID   string `json:"user_id"`
+}
+
+func (h *Handler) resolveAutopilotWorkflowBinding(ctx context.Context, workspaceID pgtype.UUID, templateRaw, versionRaw *string) (pgtype.UUID, pgtype.UUID, error) {
+	if templateRaw == nil || strings.TrimSpace(*templateRaw) == "" {
+		if versionRaw != nil && strings.TrimSpace(*versionRaw) != "" {
+			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow_template_version_id requires workflow_template_id")
+		}
+		return pgtype.UUID{}, pgtype.UUID{}, nil
+	}
+	templateID := parseUUID(strings.TrimSpace(*templateRaw))
+	if !templateID.Valid {
+		return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("invalid workflow_template_id")
+	}
+	template, err := h.Queries.GetWorkflowTemplate(ctx, db.GetWorkflowTemplateParams{ID: templateID, WorkspaceID: workspaceID})
+	if err != nil || template.Status != "published" {
+		return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template must be published in this workspace")
+	}
+	var version db.WorkflowTemplateVersion
+	if versionRaw != nil && strings.TrimSpace(*versionRaw) != "" {
+		versionID := parseUUID(strings.TrimSpace(*versionRaw))
+		if !versionID.Valid {
+			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("invalid workflow_template_version_id")
+		}
+		version, err = h.Queries.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{ID: versionID, WorkspaceID: workspaceID})
+		if err != nil || version.TemplateID != templateID || version.Status != "published" {
+			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template version must be a published version of the selected template")
+		}
+	} else {
+		version, err = h.Queries.GetPublishedWorkflowTemplateVersion(ctx, db.GetPublishedWorkflowTemplateVersionParams{TemplateID: templateID, WorkspaceID: workspaceID})
+		if err != nil {
+			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template has no published version")
+		}
+	}
+	return templateID, version.ID, nil
 }
 
 type CreateAutopilotTriggerRequest struct {
@@ -655,6 +751,11 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	workflowTemplateID, workflowVersionID, err := h.resolveAutopilotWorkflowBinding(r.Context(), wsUUID, req.WorkflowTemplateID, req.WorkflowTemplateVersionID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Validate before insert so a bad payload doesn't half-create the row.
 	subscriberUUIDs, ok := h.validateAutopilotSubscribers(w, r, req.Subscribers, workspaceID)
@@ -678,17 +779,19 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	autopilot, err := qtx.CreateAutopilot(r.Context(), db.CreateAutopilotParams{
-		WorkspaceID:        wsUUID,
-		Title:              req.Title,
-		AssigneeType:       assigneeType,
-		AssigneeID:         assigneeUUID,
-		Status:             "active",
-		ExecutionMode:      req.ExecutionMode,
-		CreatedByType:      "member",
-		CreatedByID:        parseUUID(userID),
-		Description:        ptrToText(req.Description),
-		IssueTitleTemplate: ptrToText(req.IssueTitleTemplate),
-		ProjectID:          projectID,
+		WorkspaceID:               wsUUID,
+		Title:                     req.Title,
+		AssigneeType:              assigneeType,
+		AssigneeID:                assigneeUUID,
+		Status:                    "active",
+		ExecutionMode:             req.ExecutionMode,
+		CreatedByType:             "member",
+		CreatedByID:               parseUUID(userID),
+		Description:               ptrToText(req.Description),
+		IssueTitleTemplate:        ptrToText(req.IssueTitleTemplate),
+		ProjectID:                 projectID,
+		WorkflowTemplateID:        workflowTemplateID,
+		WorkflowTemplateVersionID: workflowVersionID,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
@@ -805,11 +908,13 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal(bodyBytes, &rawFields)
 
 	params := db.UpdateAutopilotParams{
-		ID:                 prev.ID,
-		Description:        prev.Description,
-		AssigneeID:         prev.AssigneeID,
-		IssueTitleTemplate: prev.IssueTitleTemplate,
-		ProjectID:          prev.ProjectID,
+		ID:                        prev.ID,
+		Description:               prev.Description,
+		AssigneeID:                prev.AssigneeID,
+		IssueTitleTemplate:        prev.IssueTitleTemplate,
+		ProjectID:                 prev.ProjectID,
+		WorkflowTemplateID:        prev.WorkflowTemplateID,
+		WorkflowTemplateVersionID: prev.WorkflowTemplateVersionID,
 	}
 	if req.Title != nil {
 		params.Title = pgtype.Text{String: *req.Title, Valid: true}
@@ -838,6 +943,28 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		params.ProjectID = projectID
+	}
+	_, workflowTemplateSent := rawFields["workflow_template_id"]
+	_, workflowVersionSent := rawFields["workflow_template_version_id"]
+	if workflowTemplateSent || workflowVersionSent {
+		templateRaw := uuidToPtr(prev.WorkflowTemplateID)
+		versionRaw := uuidToPtr(prev.WorkflowTemplateVersionID)
+		if workflowTemplateSent {
+			templateRaw = req.WorkflowTemplateID
+			if !workflowVersionSent {
+				versionRaw = nil
+			}
+		}
+		if workflowVersionSent {
+			versionRaw = req.WorkflowTemplateVersionID
+		}
+		templateID, versionID, bindErr := h.resolveAutopilotWorkflowBinding(r.Context(), prev.WorkspaceID, templateRaw, versionRaw)
+		if bindErr != nil {
+			writeError(w, http.StatusBadRequest, bindErr.Error())
+			return
+		}
+		params.WorkflowTemplateID = templateID
+		params.WorkflowTemplateVersionID = versionID
 	}
 	// assignee_type and assignee_id are validated as a pair: switching
 	// between agent and squad without supplying a new id would leave the
@@ -1017,6 +1144,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 //     flagged: a fresh publisher of the instructions is the accountable human);
 //   - issue_title_template — templates the created issue in create_issue mode; part
 //     of the instruction / output spec the run produces.
+//   - workflow template/version — changes the executable graph and pinned behavior.
 //
 // Deliberately NOT substantive (cosmetic / routing — they change neither the
 // instruction nor the executor): title (display label) and project_id (which project
@@ -1032,7 +1160,9 @@ func autopilotRuleSubstantiveChange(prev, next db.Autopilot) bool {
 		prev.Status != next.Status ||
 		prev.ExecutionMode != next.ExecutionMode ||
 		prev.Description != next.Description ||
-		prev.IssueTitleTemplate != next.IssueTitleTemplate
+		prev.IssueTitleTemplate != next.IssueTitleTemplate ||
+		prev.WorkflowTemplateID != next.WorkflowTemplateID ||
+		prev.WorkflowTemplateVersionID != next.WorkflowTemplateVersionID
 }
 
 // recordAutopilotRuleVersion appends one rule-version snapshot for a substantive
@@ -1952,9 +2082,18 @@ func (h *Handler) SetAutopilotTriggerSigningSecret(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if h.VCSSecretBox == nil {
+		writeError(w, http.StatusServiceUnavailable, "webhook secret encryption is not configured")
+		return
+	}
 	param := db.SetAutopilotTriggerSigningSecretParams{ID: triggerUUID}
 	if secret != "" {
-		param.SigningSecret = pgtype.Text{String: secret, Valid: true}
+		sealed, err := h.VCSSecretBox.Seal([]byte(secret))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to encrypt signing secret")
+			return
+		}
+		param.SigningSecretEncrypted = sealed
 	}
 	updated, err := h.Queries.SetAutopilotTriggerSigningSecret(r.Context(), param)
 	if err != nil {

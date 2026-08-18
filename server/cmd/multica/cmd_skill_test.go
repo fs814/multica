@@ -45,7 +45,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 }
 
 func TestRunSkillImportJsonTreatsDuplicateAsConflictResult(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "workspace-123")
 
@@ -114,7 +114,7 @@ func TestRunSkillImportJsonTreatsDuplicateAsConflictResult(t *testing.T) {
 }
 
 func TestRunSkillImportSendsOnConflictAndPrintsStructuredResult(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "workspace-123")
 

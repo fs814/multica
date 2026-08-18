@@ -92,7 +92,7 @@ func TestRuntimeProfileCommandsRegistered(t *testing.T) {
 }
 
 func TestRunRuntimeProfileList(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 
@@ -124,7 +124,7 @@ func TestRunRuntimeProfileList(t *testing.T) {
 }
 
 func TestRunRuntimeProfileCreate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 
@@ -188,7 +188,7 @@ func TestRunRuntimeProfileCreateRequiresFlags(t *testing.T) {
 }
 
 func TestRunRuntimeProfileUpdateOnlySendsChangedFlags(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 
@@ -233,7 +233,7 @@ func TestRunRuntimeProfileUpdateOnlySendsChangedFlags(t *testing.T) {
 }
 
 func TestRunRuntimeProfileUpdateNoFieldsErrors(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 	t.Setenv("MULTICA_SERVER_URL", "http://127.0.0.1:0")
@@ -245,7 +245,7 @@ func TestRunRuntimeProfileUpdateNoFieldsErrors(t *testing.T) {
 }
 
 func TestRunRuntimeProfileDeleteSuccess(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 
@@ -271,7 +271,7 @@ func TestRunRuntimeProfileDeleteSuccess(t *testing.T) {
 }
 
 func TestRunRuntimeProfileDeleteConflictSurfacesServerMessage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "ws-123")
 
@@ -293,11 +293,12 @@ func TestRunRuntimeProfileDeleteConflictSurfacesServerMessage(t *testing.T) {
 }
 
 func TestRunRuntimeProfileSetAndUnsetPath(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
+	commandPath := filepath.Join(t.TempDir(), "company-codex")
 
 	// set-path
 	setCmd := newProfileSetPathTestCmd()
-	_ = setCmd.Flags().Set("path", "/opt/bin/company-codex")
+	_ = setCmd.Flags().Set("path", commandPath)
 	if err := runRuntimeProfileSetPath(setCmd, []string{"prof-1"}); err != nil {
 		t.Fatalf("runRuntimeProfileSetPath: %v", err)
 	}
@@ -306,8 +307,8 @@ func TestRunRuntimeProfileSetAndUnsetPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadCLIConfig: %v", err)
 	}
-	if got := cfg.ProfileCommandOverrides["prof-1"]; got != "/opt/bin/company-codex" {
-		t.Fatalf("override after set = %q, want /opt/bin/company-codex", got)
+	if got := cfg.ProfileCommandOverrides["prof-1"]; got != commandPath {
+		t.Fatalf("override after set = %q, want %q", got, commandPath)
 	}
 
 	// unset-path
@@ -325,7 +326,7 @@ func TestRunRuntimeProfileSetAndUnsetPath(t *testing.T) {
 }
 
 func TestRunRuntimeProfileSetPathRejectsRelative(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	cmd := newProfileSetPathTestCmd()
 	_ = cmd.Flags().Set("path", "relative/path")
 	if err := runRuntimeProfileSetPath(cmd, []string{"prof-1"}); err == nil {
@@ -335,7 +336,8 @@ func TestRunRuntimeProfileSetPathRejectsRelative(t *testing.T) {
 
 func TestRunRuntimeProfileSetPathPreservesExistingConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
+	commandPath := filepath.Join(t.TempDir(), "company-codex")
 
 	// Seed an existing config with unrelated fields.
 	seed := cli.CLIConfig{ServerURL: "https://api.multica.ai", WorkspaceID: "ws-123", Token: "mul_xyz"}
@@ -344,7 +346,7 @@ func TestRunRuntimeProfileSetPathPreservesExistingConfig(t *testing.T) {
 	}
 
 	cmd := newProfileSetPathTestCmd()
-	_ = cmd.Flags().Set("path", "/opt/bin/company-codex")
+	_ = cmd.Flags().Set("path", commandPath)
 	if err := runRuntimeProfileSetPath(cmd, []string{"prof-1"}); err != nil {
 		t.Fatalf("runRuntimeProfileSetPath: %v", err)
 	}
@@ -356,14 +358,14 @@ func TestRunRuntimeProfileSetPathPreservesExistingConfig(t *testing.T) {
 	if cfg.ServerURL != "https://api.multica.ai" || cfg.WorkspaceID != "ws-123" || cfg.Token != "mul_xyz" {
 		t.Errorf("set-path clobbered existing config: %#v", cfg)
 	}
-	if cfg.ProfileCommandOverrides["prof-1"] != "/opt/bin/company-codex" {
+	if cfg.ProfileCommandOverrides["prof-1"] != commandPath {
 		t.Errorf("override not written: %#v", cfg.ProfileCommandOverrides)
 	}
 }
 
 func TestRuntimeProfilePathMutationFailsClosedInTaskContext(t *testing.T) {
 	ownerHome := t.TempDir()
-	t.Setenv("HOME", ownerHome)
+	setTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", filepath.Join(t.TempDir(), "task-multica"))

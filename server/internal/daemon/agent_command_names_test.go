@@ -107,7 +107,7 @@ func TestAgentCLIGuardCoversDefaultCommands(t *testing.T) {
 		t.Fatalf("read agent CLI guard names: %v", err)
 	}
 	guarded := map[string]bool{}
-	for lineNumber, line := range strings.Split(string(data), "\n") {
+	for lineNumber, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		if line != strings.TrimSpace(line) {
 			t.Fatalf("agent CLI guard name on line %d has surrounding whitespace", lineNumber+1)
 		}

@@ -96,14 +96,14 @@ function DurationCell({ run }: { run: WorkflowRun }) {
   const seconds = runElapsedSeconds(run.started_at, run.completed_at);
   if (seconds === null) {
     return (
-      <span className="text-xs tabular-nums text-muted-foreground">
+      <span className="text-caption tabular-nums text-muted-foreground">
         {t(($) => $.runs.page.not_started)}
       </span>
     );
   }
   const formatted = formatDuration(seconds, "<1m");
   return (
-    <span className="text-xs tabular-nums text-muted-foreground">
+    <span className="text-caption tabular-nums text-muted-foreground">
       {run.completed_at
         ? formatted
         : t(($) => $.runs.page.duration_running, { duration: formatted })}
@@ -226,10 +226,10 @@ export function WorkflowRunsPage() {
                 </ListGridCell>
                 <ListGridCell>
                   <div className="min-w-0 flex-1">
-                    <span className="block min-w-0 truncate text-sm font-medium">
+                    <span className="block min-w-0 truncate text-body font-medium">
                       {run.template_name}
                     </span>
-                    <span className="block min-w-0 truncate font-mono text-xs text-muted-foreground">
+                    <span className="block min-w-0 truncate font-mono text-caption text-muted-foreground">
                       {run.template_key}
                     </span>
                   </div>
@@ -238,12 +238,12 @@ export function WorkflowRunsPage() {
                   {/* A terminal run has no current node, and a dash is the
                       honest rendering: naming the last node it touched would
                       read as "still there". */}
-                  <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate font-mono text-caption text-muted-foreground">
                     {run.current_node_key ?? t(($) => $.runs.page.not_started)}
                   </span>
                 </ListGridCell>
                 <ListGridCell className="hidden @2xl:flex">
-                  <span className="text-xs tabular-nums text-muted-foreground">
+                  <span className="text-caption tabular-nums text-muted-foreground">
                     {run.started_at
                       ? formatInTimeZone(
                           run.started_at,

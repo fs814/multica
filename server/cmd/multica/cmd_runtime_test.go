@@ -46,7 +46,7 @@ func captureRuntimeStdout(t *testing.T, fn func() error) (string, error) {
 }
 
 func TestRunRuntimeDeleteStrictSuccessPrintsJSON(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 
 	var deleteCount int
@@ -87,7 +87,7 @@ func TestRunRuntimeDeleteStrictSuccessPrintsJSON(t *testing.T) {
 }
 
 func TestRunRuntimeDeleteConflictSuggestsCascade(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func TestRunRuntimeDeleteConflictSuggestsCascade(t *testing.T) {
 }
 
 func TestRunRuntimeDeleteCascadeConfirmsActiveAgentSnapshot(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 
 	var gotExpectedIDs []string
@@ -145,7 +145,7 @@ func TestRunRuntimeDeleteCascadeConfirmsActiveAgentSnapshot(t *testing.T) {
 			gotExpectedIDs = body.ExpectedActiveAgentIDs
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":          "ok",
-				"agents_unbound": 2,
+				"agents_unbound":  2,
 				"tasks_cancelled": 1,
 			})
 		default:

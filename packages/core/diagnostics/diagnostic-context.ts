@@ -63,6 +63,7 @@ const WORKSPACE_ROUTES: readonly RoutePattern[] = [
   ["workflows", ":id"],
   ["workflow-runs"],
   ["workflow-runs", ":id"],
+  ["workflow-issues"],
   ["agents"],
   ["agents", "new"],
   ["agents", "new", "manual"],

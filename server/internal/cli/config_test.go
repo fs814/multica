@@ -4,9 +4,47 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+func setCLIConfigTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
+	t.Setenv(TaskConfigRootEnv, "")
+	resolved, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("resolve test home: %v", err)
+	}
+	if resolved != home {
+		t.Fatalf("resolved test home = %q, want %q", resolved, home)
+	}
+}
+
+func assertCLIConfigPrivateMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %q: %v", path, err)
+	}
+	got := info.Mode().Perm()
+	if runtime.GOOS == "windows" {
+		// Windows DACLs are not represented by os.FileMode: regular files
+		// report 0666 and directories 0777. Keep the assertion active by
+		// checking that the current account retains the requested owner bits.
+		if ownerWant := want.Perm() & 0o700; got&ownerWant != ownerWant {
+			t.Fatalf("%q owner permissions = %#o, want at least %#o", path, got, ownerWant)
+		}
+		return
+	}
+	if got != want.Perm() {
+		t.Fatalf("%q mode = %#o, want %#o", path, got, want.Perm())
+	}
+}
 
 // TestCLIConfig_BackwardCompat_OldFileLoadsWithNilBackends verifies that a
 // config.json written by an older daemon (no `backends` key at all) loads
@@ -15,7 +53,7 @@ import (
 // continue to work byte-for-byte.
 func TestCLIConfig_BackwardCompat_OldFileLoadsWithNilBackends(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	// Write a 4-field config exactly as the historical daemon would have.
 	cfgDir := filepath.Join(tmp, ".multica")
@@ -55,7 +93,7 @@ func TestCLIConfig_BackwardCompat_OldFileLoadsWithNilBackends(t *testing.T) {
 // an older daemon doesn't trip on an empty `backends: null` line.
 func TestCLIConfig_BackwardCompat_NilBackendsOmittedFromJSON(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	cfg := CLIConfig{
 		ServerURL: "https://api.multica.ai",
@@ -87,7 +125,7 @@ func TestCLIConfig_BackwardCompat_NilBackendsOmittedFromJSON(t *testing.T) {
 // and StateDir survives a save/load cycle.
 func TestCLIConfig_OpenClawOverride_RoundTrip(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	original := CLIConfig{
 		ServerURL: "https://api.multica.ai",
@@ -128,7 +166,7 @@ func TestCLIConfig_OpenClawOverride_RoundTrip(t *testing.T) {
 // without an empty string overriding env-var precedence.
 func TestCLIConfig_OpenClawOverride_PartialFieldsOmitted(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	cfg := CLIConfig{
 		ServerURL: "https://api.multica.ai",
@@ -173,7 +211,7 @@ func TestCLIConfig_OpenClawOverride_PartialFieldsOmitted(t *testing.T) {
 // load->modify->save cycle never dropping config the user already had.
 func TestCLIConfig_ProfileCommandOverrides_RoundTrip(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	original := CLIConfig{
 		ServerURL:   "https://api.multica.ai",
@@ -232,7 +270,7 @@ func TestCLIConfig_ProfileCommandOverrides_RoundTrip(t *testing.T) {
 // set, so configs for users who never pin a path stay byte-stable.
 func TestCLIConfig_ProfileCommandOverrides_OmittedWhenEmpty(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	cfg := CLIConfig{ServerURL: "https://api.multica.ai", Token: "mul_xyz"}
 	if err := SaveCLIConfig(cfg); err != nil {
@@ -265,7 +303,7 @@ func TestCLIConfig_UnknownFieldsArePreserved(t *testing.T) {
 	t.Skip("documenting known limitation: encoding/json drops unknown fields on round-trip; future PR can switch to a preserving encoder")
 
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	cfgDir := filepath.Join(tmp, ".multica")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
@@ -306,7 +344,7 @@ func TestCLIConfig_UnknownFieldsArePreserved(t *testing.T) {
 // time instead of silently losing the operator's config on restart.
 func TestCLIConfig_DaemonKnobs_RoundTrip(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setCLIConfigTestHome(t, tmp)
 
 	zero := "0s"
 	original := CLIConfig{
@@ -340,7 +378,7 @@ func TestCLIConfig_DaemonKnobs_RoundTrip(t *testing.T) {
 func TestCLIConfig_TaskRootOverridesOwnerHome(t *testing.T) {
 	ownerHome := t.TempDir()
 	taskRoot := filepath.Join(t.TempDir(), "task-multica")
-	t.Setenv("HOME", ownerHome)
+	setCLIConfigTestHome(t, ownerHome)
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", taskRoot)
 
 	ownerPath := filepath.Join(ownerHome, ".multica", "config.json")
@@ -382,26 +420,14 @@ func TestCLIConfig_TaskRootOverridesOwnerHome(t *testing.T) {
 		t.Fatalf("owner config was modified: got %q, want original sentinel", after)
 	}
 	for _, dir := range []string{taskRoot, filepath.Join(taskRoot, "profiles"), filepath.Join(taskRoot, "profiles", "dev")} {
-		info, err := os.Stat(dir)
-		if err != nil {
-			t.Fatalf("stat task config directory %q: %v", dir, err)
-		}
-		if got := info.Mode().Perm(); got != 0o700 {
-			t.Errorf("task config directory %q mode = %#o, want 0700", dir, got)
-		}
+		assertCLIConfigPrivateMode(t, dir, 0o700)
 	}
-	info, err := os.Stat(wantPath)
-	if err != nil {
-		t.Fatalf("stat task config file: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Errorf("task config file mode = %#o, want 0600", got)
-	}
+	assertCLIConfigPrivateMode(t, wantPath, 0o600)
 }
 
 func TestCLIConfig_NoTaskRootKeepsInteractiveHomeResolution(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setCLIConfigTestHome(t, home)
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", "")
 
 	path, err := CLIConfigPathForProfile("dev")

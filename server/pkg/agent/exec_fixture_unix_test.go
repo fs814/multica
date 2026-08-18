@@ -30,3 +30,22 @@ func writeTestExecutable(tb testing.TB, path string, content []byte) {
 		tb.Fatalf("write test executable %s: close: %v", path, err)
 	}
 }
+
+func runWindowsTestExecutableFixture() (int, bool) {
+	return 0, false
+}
+
+func runWindowsPowerShellShimHelper() (int, bool) {
+	return 0, false
+}
+
+func assertTestFileMode(tb testing.TB, path string, want os.FileMode) {
+	tb.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		tb.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want.Perm() {
+		tb.Fatalf("%s mode = %#o, want %#o", path, got, want.Perm())
+	}
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { WorkflowDefinition, WorkflowNode } from "@multica/core/workflows";
@@ -32,7 +32,9 @@ vi.mock("../../i18n", async () => {
 
 import { WorkflowPropertiesPanel } from "./properties-panel";
 
-function node(patch: Partial<WorkflowNode> & Pick<WorkflowNode, "key" | "type">): WorkflowNode {
+function node(
+  patch: Partial<WorkflowNode> & Pick<WorkflowNode, "key" | "type">,
+): WorkflowNode {
   return {
     name: "",
     instruction: "",
@@ -114,7 +116,10 @@ describe("WorkflowPropertiesPanel", () => {
     await userEvent.type(screen.getByDisplayValue("Implement"), "!");
 
     expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Implement!", join_sources: ["analyze"] }),
+      expect.objectContaining({
+        name: "Implement!",
+        join_sources: ["analyze"],
+      }),
     );
   });
 
@@ -151,10 +156,21 @@ describe("WorkflowPropertiesPanel", () => {
     expect(screen.getByText("notify")).toBeInTheDocument();
   });
 
-  it("demands rework targets on an acceptance node, which the validator requires", () => {
-    const accept = node({ key: "review", type: "acceptance" });
-    const other = node({ key: "implement", type: "agent" });
-    renderPanel(accept, definition([other, accept]));
+  it("demands rework targets on an acceptance node, which the validator requires", async () => {
+    const intake = node({ key: "intake", type: "input", next: ["implement"] });
+    const implement = node({
+      key: "implement",
+      type: "agent",
+      name: "Implement",
+      next: ["review"],
+    });
+    const accept = node({ key: "review", type: "acceptance", next: ["end"] });
+    const end = node({ key: "end", type: "end" });
+    const orphan = node({ key: "orphan", type: "agent", next: ["end"] });
+    const { onChange } = renderPanel(
+      accept,
+      definition([intake, implement, accept, end, orphan]),
+    );
 
     expect(
       screen.getByText(
@@ -163,12 +179,37 @@ describe("WorkflowPropertiesPanel", () => {
     ).toBeInTheDocument();
     // The node itself is never a candidate: the validator rejects self-rework.
     const group = screen.getByRole("group", { name: "Rework targets" });
-    expect(group).toHaveTextContent("implement");
+    expect(group).toHaveTextContent("Implement");
+    expect(group).not.toHaveTextContent("intake");
     expect(group).not.toHaveTextContent("review");
+    expect(group).not.toHaveTextContent("end");
+    expect(group).not.toHaveTextContent("orphan");
+
+    await userEvent.click(within(group).getByRole("checkbox"));
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ rework_targets: ["implement"] }),
+    );
+  });
+
+  it("explains how a new disconnected acceptance node gets eligible targets", () => {
+    const step = node({ key: "step", type: "agent", next: ["end"] });
+    const end = node({ key: "end", type: "end" });
+    const accept = node({ key: "acceptance_1", type: "acceptance" });
+    renderPanel(accept, definition([step, end, accept]));
+
+    expect(
+      screen.getByText(
+        "Connect this step after an eligible upstream work step; it will appear here.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("only surfaces rework targets for on_failure=rework on an agent node", () => {
-    const blocking = node({ key: "implement", type: "agent", on_failure: "block" });
+    const blocking = node({
+      key: "implement",
+      type: "agent",
+      on_failure: "block",
+    });
     const other = node({ key: "analyze", type: "agent" });
     renderPanel(blocking, definition([other, blocking]));
 
@@ -283,7 +324,9 @@ describe("WorkflowPropertiesPanel", () => {
     const other = node({ key: "implement", type: "agent" });
     const { onChange } = renderPanel(target, definition([other, target]));
 
-    await userEvent.click(screen.getByRole("button", { name: "Add criterion" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Add criterion" }),
+    );
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ acceptance_criteria: ["Tests pass", ""] }),
     );

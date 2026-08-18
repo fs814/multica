@@ -992,11 +992,6 @@ func TestCleanupSidecarsSwallowsMissingAndNonEmptyDirs(t *testing.T) {
 // the EACCES we want to trigger never materialises. CI's daemon runner
 // is unprivileged, so the branch is exercised in CI.
 func TestCleanupSidecarsSurfacesEACCESOnEmptyRecordedDir(t *testing.T) {
-	t.Parallel()
-	if os.Geteuid() == 0 {
-		t.Skip("chmod is bypassed for uid 0; cannot synthesize EACCES on rmdir")
-	}
-
 	workDir := t.TempDir()
 	envRoot := t.TempDir()
 
@@ -1009,16 +1004,14 @@ func TestCleanupSidecarsSurfacesEACCESOnEmptyRecordedDir(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 
-	// Strip write from parent so rmdir(recorded) fails EACCES.
-	// rmdir requires write on the PARENT (it modifies parent's
-	// directory entries); readdir(recorded) only requires read on
-	// recorded itself, which we leave intact. That isolates this
-	// test to the "empty + rmdir refused" branch.
-	if err := os.Chmod(parent, 0o555); err != nil {
-		t.Fatalf("chmod parent: %v", err)
+	originalRemove := removeSidecarDir
+	removeSidecarDir = func(path string) error {
+		if path == recorded {
+			return &os.PathError{Op: "remove", Path: path, Err: fs.ErrPermission}
+		}
+		return originalRemove(path)
 	}
-	// Restore parent permissions for t.TempDir() teardown.
-	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+	t.Cleanup(func() { removeSidecarDir = originalRemove })
 
 	err := CleanupSidecars(envRoot)
 	if err == nil {
@@ -1043,11 +1036,6 @@ func TestCleanupSidecarsSurfacesEACCESOnEmptyRecordedDir(t *testing.T) {
 //
 // Skipped when running as root for the same reason as above.
 func TestCleanupSidecarsSurfacesEACCESWhenReadDirFailsToo(t *testing.T) {
-	t.Parallel()
-	if os.Geteuid() == 0 {
-		t.Skip("chmod is bypassed for uid 0; cannot synthesize EACCES on rmdir + readdir")
-	}
-
 	workDir := t.TempDir()
 	envRoot := t.TempDir()
 
@@ -1060,20 +1048,23 @@ func TestCleanupSidecarsSurfacesEACCESWhenReadDirFailsToo(t *testing.T) {
 		t.Fatalf("write manifest: %v", err)
 	}
 
-	// Strip both: read on recorded so ReadDir(recorded) fails EACCES,
-	// write on parent so rmdir(recorded) also fails EACCES. The
-	// helper must report ok=false; CleanupSidecars must surface the
-	// rmdir error anyway.
-	if err := os.Chmod(recorded, 0o000); err != nil {
-		t.Fatalf("chmod recorded: %v", err)
+	originalRemove := removeSidecarDir
+	originalReadDir := readSidecarDir
+	removeSidecarDir = func(path string) error {
+		if path == recorded {
+			return &os.PathError{Op: "remove", Path: path, Err: fs.ErrPermission}
+		}
+		return originalRemove(path)
 	}
-	if err := os.Chmod(parent, 0o555); err != nil {
-		_ = os.Chmod(recorded, 0o755)
-		t.Fatalf("chmod parent: %v", err)
+	readSidecarDir = func(path string) ([]os.DirEntry, error) {
+		if path == recorded {
+			return nil, &os.PathError{Op: "readdir", Path: path, Err: fs.ErrPermission}
+		}
+		return originalReadDir(path)
 	}
 	t.Cleanup(func() {
-		_ = os.Chmod(parent, 0o755)
-		_ = os.Chmod(recorded, 0o755)
+		removeSidecarDir = originalRemove
+		readSidecarDir = originalReadDir
 	})
 
 	err := CleanupSidecars(envRoot)

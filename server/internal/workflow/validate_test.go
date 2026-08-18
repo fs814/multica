@@ -228,6 +228,13 @@ func TestValidateRejectsInputNodeMisuse(t *testing.T) {
 			wantMsg: "must not declare input_fields",
 		},
 		{
+			name: "agent node declares input mode",
+			mutate: func(d *Definition) {
+				d.Nodes[1].InputMode = InputModeText
+			},
+			wantMsg: "must not declare input_mode",
+		},
+		{
 			name: "field with no key",
 			mutate: func(d *Definition) {
 				d.Nodes[0].InputFields[0].Key = ""
@@ -503,6 +510,13 @@ func TestValidateRejects(t *testing.T) {
 				d.Nodes[3].ReworkTargets = nil
 			},
 			wantMsg: "must declare at least one rework target",
+		},
+		{
+			name: "acceptance rework target is downstream",
+			mutate: func(d *Definition) {
+				d.Nodes[3].ReworkTargets = []string{"end"}
+			},
+			wantMsg: "not a reachable upstream node on a forward path",
 		},
 		{
 			name: "agent node with two outgoing edges",

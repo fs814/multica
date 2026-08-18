@@ -212,6 +212,8 @@
     "agent": "Issue",
     "acceptance": "验收",
     "condition": "条件",
+    "fan_out": "扇出",
+    "join": "汇聚",
     "end": "结束"
   },
   "panel": {
@@ -370,10 +372,12 @@
       "unknown": "无法识别的策略“{{policy}}”",
       "rework_targets": "退回到哪些步骤",
       "rework_targets_aria": "返工目标",
-      "rework_targets_hint": "运行只能回退到这些步骤，这正是循环次数得以受控的原因。",
-      "rework_targets_empty": "没有其他步骤可供退回。",
+      "rework_targets_hint": "请选择一个或多个可达的上游步骤；运行只能回退到这些步骤。",
+      "rework_targets_empty": "请先将此步骤连接在一个可用的上游工作步骤之后；连接后目标会显示在这里。",
       "rework_targets_required": "返工至少需要一个目标，否则运行将无路可走。",
-      "rework_targets_required_acceptance": "验收步骤至少需要一个目标，否则被驳回的工作无处可去。"
+      "rework_targets_required_acceptance": "验收步骤至少需要一个目标，否则被驳回的工作无处可去。",
+      "rework_targets_invalid": "以下目标不是可达的上游步骤：{{targets}}。请清除后选择合法目标。",
+      "rework_targets_invalid_option": "{{name}}（不是合法的上游步骤）"
     }
   },
   "graph": {
@@ -517,6 +521,7 @@
       "not_found": "找不到这次运行",
       "unreadable": "这次运行的详情读不出来，因此没有展示它的轨迹。什么都没有被改动。",
       "source": "来源：{{source}}",
+      "source_event": "来源事件",
       "cancel": "取消运行",
       "cancelling": "正在取消…",
       "toast_cancelled": "运行已取消",

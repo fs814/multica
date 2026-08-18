@@ -37,6 +37,11 @@ const sidecarManifestFile = ".multica_sidecar_manifest.json"
 //     disk is degraded behavior, not failure.
 var errPathPreExists = errors.New("execenv: refuse to overwrite pre-existing path")
 
+var (
+	removeSidecarDir = os.Remove
+	readSidecarDir   = os.ReadDir
+)
+
 // sidecarManifest records the filesystem mutations writeContextFiles and
 // its callees make inside the agent's WorkDir for a single task. The
 // manifest is the second half of the contract that makes local_directory
@@ -303,7 +308,7 @@ func CleanupSidecars(envRoot string) error {
 	// (permission denied, busy, etc. — capture and surface).
 	for i := len(m.Dirs) - 1; i >= 0; i-- {
 		d := m.Dirs[i]
-		err := os.Remove(d)
+		err := removeSidecarDir(d)
 		if err == nil || errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -420,7 +425,17 @@ func removeReusedManagedSkillDirs(envRoot, skillsParent string) error {
 //     every readdir failure as "user content present" and hid the
 //     underlying rmdir error.
 func dirHasEntries(dir string) (hasEntries bool, ok bool) {
-	entries, err := os.ReadDir(dir)
+	info, err := os.Stat(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, true
+		}
+		return false, false
+	}
+	if !info.IsDir() {
+		return false, false
+	}
+	entries, err := readSidecarDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return false, true

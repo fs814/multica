@@ -28,7 +28,7 @@ const SchemaVersion = 1
 // NodeType enumerates the node kinds of the first release. Condition, FanOut,
 // and Join are part of the contract now — the validator accepts and checks them
 // so published graphs stay forward-compatible — but only Agent, Acceptance,
-// Input, and End have executors in U2. Fan-out/Join execution lands in U7.
+// Every declared node type has a durable executor; unknown values are rejected.
 type NodeType string
 
 const (

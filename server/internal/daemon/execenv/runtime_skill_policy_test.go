@@ -69,9 +69,8 @@ func TestPrepareClaudeSkillSettings(t *testing.T) {
 }
 
 func TestEnsureCodexDisabledSkillsConfig(t *testing.T) {
-	t.Parallel()
-
 	root := t.TempDir()
+	setExecenvTestHome(t, t.TempDir())
 	configPath := filepath.Join(root, "config.toml")
 	if err := os.WriteFile(configPath, []byte("model = \"gpt-5\"\n"), 0o600); err != nil {
 		t.Fatal(err)

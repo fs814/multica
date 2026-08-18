@@ -1,378 +1,317 @@
-# Multi-Agent Workflow Runtime - Implementation Plan
-
-> Status: Proposed  
-> Date: 2026-07-31  
-> Product reference: https://zhuanlan.zhihu.com/p/2058935265348134625  
-> Scope: server, Agent/Runtime protocol, Autopilot, shared web/desktop UI, observability, and rollout. Mobile is deferred.
+# Multi-Agent Workflow Runtime and External Handoff Plan
 
-## Goal Capsule
+Status: Implemented baseline plus external handoff hardening  
+Last revised: 2026-08-17  
+Tracking: TES-22 / TES-23
 
-- **Problem:** Multica dispatches Agent Tasks but lacks durable multi-step handoff, structured verdicts, fan-out/join, human acceptance, and targeted rework.
-- **Decision:** Add a workflow control plane above Issue and Agent Task. Reuse the queue, runtimes, Autopilot, durable webhooks, failure taxonomy, realtime, and metrics.
-- **First slice:** A versioned Bug Fix workflow: Analyze -> Implement -> Validate -> Human Acceptance -> End.
-- **Compatibility:** Workflow linkage is additive and nullable. Existing Issue, Chat, Quick Create, Squad, and Autopilot behavior remains available.
-- **Success:** Runs survive duplicate events and restarts, cannot complete without End, and expose a Run -> Step -> Task trace.
+## Goal capsule
 
-## 1. Executive Decision
+Multica runs a versioned multi-agent workflow as durable workspace work. Every execution has one Issue for human collaboration, one pinned Workflow Run for orchestration, durable steps/events/submissions, explicit accountability, and recoverable external ingress and egress.
 
-Do not replace the current Agent Task scheduler. It already owns runtime selection, queueing, daemon dispatch, task lifecycle, failure classification, recovery, usage accounting, and realtime updates.
+The external handoff loop is complete when a caller can submit one authenticated event, receive stable Issue and Workflow Run identities, observe the source event in run history, and optionally receive signed lifecycle callbacks that can be retried or replayed without duplicating workflow work.
 
-The new coordination layer will:
+## 1. Decisions
 
-1. Materialize an immutable template version into a durable Workflow Run.
-2. Activate ready steps and create existing Agent Tasks transactionally and idempotently.
-3. Convert task output into a structured Submission and Verdict.
-4. Choose the next step, join behavior, rework target, or human acceptance state.
-5. Reconcile partial transitions after crashes and expose a complete trace.
+- React Query remains the owner of server state and Zustand remains limited to client/view state.
+- Workflow Engine is the only component allowed to materialize and advance Workflow Runs.
+- Manual runs, workflow-bound Autopilots, and authenticated external intake all call the same Engine start command.
+- Issue creation, owner subscription, Workflow Run creation, initial event, entry-step activation, initial task enqueue, and Workflow-bound Autopilot receipt linkage commit in one database transaction.
+- A Run always pins a published template version. Caller-supplied input cannot switch a workflow-bound Autopilot to another template.
+- Existing Issue, task, acceptance, notification, and webhook-delivery facilities are reused where they already fit. The only new delivery queue is the narrow workflow callback delivery table.
+- Database relationships are enforced in application code. No new foreign keys or cascading actions are introduced.
+- Every new index is built with `CREATE [UNIQUE] INDEX CONCURRENTLY` in its own single-statement migration.
 
-The first release agentizes a workflow humans already understand. Dynamic AI-generated graphs, a node canvas, and Temporal are not prerequisites.
+## 2. System shape
 
-## 2. Scope
+```text
+manual UI ───────────────┐
+workflow Autopilot ──────┼─> Workflow Engine StartRun transaction
+authenticated intake ────┘      ├─ Issue + owner subscriber
+                                ├─ pinned Workflow Run + source_event_id
+                                ├─ run.started event
+                                ├─ entry Step + Agent task
+                                └─ optional callback delivery
+                                             │
+                                             v
+                                leased callback workers
+                                  ├─ HTTPS + SSRF guard
+                                  ├─ timestamped HMAC
+                                  ├─ bounded retry
+                                  └─ history / replay / failure inbox
+```
 
-### In scope
+The Workflow Engine continues to own sequential execution, routing, fan-out/join, acceptance/rework, terminal state, and reconciliation. External handoff extends the boundaries around that engine; it does not introduce a second orchestrator.
 
-- Immutable template versions and graph validation.
-- Run and Step Instance state machines.
-- Agent, Acceptance, End, Condition, Fan-out, and Join nodes.
-- Submission fields: artifact, pass/fail/blocked verdict, rationale, confidence, root cause.
-- Explicit, previous-step, capability-match, and fallback routing.
-- Targeted bounded rework with rejection context.
-- Autopilot and external event intake.
-- Workflow reconciliation, notifications, traces, metrics, and shared web/desktop UI.
+## 3. Core invariants
 
-### Deferred
+1. A workflow-owned Issue and its first Run state never exist partially.
+2. `(workspace_id, idempotency_key)` identifies one Run. Reusing a key with a different canonical request hash is a conflict, not a replay.
+3. A replay returns the original Run and Issue identities and does not emit a second `run.started` callback.
+4. `source_event_id` stores the caller's event identity and is returned by Go and TypeScript run-detail contracts.
+5. The accountable human is a durable Issue subscriber from creation time.
+6. While a Run is `pending`, `running`, `waiting_acceptance`, or `blocked`, ordinary direct or batch Issue status changes are rejected.
+7. Setting the Issue to `cancelled` is an explicit command: cancel active Runs and their workflow tasks, then update the Issue.
+8. Workflow-bound webhook triggers require HMAC configuration and never accept a payload that conflicts with their statically bound template.
+9. Callback event creation is in the same transaction as the workflow event it represents.
+10. Delivery leases and event keys make retries, crashes, and operator replay safe.
 
-- AI-created or runtime-mutated graphs.
-- Arbitrary cycles; only explicit bounded rework edges.
-- Drag-and-drop canvas until graph semantics stabilize.
-- Replacing Issue, Agent Task, daemon dispatch, or Runtime Sweeper.
-- Automatic conversion of existing Autopilots.
-- Mobile UI and cross-workspace workflows.
+## 4. Data model
 
-## 3. Current Foundations and Gaps
+### Existing workflow tables
 
-Reuse:
+The runtime uses:
 
-- Task queue: server/pkg/db/queries/agent.sql
-- Task lifecycle: server/internal/service/task.go
-- Runtime/task recovery: server/cmd/server/runtime_sweeper.go
-- Failure contract: server/pkg/taskfailure/failure.go and classify.go
-- Daemon protocol: server/pkg/protocol/messages.go and events.go
-- Autopilot: server/migrations/042_autopilot.up.sql, server/internal/service/autopilot.go, server/internal/scheduler/jobs_autopilot.go
-- Core API/query state: packages/core
-- Shared UI: packages/views
-- Metrics/analytics: server/internal/metrics and server/internal/analytics
+- `workflow_template` and immutable `workflow_template_version`
+- `workflow_run`
+- `workflow_step_instance`
+- `workflow_submission`
+- `workflow_acceptance`
+- `workflow_event`
 
-Gaps:
+The existing unique run idempotency fence and event idempotency fence remain authoritative.
 
-- No Template, Run, Step, graph validator, or transition engine.
-- Task result is not a stable cross-Agent handoff contract.
-- Task-level parallelism has no durable fan-out/join semantics.
-- acceptance_criteria lacks a complete acceptance/rework lifecycle.
-- Provider capabilities are technical, not business capability routing.
-- Task/runtime recovery cannot repair a lost workflow transition.
-- Metrics lack first-pass acceptance, rework, and node failure distribution.
+### External-handoff additions
 
-## 4. Invariants
+`workflow_run` adds:
 
-- Agent Task completion is not business acceptance; a Run completes only through End.
-- Published versions and completed Step attempts are immutable.
-- Rework creates a new attempt and preserves prior Submissions.
-- Each Agent Step attempt has at most one active Task.
-- Blocked is first-class and never silently becomes unknown failure.
-- Retry, rework, fan-out, duration, token, and cost are bounded.
-- Every event and command has a workspace-scoped idempotency key.
-- State and Workflow Event commit atomically; replay cannot advance twice.
-- Every query filters workspace_id; routing reuses invocation permissions.
-- Do not add database foreign keys or cascades. Validate relationships and clean up in application transactions.
-- Every index uses CREATE INDEX CONCURRENTLY in its own migration.
-- React Query owns server state; do not mirror workflows into Zustand.
-- Shared web/desktop views live in packages/views.
-- API responses use zod and parseWithFallback with malformed-response tests.
+- `request_hash TEXT`: canonical request identity used to distinguish safe replay from payload conflict.
+- `callback_destination_id UUID`: optional narrow destination selected at intake.
 
-## 5. Data Model
+`autopilot_trigger` adds:
 
-Migration numbers are selected from the current head. Relationships are logical only.
+- `signing_secret_encrypted BYTEA`: encrypted HMAC secret. Writes and startup backfill clear the legacy plaintext value; runtime reads fail closed instead of consuming plaintext.
 
-### workflow_template
+`workflow_callback_destination` stores workspace scope, name, HTTPS URL, encrypted signing secret, enabled state, creator, and timestamps. Secret material is never returned by API responses.
 
-id, workspace_id, key, name, description, draft/published/archived status, current_version, creator, timestamps. Unique concurrent index on workspace_id plus key.
+`workflow_callback_delivery` stores destination, Run, event type/key, exact JSON payload, status, attempts, availability, lease token/expiry, response metadata, error, and timestamps.
 
-### workflow_template_version
+Indexes:
 
-id, workspace_id, template_id, version, definition JSONB, schema version, status, publisher, timestamps. Published rows are immutable. Unique concurrent index on template_id plus version.
+- unique destination name per workspace;
+- unique callback event per workspace/destination/event key;
+- claim index over queued/available deliveries;
+- Run-history index.
+- primary-key unique indexes for both callback tables, created concurrently and attached with `PRIMARY KEY USING INDEX` in later migrations.
 
-### workflow_run
+Workspace deletion explicitly removes callback deliveries before destinations and before the remaining workflow graph.
 
-id, workspace_id, issue_id, template/version IDs, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy snapshot, blocked/failure reason, timestamps.
+## 5. StartRun transaction
 
-Statuses: pending, running, waiting_acceptance, blocked, completed, failed, cancelled. Unique concurrent index on workspace_id plus idempotency_key.
+`workflow.Engine.StartRun` accepts optional Issue materialization data, request hash, source event identity, and callback destination.
 
-### workflow_step_instance
+Within one transaction it:
 
-id, workspace_id, run_id, node_key, node_type, attempt, status, parent_step_id, agent_id, task_id, routing_reason, input, output, failure_reason, timestamps.
+1. resolves and validates the published pinned version;
+2. checks an existing idempotency key and compares `request_hash`;
+3. allocates the workspace Issue number and position;
+4. creates the unassigned `in_progress` Issue;
+5. inserts accountable owner and configured subscribers;
+6. creates the Workflow Run linked to that Issue;
+7. records `run.started`;
+8. materializes and activates the entry Step;
+9. enqueues the first Agent task when the entry node requires one;
+10. inserts the optional callback delivery from the recorded event;
+11. links the source `autopilot_run` when the caller is a Workflow-bound Autopilot;
+12. commits all state together.
 
-Node types: agent, condition, fan_out, join, acceptance, end. Statuses: pending, ready, queued, running, submitted, passed, failed, blocked, waiting_acceptance, skipped, cancelled. Unique concurrent index on run, node key, attempt.
+Any failure after Issue insertion rolls back the Issue, subscriber, Run, event, Step, task, and callback row.
 
-### workflow_submission
+Manual runs use `source=manual`. Workflow Autopilots use `source=autopilot` and their Autopilot Run ID as `source_event_id`. External intake uses `source=external` and the submitted `event_id`.
 
-id, workspace_id, run_id, step_id, task_id, schema_version, verdict pass/fail/blocked, artifact JSONB, rationale, confidence, root_cause, raw_result, validation_errors, submitted_at.
+## 6. Authenticated intake API
 
-### workflow_acceptance
+Endpoint:
 
-id, workspace_id, run_id, step_id, pending/accepted/rejected/cancelled status, reviewer, reason, rework target, context, timestamps.
+`POST /api/workspaces/{workspace_id}/workflow-intake`
 
-### workflow_event
+The endpoint uses normal authenticated workspace membership, including PAT-backed requests handled by existing authentication middleware.
 
-Append-only id, workspace_id, run_id, step_id, event_type, idempotency_key, actor, payload, created_at. Unique concurrent index on workspace_id plus idempotency_key.
+Request:
 
-### Existing-table additions
+```json
+{
+  "source": "ticketing",
+  "event_id": "ticket-123",
+  "template_key": "bug_fix",
+  "title": "External ticket 123",
+  "description": "Reproduce and fix the failure.",
+  "owner_user_id": "optional-workspace-member-uuid",
+  "source_url": "https://tickets.example/123",
+  "payload": { "severity": "high" },
+  "callback_destination_id": "optional-destination-uuid"
+}
+```
 
-- agent_task_queue.workflow_step_instance_id UUID nullable
-- autopilot.workflow_template_id UUID nullable
-- autopilot.workflow_template_version_id UUID nullable
-- autopilot_run.workflow_run_id UUID nullable
+Validation rules:
 
-Add workflow_callback_delivery only if the current durable delivery table cannot support typed inbound/outbound delivery safely.
+- `source`, `event_id`, `template_key`, title, and description are required and bounded;
+- the template must exist in the workspace and be published;
+- payload must be an object;
+- source URL must be HTTP or HTTPS;
+- callback destination must be enabled and workspace-scoped;
+- ordinary members can assign only themselves; owners/admins may select another workspace member.
 
-## 6. Contracts and State
+The server derives `external:{source}:{sha256(event_id)}` as the Run idempotency key and hashes the canonical validated request. First acceptance returns `201`; identical replay returns `200`; the same source/event with a different canonical body returns `409 idempotency_conflict`.
 
-Template definition contains entry node, nodes, edges, routing, Submission schemas, failure policies, rework targets, and hard limits.
+Both success responses contain stable `receipt_id`, `workflow_run_id`, `issue_id`, status, and template key.
 
-Publishing rejects missing/duplicate nodes, dangling edges, no reachable End, outgoing End edges, non-rework cycles, unbounded rework, unmatched Join, unresolved routing, unknown Submission schemas, invalid rework targets, and limits above workspace policy.
+## 7. Workflow-bound Autopilot and webhook contract
 
-Canonical Submission:
+Workflow-bound Autopilots pass their receipt ID into the same atomic StartRun path. The Engine links both `workflow_run_id` and `issue_id` back to `autopilot_run` before commit; a missing or failed linkage rolls back the Issue, Run, events, Steps, tasks, and callback delivery.
 
-    {
-      "schema_version": 1,
-      "step_instance_id": "uuid",
-      "verdict": "pass",
-      "artifact": { "type": "code_change", "summary": "...", "references": [] },
-      "rationale": "Why the result satisfies the step",
-      "confidence": 0.92,
-      "root_cause": null
-    }
+Webhook ingress:
 
-Preferred submission uses an authenticated Multica MCP/CLI command bound to the claimed Task. A delimited final JSON payload is a measured compatibility path. Parsing failure blocks the Step; natural language never implies pass.
+- requires an encrypted signing secret for a workflow-bound Autopilot;
+- verifies provider HMAC using the exact request body;
+- validates that the workflow payload is an object;
+- accepts an optional `template_key` only when it equals the statically bound template;
+- rejects a non-string, empty, or conflicting template key before persistence/dispatch;
+- treats the same dedupe key plus exact body as a duplicate;
+- returns `409 idempotency_conflict` for the same dedupe key with a different body.
 
-Run transitions:
+The normalized `eventPayload` object is flattened into workflow input while the normalized event envelope remains available for provenance.
 
-- pending -> running
-- running -> waiting_acceptance/blocked/completed/failed/cancelled
-- waiting_acceptance -> running/completed/cancelled
-- blocked -> running/failed/cancelled
+Webhook responses preserve the existing Autopilot Run receipt. Once dispatch has started, duplicate receipts and authenticated delivery detail/replay responses also expose `workflow_run_id` and `issue_id`.
 
-Step transitions:
+## 8. Ownership, lifecycle, and notifications
 
-- pending -> ready/skipped/cancelled
-- ready -> queued/waiting_acceptance/passed
-- queued -> running/failed/blocked/cancelled
-- running -> submitted/failed/blocked/cancelled
-- submitted -> passed/failed/blocked
-- waiting_acceptance -> passed/failed/cancelled
+The accountable owner is inserted into `issue_subscriber` during the StartRun transaction:
 
-Issue is a projection: running -> in_progress, waiting_acceptance -> in_review, blocked -> blocked, End -> done, failed -> todo plus failure activity. Cancelling Issue cancels the active Run; done before End is rejected.
+- manual and external intake use the existing `manual` reason;
+- workflow Autopilots use `autopilot`;
+- configured Autopilot subscribers are deduplicated.
 
-## 7. Engine and Recovery
+Existing issue and workflow notification listeners therefore deliver comments, mentions, acceptance events, and terminal changes through established channels. The issue listener normalizes both handler `IssueResponse` values and the JSON-shaped maps emitted by background Workflow projection before subscriber delivery.
 
-Commands: StartRun, ActivateStep, RecordTaskTerminal, SubmitResult, DecideAcceptance, RequestRework, CancelRun, ReconcileRun.
+Direct and batch Issue update handlers preflight active workflow ownership. A transition to `done` or another status returns `409 workflow_run_active`. A transition to `cancelled` calls Workflow Engine cancellation and cancels linked active Agent tasks before the Issue update proceeds.
 
-Each command resolves workspace resources, starts a transaction, locks Run/Step rows in stable order, checks idempotency, validates transition, writes state plus Event, creates Task/outbox if needed, commits, then emits realtime invalidation.
+Permanent callback failure creates an existing inbox item for the accountable member with the Run and delivery identities.
 
-Step activation and Task enqueue must share one application transaction. Refactor TaskService to accept transaction-scoped sqlc queries if required; dual-write repair must not be the normal path.
+## 9. Callback destinations and delivery
 
-TaskService stays canonical for Task terminal state. It invokes an idempotent workflow command after commit. Valid completion creates Submission; invalid output blocks with submission_contract_invalid; classified failure goes through node policy.
+Management API:
 
-Run a bounded workflow reconciler beside Runtime Sweeper, initially every 30 seconds. Repair:
+- `GET /api/workspaces/{workspace_id}/workflow-callback-destinations`
+- `POST /api/workspaces/{workspace_id}/workflow-callback-destinations` for owner/admin
+- `GET /api/workflow-runs/{run_id}/callback-deliveries`
+- `POST /api/workflow-callback-deliveries/{delivery_id}/replay` for owner/admin
 
-- Running Run with no active/ready Step.
-- Agent Step without Task.
-- Terminal Task not consumed by Step.
-- Ready Step past activation timeout.
-- Offline Runtime before start.
-- Stale Acceptance or callback.
-- Terminal children without Join progress.
-- Exceeded duration/retry/rework/cost limits.
+Destinations accept only absolute HTTPS URLs without user info. Configuration and dispatch both reject localhost, `.local`, loopback, private, unspecified, link-local, multicast, CGNAT, benchmarking, documentation, and reserved address ranges.
 
-Repairs replay engine commands, not direct status edits. Irreconcilable state blocks with workflow_invariant_violation.
+The production HTTP transport disables proxies and redirects. Its dialer resolves the hostname, validates every address, and connects to the validated IP while retaining the original hostname for TLS. This closes the DNS-rebinding gap between validation and connection.
 
-## 8. Routing, Parallelism, Acceptance
+Callbacks are emitted for:
 
-Routing order: explicit Agent, prior-Step selection, business capability match, configured fallback. Candidates pass workspace, archive, invocation, accountable-human, Runtime, provider, concurrency, Skill/MCP, and budget checks. Persist routing reason.
+- `run.started`
+- `run.completed`
+- `run.failed`
+- `run.blocked`
+- `run.cancelled`
+- `acceptance.requested`
+- `acceptance.decided`
 
-Fan-out creates bounded children with deterministic expansion keys and reserves budget. AND Join passes when required children pass/skip, waits for non-terminal children, and applies fail_fast, continue, pause, or rework policy to failure. Join derives from durable state and is replay-safe.
+Headers:
 
-Acceptance shows criteria, artifacts, verdicts, validation evidence, warnings, cost, and duration. Rejection requires a reason and allowed target. It records an immutable decision, creates a new target attempt, invalidates only downstream nodes, preserves history, injects context, and enforces limits.
+- `X-Multica-Timestamp`
+- `X-Multica-Signature-256: sha256=<hex hmac>`
+- `X-Multica-Delivery`
 
-## 9. Intake, Autopilot, API, UI
+The signed bytes are `timestamp + "." + exact_request_body`.
 
-Add POST /api/workspaces/{workspace}/workflow-intake with source, event_id, template_key, title, description, owner, source_url, payload, optional callback. Authenticate, deduplicate by workspace/source/event, resolve a published version, and atomically create one Issue and Run.
+Workers claim with `FOR UPDATE SKIP LOCKED`, set a two-minute lease, and reclaim expired dispatches. A 2xx response completes delivery. Network failures, 429, and 5xx retry with bounded exponential backoff up to six attempts. Other 4xx responses fail permanently. Response bodies are bounded before persistence.
 
-Autopilot may bind a published template. It retains trigger admission and concurrency policy; existing create_issue/run_only behavior remains unchanged without a template.
+Replay resets the same delivery row to queued, clears response/error/lease state, resets attempts, and preserves its Run/event link. The unique event fence prevents replay from creating duplicate workflow events or Runs.
 
-Callbacks use timestamped HMAC, capped backoff with jitter, redacted responses, and dead-letter notification.
+## 10. API and frontend provenance
 
-Endpoint groups:
+The Go `WorkflowRunResponse` includes nullable `source_event_id`.
 
-- Template CRUD/publish/archive.
-- Run create/list/detail/cancel/resume/reconcile.
-- Acceptance accept/reject.
-- Daemon Task submission/RPC.
-- External intake/callback status.
+`packages/core/workflows/schemas.ts` includes the same nullable field in:
 
-Use typed error codes for invalid definition/transition/submission, idempotency conflict, budget, routing, acceptance conflict, rework limit, and invariant violation.
+- the TypeScript `WorkflowRun` interface;
+- the Zod parser;
+- the empty/fallback Run value.
 
-In packages/core add schemas, ApiClient, workspace query keys, queries/mutations, and realtime invalidation. In packages/views/workflows add Template list/detail, structured form plus advanced JSON editor, Run list/detail, timeline, Step/Submission inspector, Acceptance panel, and Rework dialog.
+Parser tests cover both explicit source event identity and the backward-compatible missing-field case.
 
-Wire web and desktop renderer through NavigationAdapter. Do not modify Electron main process. Add a graph library only after fan-out/join and accessibility semantics stabilize.
+## 11. Recovery and operations
 
-## 10. Implementation Units
+- Workflow reconciliation remains the authority for stalled Steps and Runs.
+- Callback workers are bounded to four concurrent loops.
+- Queued delivery polling is one second; notification wakes reduce normal latency.
+- Expired callback leases are returned to queued state.
+- Callback response capture is capped at 4 KiB.
+- Callback request timeout is 15 seconds.
+- Secrets use the existing application secretbox and require the configured encryption key.
+- Metrics use bounded workflow event/status labels; IDs do not become labels.
+- Logs may carry Run/delivery IDs for correlation but must never carry secret values.
 
-### U0. ADR and pilot
+Operator checks:
 
-State-machine ADR, definition/submission schemas, policy matrix, Bug Fix template, acceptance examples, flags, owners, estimates. Exit when every transition and repair is unambiguous.
+1. inspect the Workflow Run and its `source_event_id`;
+2. inspect callback history on the Run;
+3. fix or re-enable the destination;
+4. replay a terminal delivery;
+5. inspect the accountable owner's inbox for permanent failures.
 
-### U1. Schema and repository
+## 12. Verification matrix
 
-Tables/columns, standalone concurrent indexes, sqlc, workspace services, logical-reference validation, cleanup. Test isolation, races, immutability, cleanup.
+Required automated coverage:
 
-### U2. Sequential engine
+- atomic Issue + Run + initial task creation;
+- rollback when a post-Issue write fails;
+- identical and concurrent StartRun/intake replay;
+- changed-body idempotency conflicts;
+- owner subscriber creation;
+- workflow-bound Autopilot linkage;
+- webhook missing/invalid/valid HMAC;
+- encrypted-only trigger secret storage and idempotent legacy-row secretbox backfill with plaintext clearing;
+- static template-key match/conflict;
+- exact-body webhook dedupe conflict;
+- direct and batch Issue status protection;
+- explicit Issue cancellation propagating to Run/tasks;
+- callback event transactional enqueue and event-key dedupe;
+- callback exact-body HMAC headers;
+- SSRF rejection including CGNAT/documentation/benchmark/reserved ranges;
+- 429/5xx/network retry, maximum-attempt failure, lease expiry/reclaim, concurrent claim, success, and operator replay;
+- actual Workflow notifier bus payload through the notification listener into one owner inbox row for review, blocked, and done projections;
+- Go response and TypeScript parser provenance;
+- migration lint, sqlc generation, Go tests, TypeScript tests, typecheck, and build.
 
-Domain validator, commands, Agent/Acceptance/End executors, transactional enqueue, Events, realtime. Test happy path, illegal transitions, duplicates, crash fences, End-only completion.
+Manual smoke path:
 
-### U3. Structured Submission
+1. create or select a published workflow template;
+2. create a callback destination;
+3. POST authenticated intake and save the receipt;
+4. repeat the same request and verify stable IDs;
+5. change the body with the same event and verify 409;
+6. inspect the Run source event and Issue subscription;
+7. verify the signed callback;
+8. force a callback failure, inspect history/inbox, then replay;
+9. attempt to mark the Issue done while active, then cancel it explicitly.
 
-Tool/RPC, schema registry, compatibility parser, storage, verdict policy, redaction. Test valid/invalid/oversized/duplicate/post-cancel payloads.
+## 13. Rollout and compatibility
 
-### U4. Capability routing
+1. Apply additive schema migrations and concurrent indexes, then attach callback-table primary-key constraints with `USING INDEX`.
+2. Deploy with the existing secretbox key configured. Startup scans legacy trigger rows, encrypts each still-current plaintext value, clears the plaintext column, and logs the migrated count or a fail-closed error.
+3. Confirm no plaintext rows remain; runtime webhook verification never falls back to the legacy column.
+4. Enable intake and callback destination management for internal workspaces.
+5. Observe queue age, attempts, permanent failures, workflow terminal rates, and idempotency conflicts.
+6. Expand to external callers after the smoke path and rollback tests pass.
+7. Drop the now-unused legacy plaintext column in a later schema cleanup after fleet-wide row verification.
 
-Business capability bindings and resolver with permission/runtime/Skill/MCP/concurrency gates. Test deterministic selection, no candidate, fallback, cross-workspace denial, archival race.
+Rollback is additive: stop intake/callback workers first, deploy the previous application, and retain the new tables/columns until data is drained or intentionally discarded.
 
-### U5. Acceptance and rework
+## 14. Definition of done
 
-Complete acceptance_criteria product support, endpoints, notifications, targeted attempts, Issue projection, UI. Test targets, limits, reviewer race, immutable history.
-
-### U6. Autopilot and intake
-
-Template binding, intake idempotency, delivery-table audit, callback worker/signing. Test duplicate delivery, crash/reclaim, archived-template race, dead letter, legacy regression.
-
-### U7. Fan-out and Join
-
-Deterministic expansion, AND Join, sibling policies, parallelism/budgets. Test all pass, failure policies, blocked child, duplicate expansion, restart, hard limits.
-
-### U8. Reconciler
-
-Bounded claims, repair rules, diagnostics, metrics, manual owner/admin action. Test partial states, replica race, replay, offline reroute.
-
-### U9. Complete UI and E2E
-
-Branched trace, malformed/unauthorized/disabled states, routes, accessibility, browser/desktop smoke, operator actions.
-
-### U10. Metrics, pilot, Temporal decision
-
-Dashboards, alerts, rollout/rollback runbook, pilot report, evidence-based Temporal ADR.
-
-Dependency order:
-
-    U0 -> U1 -> U2 -> U3 -> U5
-                  |     |     |
-                  |     +----> U7 -> U8
-                  +----> U4 ---^
-                  +----> U6
-                  +----> U9, expanded after U5/U7
-    Metrics start in U2; U10 closes rollout.
-
-## 11. Pilot and Verification
-
-Bug Fix v1: Analyze -> Implement -> Validate -> Acceptance -> End. After U7, Validate fans out to tests and independent review, then AND joins. Rework targets: Analyze, Implement, Validate/Review; default maximum three rounds.
-
-Pilot entry: two eligible Agents, authentication preflight, repository/test commands supplied, criteria include happy path and edge case, budgets set.
-
-Pilot exit:
-
-- 30 completed internal Runs across 10 Issues.
-- Zero duplicate Tasks caused by replay.
-- Zero Runs bypassing Acceptance/End.
-- Fault-injected states recover without manual DB edits.
-- Every blocked/failed Run has a reason and action.
-- First-pass acceptance, rework, median/p95 duration, and cost are visible.
-
-Verification:
-
-- Backend: graph, transitions, routing, submissions, Join, rework, policy.
-- Database: isolation, concurrent Run/Step creation, enqueue fence, acceptance races, reconciler claims, cleanup.
-- Protocol: roles, UUID boundaries, Task binding, malformed payloads, callback replay/signature, old clients.
-- Frontend: fallback schemas, query keys, realtime, branches, Acceptance/Rework errors, disabled states.
-- E2E: manual/Autopilot Run, duplicate intake, block/resume, rework, failed sibling, restart, Issue cancellation.
-- Reliability: 1,000 Runs, maximum fan-out, callback outage, lost realtime, bounded reconciliation.
-
-Run narrow tests per unit, then make test, pnpm typecheck, pnpm test, targeted Playwright, and make check before broad rollout.
-
-## 12. Observability and Rollout
-
-Add bounded-label Run start/terminal/duration, Step terminal/duration, first-pass acceptance, rework, blocked, reconciliation, acceptance wait, and callback metrics. Never use workspace/template/Run/Step/Issue/Agent IDs as Prometheus labels.
-
-Initial SLOs:
-
-- p95 engine transition below one second, excluding Agent/human wait.
-- No active Step lacks Task or terminal explanation beyond two reconciler intervals.
-- Duplicate workflow-created Task rate is zero.
-- 99.9% of accepted intake creates a Run or typed rejection within 60 seconds.
-- Every failed/blocked terminal Run has a classified reason.
-
-Backend-authoritative flags: workflow_runtime, workflow_template_management, workflow_external_intake, workflow_parallel_nodes.
-
-Deploy schema/inactive backend, enable developer cohort, fault-test and pilot, enable Acceptance UI, then Autopilot/intake, then fan-out/join, then wider cohorts.
-
-Rollback disables new Runs, drains or explicitly pauses active Runs, retains read/Acceptance access, and never drops records or unlinks Tasks. Legacy paths continue. Failed workflow creation never silently falls back to a legacy run.
-
-## 13. Risks and Temporal Gate
-
-- Issue/Run conflict: Workflow owns execution; Issue is a guarded projection.
-- Duplicate work: transactional enqueue, active-task fence, idempotency, fault tests.
-- False success: strict structured submission and block on invalid.
-- Unsafe routing: reuse workspace/invocation/accountability/runtime checks.
-- Runaway cost: hard concurrency, step, retry, rework, duration, token, cost limits.
-- Lost rework context: immutable attempts and downstream-only invalidation.
-- Premature canvas: form/JSON first.
-- Metrics: bounded normalized labels only.
-
-Evaluate Temporal only when at least two are true: substantial Runs exceed one day, timer/compensation code dominates, reconciliation threatens SLOs, cross-service durable signals are required, or replay/history is costly. Temporal may replace orchestration execution, not Multica records used for permissions, audit, queries, and reporting.
-
-## 14. Definition of Done
-
-- [ ] Versions are immutable and graph-validated.
-- [ ] Sequential Run reaches End through durable transitions.
-- [ ] Existing Task/Runtime executes Agent nodes.
-- [ ] Replay and crash recovery never duplicate Tasks.
-- [ ] Results become Submission or typed blocked state.
-- [ ] Acceptance differs from Task completion.
-- [ ] Rework creates bounded attempts with history/context.
-- [ ] Fan-out/AND Join replay deterministically.
-- [ ] Reconciler repairs every documented partial state.
-- [ ] Autopilot/intake are idempotent and compatible.
-- [ ] Shared web/desktop UI passes unit, accessibility, smoke tests.
-- [ ] Metrics, alerts, runbook, rollback exist.
-- [ ] Isolation and invocation permissions have integration coverage.
-- [ ] Legacy paths pass regression.
-- [ ] Pilot gates pass before broad rollout.
-- [ ] Temporal decision uses production evidence.
-
-## 15. Delivery Shape
-
-Assuming two backend and one shared frontend engineer:
-
-- Week 1: U0.
-- Weeks 2-3: U1.
-- Weeks 3-5: U2 and early Run UI.
-- Weeks 5-6: U3/U4.
-- Weeks 6-8: U5/U6.
-- Weeks 8-10: U7/U8.
-- Weeks 9-11: U9/E2E.
-- Weeks 11-12: U10 and pilot hardening.
-
-U0 replaces these ordering estimates with owner estimates; they are not commitments.
-
-## 16. Working-Tree Guard
-
-At plan creation the repository has unrelated user changes in apps/desktop/src/main/index.ts and turbo.json. Preserve them. Workflow desktop wiring belongs in renderer platform and should not require Electron main-process changes.
+- All three entry points use the shared atomic StartRun command.
+- No path creates an Issue before the workflow transaction.
+- Intake is authenticated, workspace-scoped, replay-safe, and conflict-aware.
+- Workflow webhook triggers require HMAC, pin their template, and store secrets encrypted.
+- Active workflow ownership cannot be bypassed through direct or batch Issue updates.
+- The accountable owner is subscribed and receives established notifications.
+- Run detail carries `source_event_id` through Go and TypeScript.
+- Callback destinations and delivery history are authenticated and workspace-scoped.
+- Callback dispatch has strict HTTPS/SSRF controls, exact-body HMAC, leases, bounded retry, permanent-failure notification, and replay.
+- Migrations follow the repository's no-FK and concurrent-index rules.
+- Focused integration tests, broad Go/TypeScript verification, and the final delivery report record any unrelated baseline failures explicitly.

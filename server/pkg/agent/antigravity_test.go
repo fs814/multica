@@ -32,7 +32,7 @@ func TestBuildAntigravityArgsBasic(t *testing.T) {
 		"--dangerously-skip-permissions",
 		"--print-timeout", "20m0s",
 		"--log-file", "/tmp/agy.log",
-		"--add-dir", "/work",
+		"--add-dir", filepath.Clean("/work"),
 	}
 	if !slices.Equal(args, want) {
 		t.Fatalf("buildAntigravityArgs basic mismatch\n got: %v\nwant: %v", args, want)
@@ -59,7 +59,7 @@ func TestBuildAntigravityArgsModel(t *testing.T) {
 		"--model", "Claude Opus 4.6 (Thinking)",
 		"--print-timeout", "20m0s",
 		"--log-file", "/tmp/agy.log",
-		"--add-dir", "/work",
+		"--add-dir", filepath.Clean("/work"),
 	}
 	if !slices.Equal(args, want) {
 		t.Fatalf("buildAntigravityArgs with model mismatch\n got: %v\nwant: %v", args, want)
@@ -93,7 +93,7 @@ func TestBuildAntigravityArgsNoCapUsesLargePrintTimeout(t *testing.T) {
 		"--dangerously-skip-permissions",
 		"--print-timeout", antigravityFormatTimeout(antigravityNoCapPrintTimeout),
 		"--log-file", "/tmp/agy.log",
-		"--add-dir", "/work",
+		"--add-dir", filepath.Clean("/work"),
 	}
 	if !slices.Equal(args, want) {
 		t.Fatalf("buildAntigravityArgs(timeout=0) mismatch\n got: %v\nwant: %v", args, want)
@@ -626,6 +626,7 @@ func TestReadAntigravityTranscriptOutputResumeReturnsCurrentTurnOnly(t *testing.
 // case (MUL-3726). The real reply lives only in the conversation transcript,
 // which the test seeds under appDataDir.
 func fakeAgyEmptyStdoutScript(appDataDir, conversationID string) string {
+	appDataDir = filepath.ToSlash(appDataDir)
 	return `#!/bin/sh
 log=""
 while [ $# -gt 0 ]; do

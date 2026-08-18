@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -59,6 +60,8 @@ const (
 	sigStatusInvalid     = "invalid"
 	sigStatusMissing     = "missing"
 )
+
+var errWebhookIdempotencyConflict = errors.New("webhook idempotency key was reused with a different payload")
 
 // delivery status values mirror the CHECK constraint on webhook_delivery.
 //
@@ -431,6 +434,17 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if autopilot.WorkflowTemplateID.Valid {
+		template, templateErr := h.Queries.GetWorkflowTemplate(r.Context(), db.GetWorkflowTemplateParams{ID: autopilot.WorkflowTemplateID, WorkspaceID: autopilot.WorkspaceID})
+		if templateErr != nil {
+			writeError(w, http.StatusServiceUnavailable, "bound workflow template is unavailable")
+			return
+		}
+		if err := validateWorkflowWebhookPayload(body, template.Key); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	envelopeBytes, err := json.Marshal(envelope)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to encode envelope")
@@ -442,7 +456,15 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		provider = "generic"
 	}
 	dedupeKey, dedupeSource := extractDedupeKey(provider, r.Header)
-	sigStatus := verifyWebhookSignatureForProvider(provider, trigRow.SigningSecret.String, r.Header, body)
+	signingSecret, secretErr := h.autopilotTriggerSigningSecret(trigRow.SigningSecret, trigRow.SigningSecretEncrypted)
+	if secretErr != nil {
+		writeError(w, http.StatusServiceUnavailable, "webhook signing secret is unavailable")
+		return
+	}
+	sigStatus := verifyWebhookSignatureForProvider(provider, signingSecret, r.Header, body)
+	if autopilot.WorkflowTemplateID.Valid && signingSecret == "" {
+		sigStatus = sigStatusMissing
+	}
 
 	// 7. Persist (INSERT delivery). Dedupe collision → bump existing row.
 	delivery, dup, err := h.persistInboundDelivery(r, persistDeliveryInput{
@@ -459,6 +481,10 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		SelectedHeaders: selectedHeadersJSON(r.Header),
 	})
 	if err != nil {
+		if errors.Is(err, errWebhookIdempotencyConflict) {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "idempotency_conflict"})
+			return
+		}
 		slog.Error("webhook: persist delivery failed",
 			"error", err,
 			"trigger_id", uuidToString(trigRow.ID),
@@ -493,6 +519,9 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		}
 		if runID.Valid {
 			resp["run_id"] = uuidToString(runID)
+			if admitted, getErr := h.Queries.GetAutopilotRun(r.Context(), runID); getErr == nil {
+				addWorkflowReceiptIdentity(resp, admitted)
+			}
 		}
 		if delivery.Status == deliveryStatusQueued && h.WebhookDeliveryWorker != nil {
 			h.WebhookDeliveryWorker.Notify()
@@ -591,6 +620,7 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		"autopilot_id": uuidToString(autopilot.ID),
 		"trigger_id":   uuidToString(trigRow.ID),
 	}
+	addWorkflowReceiptIdentity(respBody, *run)
 	if run.Status == "skipped" {
 		respBody = map[string]any{
 			"status":      "skipped",
@@ -616,6 +646,40 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 		h.WebhookDeliveryWorker.Notify()
 	}
 	writeJSON(w, http.StatusOK, respBody)
+}
+
+func validateWorkflowWebhookPayload(body []byte, boundTemplateKey string) error {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		return errors.New("workflow webhook payload must be a JSON object")
+	}
+	containers := []map[string]any{payload}
+	if nested, ok := payload["eventPayload"].(map[string]any); ok {
+		containers = append(containers, nested)
+	}
+	for _, container := range containers {
+		value, exists := container["template_key"]
+		if !exists {
+			continue
+		}
+		supplied, ok := value.(string)
+		if !ok || strings.TrimSpace(supplied) == "" {
+			return errors.New("template_key must be a non-empty string when provided")
+		}
+		if !strings.EqualFold(strings.TrimSpace(supplied), strings.TrimSpace(boundTemplateKey)) {
+			return errors.New("template_key conflicts with the workflow template bound to this webhook")
+		}
+	}
+	return nil
+}
+
+func addWorkflowReceiptIdentity(resp map[string]any, run db.AutopilotRun) {
+	if run.WorkflowRunID.Valid {
+		resp["workflow_run_id"] = uuidToString(run.WorkflowRunID)
+	}
+	if run.IssueID.Valid {
+		resp["issue_id"] = uuidToString(run.IssueID)
+	}
 }
 
 // ── Event filter helpers ────────────────────────────────────────────────────
@@ -820,6 +884,9 @@ func (h *Handler) persistInboundDelivery(r *http.Request, in persistDeliveryInpu
 	})
 	if lookupErr != nil {
 		return db.WebhookDelivery{}, false, fmt.Errorf("lookup duplicate delivery: %w", lookupErr)
+	}
+	if !bytes.Equal(existing.RawBody, in.RawBody) {
+		return db.WebhookDelivery{}, false, errWebhookIdempotencyConflict
 	}
 	bumped, bumpErr := h.Queries.BumpWebhookDeliveryAttempt(r.Context(), existing.ID)
 	if bumpErr != nil {

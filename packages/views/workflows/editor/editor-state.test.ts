@@ -115,7 +115,8 @@ describe("hydrate", () => {
 
     expect(after).toBe(state);
     expect(
-      after.present.nodes.find((node) => node.id === "implement")!.data.node.name,
+      after.present.nodes.find((node) => node.id === "implement")!.data.node
+        .name,
     ).toBe("Implement (edited)");
     expect(isDirty(after)).toBe(true);
   });
@@ -144,6 +145,76 @@ describe("hydrate", () => {
 // ---------------------------------------------------------------------------
 
 describe("dirty", () => {
+  it("persists one deleted edge without removing nodes and reopens identically", () => {
+    const opened = seeded();
+    const removed = opened.present.edges.find(
+      (edge) => edge.source === "analyze" && edge.target === "implement",
+    );
+    expect(removed).toBeDefined();
+    expect(opened.present.edges.length).toBeGreaterThan(1);
+
+    const edited = workflowEditorReducer(opened, {
+      type: "set_graph",
+      nodes: opened.present.nodes,
+      edges: opened.present.edges.filter((edge) => edge.id !== removed?.id),
+    });
+    const payload = workingDefinition(edited);
+
+    expect(payload.nodes.map((node) => node.key)).toEqual(
+      bugFixDefinition().nodes.map((node) => node.key),
+    );
+    expect(payload.nodes.find((node) => node.key === "analyze")?.next).toEqual(
+      [],
+    );
+    expect(isDirty(edited)).toBe(true);
+
+    const saved = workflowEditorReducer(edited, {
+      type: "mark_saved",
+      definition: payload,
+    });
+    expect(isDirty(saved)).toBe(false);
+
+    const reopened = workflowEditorReducer(initialWorkflowEditorState(), {
+      type: "hydrate",
+      templateId: TEMPLATE,
+      definition: payload,
+    });
+    expect(workingDefinition(reopened)).toStrictEqual(payload);
+    expect(reopened.present.edges.map((edge) => edge.id)).not.toContain(
+      removed?.id,
+    );
+    expect(reopened.present.nodes).toHaveLength(opened.present.nodes.length);
+  });
+
+  it("repairs a polluted draft on save and reloads the clean definition", () => {
+    const polluted = bugFixDefinition();
+    for (const node of polluted.nodes) node.input_mode = "text";
+
+    const opened = seeded(polluted);
+    const payload = workingDefinition(opened);
+    expect(isDirty(opened)).toBe(true);
+    for (const node of payload.nodes) {
+      expect(node).not.toHaveProperty("input_mode");
+    }
+
+    const saved = workflowEditorReducer(opened, {
+      type: "mark_saved",
+      definition: payload,
+    });
+    expect(isDirty(saved)).toBe(false);
+
+    const reopened = workflowEditorReducer(initialWorkflowEditorState(), {
+      type: "hydrate",
+      templateId: TEMPLATE,
+      definition: payload,
+    });
+    expect(isDirty(reopened)).toBe(false);
+    expect(workingDefinition(reopened)).toStrictEqual(payload);
+    for (const node of workingDefinition(reopened).nodes) {
+      expect(node).not.toHaveProperty("input_mode");
+    }
+  });
+
   it("ignores canvas positions", () => {
     // Positions are not part of the definition (graph/from-graph.ts), so dragging
     // a card must not offer a save that would produce an empty diff.
@@ -216,9 +287,9 @@ describe("undo / redo", () => {
       { type: "add_node", nodeType: "end" },
     );
     expect(canRedo(state)).toBe(false);
-    expect(workingDefinition(state).nodes.map((node) => node.key)).not.toContain(
-      "condition_1",
-    );
+    expect(
+      workingDefinition(state).nodes.map((node) => node.key),
+    ).not.toContain("condition_1");
   });
 
   it("does not record auto-layout, because layout is not a definition change", () => {
@@ -305,7 +376,10 @@ describe("apply_definition", () => {
       { type: "select", nodeId: "implement" },
       {
         type: "apply_definition",
-        definition: { ...def, nodes: def.nodes.filter((n) => n.key !== "implement") },
+        definition: {
+          ...def,
+          nodes: def.nodes.filter((n) => n.key !== "implement"),
+        },
       },
     );
     expect(state.selectedNodeId).toBeNull();
@@ -355,7 +429,9 @@ describe("panel edits to edge-derived fields survive a save", () => {
       node: { ...validate!, rework_targets: ["implement", "analyze"] },
     });
 
-    const saved = workingDefinition(next).nodes.find((n) => n.key === "validate");
+    const saved = workingDefinition(next).nodes.find(
+      (n) => n.key === "validate",
+    );
     expect(saved?.rework_targets).toEqual(["implement", "analyze"]);
     // The edit must also register as a change, or Save is disabled and the author
     // cannot persist what the panel is showing them.
@@ -409,7 +485,13 @@ describe("panel edits to edge-derived fields survive a save", () => {
             { when_verdict: "", target: "done" },
           ],
         },
-        { key: "done", type: "end", next: [], branches: [], rework_targets: [] },
+        {
+          key: "done",
+          type: "end",
+          next: [],
+          branches: [],
+          rework_targets: [],
+        },
       ],
     } as unknown as WorkflowDefinition;
 

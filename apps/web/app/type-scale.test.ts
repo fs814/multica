@@ -53,7 +53,10 @@ const sourceExtensions = [".ts", ".tsx", ".css"];
  * relative-unit rule is lifted for them.
  */
 const marketingPaths = ["apps/web/app/(landing)", "apps/web/features/landing"];
-const isMarketing = (rel: string) => marketingPaths.some((p) => rel.startsWith(p));
+const isMarketing = (rel: string) => {
+  const portable = rel.replaceAll("\\", "/");
+  return marketingPaths.some((p) => portable.startsWith(p));
+};
 
 /**
  * Tailwind's default steps that the role scale replaces one-for-one. `text-4xl`

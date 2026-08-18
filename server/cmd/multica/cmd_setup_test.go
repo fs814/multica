@@ -18,7 +18,7 @@ import (
 // probe and bailing — which left the user logged out with no recovery.
 func TestPersistSelfHostConfigIfReachable(t *testing.T) {
 	t.Run("unreachable server preserves existing config and token", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setTestHome(t, t.TempDir())
 		existing := cli.CLIConfig{
 			ServerURL:   "https://api.old.example",
 			AppURL:      "https://old.example",
@@ -53,7 +53,7 @@ func TestPersistSelfHostConfigIfReachable(t *testing.T) {
 	})
 
 	t.Run("reachable server writes new self-host config", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		setTestHome(t, t.TempDir())
 
 		proceed, err := persistSelfHostConfigIfReachable(
 			"https://api.new.example", "https://new.example", "",
@@ -438,7 +438,7 @@ func TestServerHostIsLocal(t *testing.T) {
 
 func TestSetupCommandsFailClosedInTaskContext(t *testing.T) {
 	ownerHome := t.TempDir()
-	t.Setenv("HOME", ownerHome)
+	setTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", filepath.Join(t.TempDir(), "task-multica"))

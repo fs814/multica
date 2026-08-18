@@ -599,6 +599,16 @@ describe("WorkflowRunSchema", () => {
       step_count: 0,
     });
   });
+
+  it("preserves external source event identity and defaults it for older servers", () => {
+    expect(
+      WorkflowRunSchema.parse({ id: "wfr-1", status: "running", source_event_id: "evt-7" })
+        .source_event_id,
+    ).toBe("evt-7");
+    expect(
+      WorkflowRunSchema.parse({ id: "wfr-1", status: "running" }).source_event_id,
+    ).toBeNull();
+  });
 });
 
 describe("WorkflowRunDetailSchema", () => {

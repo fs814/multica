@@ -53,8 +53,8 @@ func TestHermesMemoryProfileSegment(t *testing.T) {
 // one-off import depends on: <profile dir>/hermes-state/<agent>/<profile>.
 func TestHermesMemoryStorePathLayout(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	setExecenvTestHome(t, home)
+	t.Setenv("MULTICA_TASK_CONFIG_ROOT", "")
 
 	agent := "11111111-2222-3333-4444-555555555555"
 	got := HermesMemoryStorePath("", agent, filepath.Join(platformDefaultHermesHome(), "profiles", "research"))
@@ -231,23 +231,26 @@ func TestPrepareHermesHomeWithoutStoreKeepsTaskLocalMemories(t *testing.T) {
 // survive and the overlay must fail, because the caller deletes the source
 // directory as soon as migration reports success.
 func TestMigrateHermesTaskMemoriesFailureKeepsSource(t *testing.T) {
-	t.Parallel()
 	taskDir := t.TempDir()
 	storeDir := t.TempDir()
 
 	mustWrite(t, filepath.Join(taskDir, "MEMORY.md"), "first")
 	mustWrite(t, filepath.Join(taskDir, "USER.md"), "second")
-	// Make one entry uncopyable the way a cross-filesystem move fails: a
-	// directory whose contents cannot be read.
+	// Inject a deterministic copy failure. chmod does not make a directory
+	// unreadable on Windows and is bypassed by root on Unix.
 	blocked := filepath.Join(taskDir, "blocked")
 	if err := os.MkdirAll(blocked, 0o700); err != nil {
 		t.Fatalf("create blocked dir: %v", err)
 	}
 	mustWrite(t, filepath.Join(blocked, "note.md"), "unreadable")
-	if err := os.Chmod(blocked, 0o000); err != nil {
-		t.Fatalf("chmod blocked dir: %v", err)
+	originalCopy := copyHermesMemoryItem
+	copyHermesMemoryItem = func(src, dst string, entry os.DirEntry) error {
+		if entry.Name() == "blocked" {
+			return &os.PathError{Op: "copy", Path: src, Err: os.ErrPermission}
+		}
+		return originalCopy(src, dst, entry)
 	}
-	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
+	t.Cleanup(func() { copyHermesMemoryItem = originalCopy })
 
 	err := migrateHermesTaskMemories(taskDir, storeDir, testLogger())
 	if err == nil {
@@ -405,11 +408,8 @@ func TestMigrateHermesTaskMemoriesConcurrentFirstWriterWins(t *testing.T) {
 // os.Remove failure: the caller deletes the task's source directory on
 // (false, nil), so a permission or I/O error there is a data-loss path.
 func TestPromoteHermesMemoryStagingClassifiesRemoveFailures(t *testing.T) {
-	t.Parallel()
-
 	// A genuinely non-empty store means another task published first.
 	t.Run("populated store loses the race", func(t *testing.T) {
-		t.Parallel()
 		parent := t.TempDir()
 		storeDir := filepath.Join(parent, "default")
 		mustWrite(t, filepath.Join(storeDir, "MEMORY.md"), "winner")
@@ -431,9 +431,6 @@ func TestPromoteHermesMemoryStagingClassifiesRemoveFailures(t *testing.T) {
 
 	// An empty store that cannot be removed is an I/O failure, not a race.
 	t.Run("unremovable empty store fails closed", func(t *testing.T) {
-		if os.Geteuid() == 0 {
-			t.Skip("root ignores directory permissions")
-		}
 		parent := t.TempDir()
 		storeDir := filepath.Join(parent, "default")
 		if err := os.MkdirAll(storeDir, 0o700); err != nil {
@@ -442,11 +439,14 @@ func TestPromoteHermesMemoryStagingClassifiesRemoveFailures(t *testing.T) {
 		staging := filepath.Join(parent, ".default.migrating-x")
 		mustWrite(t, filepath.Join(staging, "MEMORY.md"), "irreplaceable")
 
-		// Removing a directory needs write permission on its parent.
-		if err := os.Chmod(parent, 0o500); err != nil {
-			t.Fatalf("chmod parent: %v", err)
+		originalRemove := removeHermesMemoryStore
+		removeHermesMemoryStore = func(path string) error {
+			if path == storeDir {
+				return &os.PathError{Op: "remove", Path: path, Err: os.ErrPermission}
+			}
+			return originalRemove(path)
 		}
-		t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+		t.Cleanup(func() { removeHermesMemoryStore = originalRemove })
 
 		promoted, err := promoteHermesMemoryStaging(staging, storeDir)
 		if promoted {
@@ -544,8 +544,8 @@ func TestPrepareHermesHomeMigrationKeepsExistingStore(t *testing.T) {
 // never removed.
 func TestPruneHermesMemoryStores(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	setExecenvTestHome(t, home)
+	t.Setenv("MULTICA_TASK_CONFIG_ROOT", "")
 
 	root := filepath.Join(home, ".multica", hermesMemoryStoreRoot)
 	idle := filepath.Join(root, "agent-idle", "default")

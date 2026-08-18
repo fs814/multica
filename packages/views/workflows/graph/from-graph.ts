@@ -64,7 +64,7 @@ export function graphToDefinition(
   const definitionNodes = ordered.map((flowNode) => {
     const source = flowNode.data.node;
     const own = outgoing.get(flowNode.id);
-    return {
+    const definitionNode = {
       // Spread first, override only the three graph-owned fields: this is the
       // whole reason the round trip is lossless. Note `key` comes from the
       // spread - the key the properties panel has committed - and never from the
@@ -74,6 +74,18 @@ export function graphToDefinition(
       branches: (own?.branch ?? []).map((edge) => toBranch(edge, resolve)),
       rework_targets: (own?.rework ?? []).map((edge) => resolve(edge.target)),
     } satisfies WorkflowNode;
+
+    // input_mode is a known, type-owned field rather than a forward-compatible
+    // extension: the server rejects it on every non-input node. Older clients
+    // accidentally injected "text" while parsing every node, so an existing
+    // draft may already carry the pollution. Clean it only at the outgoing
+    // boundary, leaving `saved` untouched; the editor then becomes dirty and
+    // offers the author the repair save that must happen before publish.
+    if (definitionNode.type !== "input") {
+      delete definitionNode.input_mode;
+    }
+
+    return definitionNode;
   });
 
   return {
@@ -101,7 +113,11 @@ function toBranch(
   };
 }
 
-type OutgoingEdges = { next: FlowEdge[]; branch: FlowEdge[]; rework: FlowEdge[] };
+type OutgoingEdges = {
+  next: FlowEdge[];
+  branch: FlowEdge[];
+  rework: FlowEdge[];
+};
 
 /**
  * Buckets edges by source and kind, preserving array order within each bucket.

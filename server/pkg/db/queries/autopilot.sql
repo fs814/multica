@@ -56,11 +56,13 @@ FOR UPDATE;
 INSERT INTO autopilot (
     workspace_id, title, description, assignee_type, assignee_id,
     status, execution_mode, issue_title_template, project_id,
-    created_by_type, created_by_id
+    created_by_type, created_by_id, workflow_template_id,
+    workflow_template_version_id
 ) VALUES (
     $1, $2, sqlc.narg('description'), $3, $4,
     $5, $6, sqlc.narg('issue_title_template'), sqlc.narg('project_id'),
-    $7, $8
+    $7, $8, sqlc.narg('workflow_template_id'),
+    sqlc.narg('workflow_template_version_id')
 ) RETURNING *;
 
 -- name: UpdateAutopilot :one
@@ -77,7 +79,15 @@ UPDATE autopilot SET
     execution_mode = COALESCE(sqlc.narg('execution_mode'), execution_mode),
     issue_title_template = sqlc.narg('issue_title_template'),
     project_id = sqlc.narg('project_id'),
+    workflow_template_id = sqlc.narg('workflow_template_id'),
+    workflow_template_version_id = sqlc.narg('workflow_template_version_id'),
     updated_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: UpdateAutopilotRunWorkflowRunning :one
+UPDATE autopilot_run
+SET status = 'running', workflow_run_id = $2, issue_id = $3
 WHERE id = $1
 RETURNING *;
 
@@ -273,11 +283,34 @@ RETURNING *;
 -- accidental log line leaking it alongside other fields. Restricted to
 -- webhook triggers to avoid corrupting unrelated state.
 UPDATE autopilot_trigger
-SET signing_secret = sqlc.narg('signing_secret'),
+SET signing_secret = NULL,
+    signing_secret_encrypted = sqlc.narg('signing_secret_encrypted'),
     updated_at = now()
 WHERE id = $1
   AND kind = 'webhook'
 RETURNING *;
+
+-- name: ListLegacyAutopilotTriggerSigningSecrets :many
+-- Startup migration input only. Plaintext is never exposed through an API and
+-- is selected only until the deployment key seals it into the encrypted column.
+SELECT id, signing_secret
+FROM autopilot_trigger
+WHERE kind = 'webhook'
+  AND signing_secret IS NOT NULL
+  AND signing_secret_encrypted IS NULL
+ORDER BY id;
+
+-- name: BackfillAutopilotTriggerSigningSecret :execrows
+-- Compare the plaintext observed by the scanner so a concurrent admin rotation
+-- wins rather than being overwritten by stale backfill work.
+UPDATE autopilot_trigger
+SET signing_secret = NULL,
+    signing_secret_encrypted = sqlc.arg('signing_secret_encrypted'),
+    updated_at = now()
+WHERE id = sqlc.arg('id')
+  AND kind = 'webhook'
+  AND signing_secret = sqlc.arg('legacy_signing_secret')
+  AND signing_secret_encrypted IS NULL;
 
 -- =====================
 -- Autopilot Run Management

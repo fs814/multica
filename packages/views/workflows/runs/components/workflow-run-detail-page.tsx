@@ -108,13 +108,13 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
             },
           ]}
           leaf={
-            <h1 className="min-w-0 truncate text-sm font-medium">
+            <h1 className="min-w-0 truncate text-body font-medium">
               {t(($) => $.runs.detail.not_found)}
             </h1>
           }
         />
         <div className="flex flex-1 items-center justify-center px-6">
-          <p className="max-w-md text-center text-sm text-muted-foreground">
+          <p className="max-w-md text-center text-body text-muted-foreground">
             {error
               ? t(($) => $.runs.detail.not_found)
               : t(($) => $.runs.detail.unreadable)}
@@ -166,7 +166,7 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
         ]}
         leaf={
           <>
-            <h1 className="min-w-0 truncate text-sm font-medium">
+            <h1 className="min-w-0 truncate text-body font-medium">
               {inputTitle || run.template_name}
             </h1>
             <div className="ml-1 flex shrink-0 items-center gap-1.5">
@@ -237,18 +237,28 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
           ) : null}
 
           <section className="flex flex-col gap-3">
-            <h2 className="text-sm font-medium tracking-wider text-muted-foreground uppercase">
+            <h2 className="text-body font-medium tracking-wider text-muted-foreground uppercase">
               {t(($) => $.runs.detail.section_input)}
             </h2>
+            {run.source_event_id ? (
+              <div className="flex min-w-0 items-baseline gap-2 text-caption">
+                <span className="shrink-0 text-muted-foreground">
+                  {t(($) => $.runs.detail.source_event)}
+                </span>
+                <code className="min-w-0 break-all text-foreground">
+                  {run.source_event_id}
+                </code>
+              </div>
+            ) : null}
             {inputTitle === "" && inputDescription === "" ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.input_empty)}
               </p>
             ) : (
-              <div className="flex flex-col gap-3 rounded-lg border p-4 text-sm">
+              <div className="flex flex-col gap-3 rounded-lg border p-4 text-body">
                 {inputTitle ? (
                   <div>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-caption text-muted-foreground">
                       {t(($) => $.runs.detail.input_title)}
                     </span>
                     <p className="mt-0.5">{inputTitle}</p>
@@ -256,7 +266,7 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
                 ) : null}
                 {inputDescription ? (
                   <div>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-caption text-muted-foreground">
                       {t(($) => $.runs.detail.input_description)}
                     </span>
                     {/* `whitespace-pre-wrap`, not a markdown renderer: this is
@@ -273,7 +283,7 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
             {run.issue_id ? (
               <AppLink
                 href={wsPaths.issueDetail(run.issue_id)}
-                className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/30 underline-offset-4 transition-colors hover:text-foreground"
+                className="self-start text-caption text-muted-foreground underline decoration-muted-foreground/30 underline-offset-4 transition-colors hover:text-foreground"
               >
                 {t(($) => $.runs.detail.issue_link)}
               </AppLink>
@@ -282,10 +292,10 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
 
           <section className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-sm font-medium tracking-wider text-muted-foreground uppercase">
+              <h2 className="text-body font-medium tracking-wider text-muted-foreground uppercase">
                 {t(($) => $.runs.detail.section_trace)}
               </h2>
-              <div className="flex shrink-0 flex-col items-end gap-0.5 text-xs text-muted-foreground">
+              <div className="flex shrink-0 flex-col items-end gap-0.5 text-caption text-muted-foreground">
                 {run.started_at ? (
                   <span className="tabular-nums">
                     {t(($) => $.runs.detail.started_at, {
@@ -325,7 +335,7 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
               // is how "we lost the trace" reads as "nothing has happened".
               // A non-zero step_count with an empty array is the tell that the
               // schema's per-step degradation fired.
-              <p className="text-xs text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 {run.step_count > 0
                   ? t(($) => $.runs.detail.trace_lost, {
                       count: run.step_count,
@@ -406,22 +416,22 @@ function TerminalReason({
         />
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 text-xs leading-relaxed">{explain(reason)}</p>
+        <p className="text-body font-medium">{title}</p>
+        <p className="mt-1 text-caption leading-relaxed">{explain(reason)}</p>
         {/* The server's own diagnosis, verbatim and untranslated. The sentence
             above says what CLASS of problem this was; only this says which agent
             to fix - for routing_no_candidate it is the per-candidate refusal list
             ("Ada: runtime offline; Bob: not permitted"), which is the difference
             between an actionable banner and "something went wrong somewhere". */}
         {detail ? (
-          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 whitespace-pre-wrap text-caption leading-relaxed text-muted-foreground">
             {detail}
           </p>
         ) : null}
         {/* The raw identifier stays visible under the sentence. It is what an
             operator greps a server log for and what a bug report should quote;
             the sentence is for the reader, the token is for the diagnosis. */}
-        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+        <p className="mt-1 font-mono text-micro text-muted-foreground">
           {reason}
         </p>
       </div>
@@ -494,23 +504,23 @@ function StepRow({
   return (
     <div className="rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs font-medium">{step.node_key}</span>
+        <span className="font-mono text-caption font-medium">{step.node_key}</span>
         <Badge variant="outline">{step.node_type}</Badge>
         <WorkflowStepStatusBadge status={step.status} />
         {/* Attempt 1 is unremarkable; a second attempt is the whole story of a
             rework round, so only those are called out. */}
         {step.attempt > 1 ? (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-caption text-muted-foreground">
             {t(($) => $.runs.detail.attempt, { attempt: step.attempt })}
           </span>
         ) : null}
         <span className="flex-1" />
         {step.agent_name ? (
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-caption text-muted-foreground">
             {step.agent_name}
           </span>
         ) : step.node_type === "agent" ? (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-caption text-muted-foreground">
             {t(($) => $.runs.detail.no_agent)}
           </span>
         ) : null}
@@ -525,7 +535,7 @@ function StepRow({
       </div>
 
       {step.routing_reason ? (
-        <p className="mt-1.5 text-xs leading-snug text-muted-foreground">
+        <p className="mt-1.5 text-caption leading-snug text-muted-foreground">
           {t(($) => $.runs.detail.routing_reason, {
             reason: step.routing_reason,
           })}
@@ -533,7 +543,7 @@ function StepRow({
       ) : null}
 
       {step.failure_reason ? (
-        <p className="mt-1.5 text-xs leading-snug text-destructive">
+        <p className="mt-1.5 text-caption leading-snug text-destructive">
           {explainReason(step.failure_reason)}
         </p>
       ) : null}
@@ -541,7 +551,7 @@ function StepRow({
           routing_no_candidate this is the per-candidate refusal list, which is
           the only place that names which agent needs attention. */}
       {step.failure_detail ? (
-        <p className="mt-0.5 whitespace-pre-wrap text-xs leading-snug text-muted-foreground">
+        <p className="mt-0.5 whitespace-pre-wrap text-caption leading-snug text-muted-foreground">
           {step.failure_detail}
         </p>
       ) : null}
@@ -551,12 +561,12 @@ function StepRow({
           <div className="flex flex-wrap items-center gap-2">
             <WorkflowVerdictBadge verdict={submission.verdict} />
             {type ? (
-              <span className="font-mono text-[11px] text-muted-foreground">
+              <span className="font-mono text-micro text-muted-foreground">
                 {type}
               </span>
             ) : null}
             {submission.confidence === null ? null : (
-              <span className="text-xs text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.submission_confidence, {
                   value: submission.confidence,
                 })}
@@ -565,30 +575,30 @@ function StepRow({
           </div>
           {summary ? (
             <div>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.submission_artifact)}
               </span>
-              <p className="text-xs leading-snug whitespace-pre-wrap">
+              <p className="text-caption leading-snug whitespace-pre-wrap">
                 {summary}
               </p>
             </div>
           ) : null}
           {submission.rationale ? (
             <div>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.submission_rationale)}
               </span>
-              <p className="text-xs leading-snug whitespace-pre-wrap">
+              <p className="text-caption leading-snug whitespace-pre-wrap">
                 {submission.rationale}
               </p>
             </div>
           ) : null}
           {submission.root_cause ? (
             <div>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.submission_root_cause)}
               </span>
-              <p className="text-xs leading-snug whitespace-pre-wrap">
+              <p className="text-caption leading-snug whitespace-pre-wrap">
                 {submission.root_cause}
               </p>
             </div>
@@ -599,7 +609,7 @@ function StepRow({
                 // Index key: references are a positional list of plain strings.
                 <li
                   key={index}
-                  className="font-mono text-[11px] break-words text-muted-foreground"
+                  className="font-mono text-micro break-words text-muted-foreground"
                 >
                   {ref}
                 </li>
@@ -610,14 +620,14 @@ function StepRow({
               block would be noise, but a key this build has never heard of is
               exactly what an operator diagnosing a new node type needs. */}
           {artifactHasExtraKeys(submission.artifact) ? (
-            <pre className="overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-snug">
+            <pre className="overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-micro leading-snug">
               {JSON.stringify(submission.artifact, null, 2)}
             </pre>
           ) : null}
           {submission.validation_errors &&
           submission.validation_errors.length > 0 ? (
             <div>
-              <p className="text-xs font-medium text-destructive">
+              <p className="text-caption font-medium text-destructive">
                 {t(($) => $.runs.detail.submission_validation_errors)}
               </p>
               <ul className="mt-0.5 flex flex-col gap-0.5">
@@ -627,7 +637,7 @@ function StepRow({
                   // actionable part of a rejected submission.
                   <li
                     key={index}
-                    className="font-mono text-[11px] leading-snug break-words text-muted-foreground"
+                    className="font-mono text-micro leading-snug break-words text-muted-foreground"
                   >
                     {message}
                   </li>

@@ -124,18 +124,18 @@ export function WorkflowAcceptancePanel({
       role="status"
       className="rounded-lg border border-primary/40 bg-primary/5 p-4"
     >
-      <h2 className="flex items-center gap-2 text-sm font-medium">
+      <h2 className="flex items-center gap-2 text-body font-medium">
         <CircleCheck className="size-4 shrink-0 text-primary" aria-hidden="true" />
         {t(($) => $.runs.acceptance.title)}
       </h2>
 
       <div className="mt-3 flex flex-col gap-4">
         <div>
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          <h3 className="text-caption font-semibold tracking-wide text-muted-foreground uppercase">
             {t(($) => $.runs.acceptance.criteria)}
           </h3>
           {acceptance.criteria.length === 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-caption text-muted-foreground">
               {t(($) => $.runs.acceptance.criteria_empty)}
             </p>
           ) : (
@@ -146,7 +146,7 @@ export function WorkflowAcceptancePanel({
                 // the same.
                 <li
                   key={index}
-                  className="flex gap-2 text-xs leading-snug text-foreground"
+                  className="flex gap-2 text-caption leading-snug text-foreground"
                 >
                   <span aria-hidden="true" className="text-muted-foreground">
                     •
@@ -163,26 +163,26 @@ export function WorkflowAcceptancePanel({
             to find the verdict they are ruling on is how a gate becomes a
             rubber stamp. */}
         <div>
-          <h3 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          <h3 className="flex items-center gap-1.5 text-caption font-semibold tracking-wide text-muted-foreground uppercase">
             <ScrollText className="size-3.5" aria-hidden="true" />
             {t(($) => $.runs.acceptance.evidence, {
               node: evidenceStep?.node_key ?? "",
             })}
           </h3>
           {submission === null ? (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-caption text-muted-foreground">
               {t(($) => $.runs.acceptance.evidence_empty)}
             </p>
           ) : (
             <div className="mt-1.5 flex flex-col gap-1.5">
               <WorkflowVerdictBadge verdict={submission.verdict} />
               {summary ? (
-                <p className="text-xs leading-snug whitespace-pre-wrap">
+                <p className="text-caption leading-snug whitespace-pre-wrap">
                   {summary}
                 </p>
               ) : null}
               {submission.rationale ? (
-                <p className="text-xs leading-snug whitespace-pre-wrap text-muted-foreground">
+                <p className="text-caption leading-snug whitespace-pre-wrap text-muted-foreground">
                   {submission.rationale}
                 </p>
               ) : null}
@@ -193,7 +193,7 @@ export function WorkflowAcceptancePanel({
         {rejecting ? (
           <div className="flex flex-col gap-3 rounded-md border border-border bg-background p-3">
             <label className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium">
+              <span className="text-caption font-medium">
                 {t(($) => $.runs.acceptance.reason_label)}
               </span>
               <Textarea
@@ -203,13 +203,13 @@ export function WorkflowAcceptancePanel({
                 placeholder={t(($) => $.runs.acceptance.reason_placeholder)}
                 onChange={(event) => setReason(event.target.value)}
               />
-              <span className="text-xs leading-snug text-muted-foreground">
+              <span className="text-caption leading-snug text-muted-foreground">
                 {t(($) => $.runs.acceptance.reason_required)}
               </span>
             </label>
 
             <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-medium">
+              <span className="text-caption font-medium">
                 {t(($) => $.runs.acceptance.target_label)}
               </span>
               <Select<string>
@@ -285,7 +285,7 @@ export function WorkflowAcceptancePanel({
               // Stated rather than silently absent: a reviewer who expects a
               // reject button and cannot find one would assume the page is
               // broken, when in fact the graph pinned no rework targets.
-              <span className="text-xs leading-snug text-muted-foreground">
+              <span className="text-caption leading-snug text-muted-foreground">
                 {t(($) => $.runs.acceptance.targets_empty)}
               </span>
             )}
@@ -312,18 +312,18 @@ export function WorkflowAcceptanceDecided({
   const { t } = useT("workflows");
   return (
     <section className="rounded-lg border p-4">
-      <h2 className="text-sm font-medium">
+      <h2 className="text-body font-medium">
         {t(($) => $.runs.acceptance.decided, { status: acceptance.status })}
       </h2>
       {acceptance.reason ? (
-        <p className="mt-1.5 text-xs leading-snug whitespace-pre-wrap text-muted-foreground">
+        <p className="mt-1.5 text-caption leading-snug whitespace-pre-wrap text-muted-foreground">
           {t(($) => $.runs.acceptance.decided_reason, {
             reason: acceptance.reason,
           })}
         </p>
       ) : null}
       {acceptance.rework_target_node_key ? (
-        <p className="mt-1 font-mono text-xs text-muted-foreground">
+        <p className="mt-1 font-mono text-caption text-muted-foreground">
           {t(($) => $.runs.acceptance.decided_target, {
             node: acceptance.rework_target_node_key,
           })}

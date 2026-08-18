@@ -273,7 +273,8 @@ type AutopilotTrigger struct {
 	// Actor type of the trigger's current responsible publisher: member | agent. Set to the creator at creation and re-stamped to the editor on any substantive edit governing this trigger. Consumed only for attribution (source=trigger_owner) — never authorization. NULL on pre-migration triggers (MUL-4302).
 	PublishedByType pgtype.Text `json:"published_by_type"`
 	// The member/agent currently responsible for this trigger's effective config (creator, then last substantive editor). For a member this is the accountable human of runs the trigger fires (source=trigger_owner). No FK, app-layer integrity. NULL on pre-migration triggers, which degrade to rule_owner (MUL-4302).
-	PublishedByID pgtype.UUID `json:"published_by_id"`
+	PublishedByID          pgtype.UUID `json:"published_by_id"`
+	SigningSecretEncrypted []byte      `json:"signing_secret_encrypted"`
 }
 
 type ChannelBindingToken struct {
@@ -1231,6 +1232,39 @@ type WorkflowAcceptance struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
+type WorkflowCallbackDelivery struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	DestinationID  pgtype.UUID        `json:"destination_id"`
+	WorkflowRunID  pgtype.UUID        `json:"workflow_run_id"`
+	EventType      string             `json:"event_type"`
+	EventKey       string             `json:"event_key"`
+	Payload        []byte             `json:"payload"`
+	Status         string             `json:"status"`
+	AttemptCount   int32              `json:"attempt_count"`
+	AvailableAt    pgtype.Timestamptz `json:"available_at"`
+	LeaseToken     pgtype.UUID        `json:"lease_token"`
+	LeaseExpiresAt pgtype.Timestamptz `json:"lease_expires_at"`
+	ResponseStatus pgtype.Int4        `json:"response_status"`
+	ResponseBody   pgtype.Text        `json:"response_body"`
+	Error          pgtype.Text        `json:"error"`
+	DeliveredAt    pgtype.Timestamptz `json:"delivered_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type WorkflowCallbackDestination struct {
+	ID                     pgtype.UUID        `json:"id"`
+	WorkspaceID            pgtype.UUID        `json:"workspace_id"`
+	Name                   string             `json:"name"`
+	Url                    string             `json:"url"`
+	SigningSecretEncrypted []byte             `json:"signing_secret_encrypted"`
+	Enabled                bool               `json:"enabled"`
+	CreatedByUserID        pgtype.UUID        `json:"created_by_user_id"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+}
+
 type WorkflowEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1245,26 +1279,28 @@ type WorkflowEvent struct {
 }
 
 type WorkflowRun struct {
-	ID                pgtype.UUID        `json:"id"`
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	IssueID           pgtype.UUID        `json:"issue_id"`
-	TemplateID        pgtype.UUID        `json:"template_id"`
-	TemplateVersionID pgtype.UUID        `json:"template_version_id"`
-	Status            string             `json:"status"`
-	Source            string             `json:"source"`
-	SourceEventID     pgtype.Text        `json:"source_event_id"`
-	IdempotencyKey    string             `json:"idempotency_key"`
-	AccountableUserID pgtype.UUID        `json:"accountable_user_id"`
-	Input             []byte             `json:"input"`
-	Context           []byte             `json:"context"`
-	Policy            []byte             `json:"policy"`
-	BlockedReason     pgtype.Text        `json:"blocked_reason"`
-	FailureReason     pgtype.Text        `json:"failure_reason"`
-	FailureDetail     pgtype.Text        `json:"failure_detail"`
-	StartedAt         pgtype.Timestamptz `json:"started_at"`
-	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt         pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ID                    pgtype.UUID        `json:"id"`
+	WorkspaceID           pgtype.UUID        `json:"workspace_id"`
+	IssueID               pgtype.UUID        `json:"issue_id"`
+	TemplateID            pgtype.UUID        `json:"template_id"`
+	TemplateVersionID     pgtype.UUID        `json:"template_version_id"`
+	Status                string             `json:"status"`
+	Source                string             `json:"source"`
+	SourceEventID         pgtype.Text        `json:"source_event_id"`
+	IdempotencyKey        string             `json:"idempotency_key"`
+	AccountableUserID     pgtype.UUID        `json:"accountable_user_id"`
+	Input                 []byte             `json:"input"`
+	Context               []byte             `json:"context"`
+	Policy                []byte             `json:"policy"`
+	BlockedReason         pgtype.Text        `json:"blocked_reason"`
+	FailureReason         pgtype.Text        `json:"failure_reason"`
+	FailureDetail         pgtype.Text        `json:"failure_detail"`
+	StartedAt             pgtype.Timestamptz `json:"started_at"`
+	CompletedAt           pgtype.Timestamptz `json:"completed_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	RequestHash           pgtype.Text        `json:"request_hash"`
+	CallbackDestinationID pgtype.UUID        `json:"callback_destination_id"`
 }
 
 type WorkflowStepInstance struct {

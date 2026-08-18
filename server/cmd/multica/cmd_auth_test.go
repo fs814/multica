@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	daemonTaskContextMarkerIgnorePath = daemonTaskContextMarkerPath()
 	for _, key := range []string{
 		"MULTICA_AGENT_ID",
 		"MULTICA_TASK_ID",
@@ -26,6 +28,14 @@ func TestMain(m *testing.M) {
 		os.Unsetenv(key)
 	}
 	os.Exit(m.Run())
+}
+
+func setTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
 }
 
 // testCmd returns a minimal cobra.Command with the --profile persistent flag
@@ -333,7 +343,7 @@ func TestLoginTokenFlagParsing(t *testing.T) {
 
 func TestRunAuthStatusTaskContextDoesNotPrintCredential(t *testing.T) {
 	const fakeTaskToken = "mat_task_status_sentinel"
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TOKEN", fakeTaskToken)
@@ -372,7 +382,7 @@ func TestRunAuthStatusTaskContextDoesNotPrintCredential(t *testing.T) {
 
 func TestRunAuthStatusTaskContextRequiresTaskToken(t *testing.T) {
 	ownerHome := t.TempDir()
-	t.Setenv("HOME", ownerHome)
+	setTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", filepath.Join(t.TempDir(), "task-multica"))
@@ -433,7 +443,7 @@ func TestRunAuthStatusTaskContextRequiresTaskToken(t *testing.T) {
 
 func TestHumanAuthCommandsFailClosedInTaskContext(t *testing.T) {
 	ownerHome := t.TempDir()
-	t.Setenv("HOME", ownerHome)
+	setTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TOKEN", "mat_task_sentinel")

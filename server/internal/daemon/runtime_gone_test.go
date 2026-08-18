@@ -526,6 +526,18 @@ func TestHandleRuntimeGone_DistinctDeletionsWithinCoalesceWindowBothRecover(t *t
 	fx.mu.Lock()
 	claudeIDAfterFirst := fx.providerToID["claude"]
 	fx.mu.Unlock()
+	// Windows' wall clock can return the same timestamp for the successful
+	// completion and the next sequential entry. Advance past that boundary so
+	// this remains a distinct deletion wave rather than a same-wave straggler.
+	for {
+		d.runtimeGoneMu.Lock()
+		completedAt := d.reregisterLastCompletedAt["ws-1"]
+		d.runtimeGoneMu.Unlock()
+		if time.Now().After(completedAt) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 
 	// Now delete codex within the coalesce window (effectively t<1s after
 	// the first recovery), simulating a user deleting a second runtime

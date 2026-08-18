@@ -80,6 +80,8 @@ func cleanupWorkflowRuns(t *testing.T) {
 		for _, stmt := range []string{
 			`DELETE FROM agent_task_queue WHERE workflow_step_instance_id IN
 				(SELECT id FROM workflow_step_instance WHERE workspace_id = $1)`,
+			`DELETE FROM workflow_callback_delivery WHERE workspace_id = $1`,
+			`DELETE FROM workflow_callback_destination WHERE workspace_id = $1`,
 			`DELETE FROM workflow_event WHERE workspace_id = $1`,
 			`DELETE FROM workflow_acceptance WHERE workspace_id = $1`,
 			`DELETE FROM workflow_submission WHERE workspace_id = $1`,
@@ -191,6 +193,15 @@ func findWorkflowStep(steps []WorkflowStepResponse, nodeKey string) (WorkflowSte
 	return WorkflowStepResponse{}, false
 }
 
+func findLatestWorkflowStep(steps []WorkflowStepResponse, nodeKey string) (WorkflowStepResponse, bool) {
+	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].NodeKey == nodeKey {
+			return steps[i], true
+		}
+	}
+	return WorkflowStepResponse{}, false
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/workflow-templates/{id}/run
 // ---------------------------------------------------------------------------
@@ -264,6 +275,16 @@ func TestWorkflowRunCreatesIssueAndQueuesFirstStep(t *testing.T) {
 	}
 	if issueNumber <= 0 {
 		t.Fatalf("issue number = %d; the run's issue must get a real workspace number", issueNumber)
+	}
+	var ownerSubscriptions int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM issue_subscriber
+		WHERE issue_id = $1 AND user_type = 'member' AND user_id = $2
+		  AND reason = 'manual' AND unsubscribed_at IS NULL`, *detail.IssueID, testUserID).Scan(&ownerSubscriptions); err != nil {
+		t.Fatalf("count workflow owner subscriptions: %v", err)
+	}
+	if ownerSubscriptions != 1 {
+		t.Fatalf("workflow owner subscriptions = %d, want one durable issue subscription", ownerSubscriptions)
 	}
 
 	// The run's input is the agent's brief. An empty bag here means every step's
@@ -395,6 +416,133 @@ func TestWorkflowRunCreatesIssueAndQueuesFirstStep(t *testing.T) {
 // Two runs would mean two sets of agent tasks doing the same work, two issues,
 // and two competing sets of commits - and the user has no way to tell which Run
 // to cancel. The second POST must return the FIRST Run.
+func TestWorkflowOwnedIssueStatusRequiresRunCancellation(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	cleanupWorkflowRuns(t)
+	withWorkflowEngineForTest(t)
+	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
+
+	tpl := seededBugFixTemplate(t)
+	started := runWorkflowTemplateForTest(t, tpl.ID, map[string]any{
+		"title":       "Guard the workflow issue lifecycle",
+		"description": "An active run must remain the authority for its issue status.",
+	})
+	if started.Code != http.StatusCreated {
+		t.Fatalf("RunWorkflowTemplate: expected 201, got %d: %s", started.Code, started.Body.String())
+	}
+	detail := decodeWorkflowRunDetail(t, started, "RunWorkflowTemplate")
+	if detail.IssueID == nil {
+		t.Fatal("workflow run has no issue")
+	}
+
+	done := httptest.NewRecorder()
+	doneReq := withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "done"}), "id", *detail.IssueID)
+	testHandler.UpdateIssue(done, doneReq)
+	if done.Code != http.StatusConflict || !strings.Contains(done.Body.String(), "workflow_run_active") {
+		t.Fatalf("direct done update = %d %s, want workflow_run_active conflict", done.Code, done.Body.String())
+	}
+
+	batch := httptest.NewRecorder()
+	batchReq := newRequest("PATCH", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
+		"issue_ids": []string{*detail.IssueID},
+		"updates":   map[string]any{"status": "done"},
+	})
+	testHandler.BatchUpdateIssues(batch, batchReq)
+	if batch.Code != http.StatusConflict || !strings.Contains(batch.Body.String(), "workflow_run_active") {
+		t.Fatalf("batch done update = %d %s, want workflow_run_active conflict", batch.Code, batch.Body.String())
+	}
+
+	cancelled := httptest.NewRecorder()
+	cancelReq := withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "cancelled"}), "id", *detail.IssueID)
+	testHandler.UpdateIssue(cancelled, cancelReq)
+	if cancelled.Code != http.StatusOK {
+		t.Fatalf("issue cancellation = %d %s, want 200", cancelled.Code, cancelled.Body.String())
+	}
+	got := getWorkflowRunForTest(t, detail.ID)
+	if got.Status != "cancelled" {
+		t.Fatalf("workflow run status = %q after issue cancellation, want cancelled", got.Status)
+	}
+}
+
+func TestWorkflowIntakeReturnsStableReceiptAndRejectsConflictingReplay(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	cleanupWorkflowRuns(t)
+	withWorkflowEngineForTest(t)
+	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
+	tpl := seededBugFixTemplate(t)
+
+	var destinationID string
+	if err := testPool.QueryRow(context.Background(), `
+		INSERT INTO workflow_callback_destination (
+			workspace_id, name, url, signing_secret_encrypted, created_by_user_id
+		) VALUES ($1, $2, 'https://callbacks.example.test/workflows', $3, $4)
+		RETURNING id`, testWorkspaceID, "intake callback "+time.Now().Format(time.RFC3339Nano), []byte("encrypted-test-secret"), testUserID).Scan(&destinationID); err != nil {
+		t.Fatalf("create intake callback destination: %v", err)
+	}
+	body := map[string]any{
+		"source": "ticketing", "event_id": "ticket-123", "template_key": tpl.Key,
+		"title": "External ticket 123", "description": "The same event must always resolve to the same workflow receipt.",
+		"source_url": "https://tickets.example.test/123", "payload": map[string]any{"severity": "high"},
+		"callback_destination_id": destinationID,
+	}
+	post := func(payload map[string]any) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		req := withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", payload), "id", testWorkspaceID)
+		testHandler.WorkflowIntake(w, req)
+		return w
+	}
+
+	first := post(body)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first intake = %d %s, want 201", first.Code, first.Body.String())
+	}
+	var receipt WorkflowIntakeResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &receipt); err != nil {
+		t.Fatalf("decode intake receipt: %v", err)
+	}
+	if receipt.ReceiptID == "" || receipt.WorkflowRunID != receipt.ReceiptID || receipt.IssueID == "" || receipt.TemplateKey != tpl.Key {
+		t.Fatalf("incomplete intake receipt: %+v", receipt)
+	}
+
+	replay := post(body)
+	if replay.Code != http.StatusOK {
+		t.Fatalf("identical intake replay = %d %s, want 200", replay.Code, replay.Body.String())
+	}
+	var replayReceipt WorkflowIntakeResponse
+	_ = json.Unmarshal(replay.Body.Bytes(), &replayReceipt)
+	if replayReceipt.WorkflowRunID != receipt.WorkflowRunID || replayReceipt.IssueID != receipt.IssueID {
+		t.Fatalf("intake replay changed identity: first=%+v replay=%+v", receipt, replayReceipt)
+	}
+
+	conflictingBody := make(map[string]any, len(body))
+	for key, value := range body {
+		conflictingBody[key] = value
+	}
+	conflictingBody["title"] = "A different request reusing ticket-123"
+	conflict := post(conflictingBody)
+	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), "idempotency_conflict") {
+		t.Fatalf("conflicting intake replay = %d %s, want idempotency conflict", conflict.Code, conflict.Body.String())
+	}
+
+	var source, sourceEventID string
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT source, source_event_id FROM workflow_run WHERE id = $1`, receipt.WorkflowRunID).Scan(&source, &sourceEventID); err != nil {
+		t.Fatalf("load intake workflow provenance: %v", err)
+	}
+	if source != "external" || sourceEventID != "ticket-123" {
+		t.Fatalf("workflow provenance = %q/%q, want external/ticket-123", source, sourceEventID)
+	}
+	var callbackCount int
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT count(*) FROM workflow_callback_delivery
+		WHERE workflow_run_id = $1 AND event_type = 'run.started'`, receipt.WorkflowRunID).Scan(&callbackCount); err != nil {
+		t.Fatalf("count intake callbacks: %v", err)
+	}
+	if callbackCount != 1 {
+		t.Fatalf("intake run.started callbacks = %d, want one after replay", callbackCount)
+	}
+}
+
 func TestWorkflowRunIsIdempotent(t *testing.T) {
 	cleanupWorkflowTemplates(t)
 	cleanupWorkflowRuns(t)
@@ -610,21 +758,18 @@ func TestWorkflowRunCancelStopsTheAgentToo(t *testing.T) {
 	}
 }
 
-// acceptanceOnlyWorkflowDefinition returns a graph whose ENTRY is the acceptance
-// node, so StartRun opens a review gate immediately.
+// acceptanceOnlyWorkflowDefinition returns the smallest legal graph that can
+// reach an acceptance node and route a rejection back to an upstream agent.
 //
 // This is a test scaffold, not a shape any product template would use: reaching
-// the built-in's acceptance node requires three agents to submit passing work,
+// the built-in's acceptance node requires several agents to submit passing work,
 // which would make these tests about the submission path rather than about the
-// acceptance endpoint. Entering at the gate isolates the decision.
-//
-// The rework target must be a real Agent node (a rejection has to route
-// somewhere the graph declared), and it is reachable via the rework edge, which
-// validateReachability counts.
+// acceptance endpoint. One completed agent isolates the decision while keeping
+// the rework target on a real entry -> target -> acceptance forward path.
 func acceptanceOnlyWorkflowDefinition() map[string]any {
 	return map[string]any{
 		"schema_version": 1,
-		"entry_node":     "acceptance",
+		"entry_node":     "rework",
 		"nodes": []map[string]any{
 			{
 				"key":                 "acceptance",
@@ -640,7 +785,7 @@ func acceptanceOnlyWorkflowDefinition() map[string]any {
 				"type":        "agent",
 				"name":        "Rework",
 				"instruction": "Address the reviewer's stated gap.",
-				"next":        []string{"end"},
+				"next":        []string{"acceptance"},
 				"routing": map[string]any{
 					"strategy":   "capability",
 					"capability": "bug_analysis",
@@ -686,6 +831,13 @@ func startAcceptanceGatedRun(t *testing.T, key string) WorkflowRunDetailResponse
 		t.Fatalf("RunWorkflowTemplate: expected 201, got %d: %s", rw.Code, rw.Body.String())
 	}
 	detail := decodeWorkflowRunDetail(t, rw, "RunWorkflowTemplate")
+	reworkStep, ok := findWorkflowStep(detail.Steps, "rework")
+	if !ok || reworkStep.TaskID == nil {
+		t.Fatalf("initial rework step did not queue a task: %+v", detail.Steps)
+	}
+	completeWorkflowTaskForTest(t, *reworkStep.TaskID, reworkStep.ID, "ready for acceptance")
+	detail = getWorkflowRunForTest(t, detail.ID)
+
 	if detail.Status != "waiting_acceptance" {
 		t.Fatalf("run status = %q, want waiting_acceptance", detail.Status)
 	}
@@ -780,7 +932,7 @@ func TestWorkflowRunAcceptanceRejectionRequiresReasonAndPermittedTarget(t *testi
 	if rejected.Status != "running" {
 		t.Fatalf("run status = %q after a rejection, want running (the rework attempt is live)", rejected.Status)
 	}
-	reworkStep, ok := findWorkflowStep(rejected.Steps, "rework")
+	reworkStep, ok := findLatestWorkflowStep(rejected.Steps, "rework")
 	if !ok {
 		t.Fatalf("a rejection did not open the rework step: %+v", rejected.Steps)
 	}

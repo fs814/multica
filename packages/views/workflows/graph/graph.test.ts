@@ -69,7 +69,7 @@ describe("definitionToGraph / graphToDefinition round trip", () => {
   });
 
   it("keeps join and fan-out semantics the first release does not render", () => {
-    // fan_out/join have no executor yet but are part of the published contract,
+    // fan_out/join runtime semantics survive editor round-trips,
     // so the editor must not be able to strip them by opening a graph.
     const def = parse({
       entry_node: "spread",
@@ -102,6 +102,78 @@ describe("definitionToGraph / graphToDefinition round trip", () => {
     expect(gather.join_sources).toEqual(["work"]);
     expect(round.nodes.find((n) => n.key === "spread")!.fan_out_max).toBe(5);
     expect(round.nodes.find((n) => n.key === "work")!.max_attempts).toBe(7);
+  });
+
+  it("cleans polluted input_mode fields from every non-input node type", () => {
+    const def = parse({
+      entry_node: "intake",
+      nodes: [
+        {
+          key: "intake",
+          type: "input",
+          input_mode: "text",
+          next: ["plan"],
+        },
+        {
+          key: "plan",
+          type: "agent",
+          input_mode: "text",
+          next: ["gate"],
+          routing: { strategy: "capability", capability: "code_change" },
+          submission_schema: "code_change",
+        },
+        {
+          key: "gate",
+          type: "condition",
+          input_mode: "text",
+          branches: [
+            { when_verdict: "pass", target: "spread" },
+            { when_verdict: "fail", target: "acceptance" },
+          ],
+        },
+        {
+          key: "spread",
+          type: "fan_out",
+          input_mode: "text",
+          next: ["worker"],
+          fan_out_max: 3,
+        },
+        {
+          key: "worker",
+          type: "agent",
+          input_mode: "text",
+          next: ["gather"],
+          routing: { strategy: "capability", capability: "code_change" },
+          submission_schema: "code_change",
+        },
+        {
+          key: "gather",
+          type: "join",
+          input_mode: "text",
+          next: ["acceptance"],
+          join_policy: "fail_fast",
+          join_sources: ["worker"],
+        },
+        {
+          key: "acceptance",
+          type: "acceptance",
+          input_mode: "text",
+          next: ["end"],
+          rework_targets: ["plan"],
+        },
+        { key: "end", type: "end", input_mode: "text" },
+      ],
+    });
+    const { nodes, edges } = definitionToGraph(def);
+    const round = graphToDefinition(nodes, edges, def);
+
+    expect(round.nodes.find((node) => node.type === "input")?.input_mode).toBe(
+      "text",
+    );
+    for (const node of round.nodes.filter((node) => node.type !== "input")) {
+      expect(node).not.toHaveProperty("input_mode");
+    }
+    expect(clientValidateGraph(round)).toEqual([]);
   });
 
   it("preserves forward-compatible keys a newer server added", () => {
@@ -650,6 +722,17 @@ describe("clientValidateGraph", () => {
     def.nodes[1]!.rework_targets = ["review"];
     expect(
       matching(def, /node "review" lists itself as a rework target/),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a rework target that is not a reachable upstream node", () => {
+    const def = validDef();
+    def.nodes[1]!.rework_targets = ["end"];
+    expect(
+      matching(
+        def,
+        /rework target "end" that is not a reachable upstream node on a forward path/,
+      ),
     ).toHaveLength(1);
   });
 

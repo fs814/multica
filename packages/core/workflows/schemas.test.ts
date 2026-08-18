@@ -428,6 +428,26 @@ describe("workflow schemas", () => {
     );
   });
 
+  it("does not synthesize input_mode on nodes that did not declare it", () => {
+    const parsed = WorkflowDefinitionSchema.parse({
+      entry_node: "intake",
+      nodes: [
+        { key: "intake", type: "input", next: ["step"] },
+        {
+          key: "step",
+          type: "agent",
+          next: ["end"],
+          routing: { strategy: "capability", capability: "code_change" },
+        },
+        { key: "end", type: "end" },
+      ],
+    });
+
+    expect(parsed.nodes[0]).not.toHaveProperty("input_mode");
+    expect(parsed.nodes[1]).not.toHaveProperty("input_mode");
+    expect(parsed.nodes[2]).not.toHaveProperty("input_mode");
+  });
+
   it("treats an absent limits block as all-zero (inherit server defaults)", () => {
     const parsed = WorkflowDefinitionSchema.parse({
       entry_node: "end",

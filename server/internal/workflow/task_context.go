@@ -100,6 +100,11 @@ type TaskContext struct {
 	UpstreamSummary    string   `json:"upstream_summary,omitempty"`
 	UpstreamReferences []string `json:"upstream_references,omitempty"`
 
+	// ExpansionKey / ExpansionValue identify the one item owned by a fan-out
+	// child. The key is replay-stable; the value is the upstream reference.
+	ExpansionKey   string `json:"expansion_key,omitempty"`
+	ExpansionValue string `json:"expansion_value,omitempty"`
+
 	ReworkFromNode string `json:"rework_from_node,omitempty"`
 	ReworkReason   string `json:"rework_reason,omitempty"`
 	ReworkDetail   string `json:"rework_detail,omitempty"`
@@ -538,6 +543,20 @@ func (tc TaskContext) RenderPrompt() string {
 		}
 		b.WriteString("Build on this. Do not re-derive it from scratch unless you find it is wrong — and if\n")
 		b.WriteString("you do find it wrong, say so in your rationale rather than silently working around it.\n\n")
+	}
+
+	if tc.ExpansionKey != "" || tc.ExpansionValue != "" {
+		b.WriteString("## Fan-out item\n\n")
+		if tc.ExpansionValue != "" {
+			b.WriteString(tc.ExpansionValue)
+			b.WriteString("\n")
+		}
+		if tc.ExpansionKey != "" {
+			b.WriteString("\nExpansion key: `")
+			b.WriteString(tc.ExpansionKey)
+			b.WriteString("`\n")
+		}
+		b.WriteString("\n")
 	}
 
 	if tc.ReworkReason != "" || tc.ReworkFromNode != "" {

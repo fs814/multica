@@ -27,6 +27,47 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "fake-claude.exe" || os.Getenv("MULTICA_TEST_FAKE_CLAUDE") == "1" {
+		argsPath := os.Getenv("MULTICA_TEST_FAKE_CLAUDE_ARGS")
+		if argsPath == "" {
+			argsPath = filepath.Join(filepath.Dir(os.Args[0]), "claude-args.txt")
+		}
+		if argsPath != "" {
+			file, err := os.OpenFile(argsPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			for _, arg := range os.Args[1:] {
+				fmt.Fprintln(file, arg)
+			}
+			fmt.Fprintln(file, "--invocation-end--")
+			_ = file.Close()
+		}
+		fmt.Println(`{"type":"system","session_id":"session-leader-reuse"}`)
+		fmt.Println(`{"type":"result","subtype":"success","is_error":false,"session_id":"session-leader-reuse","result":"done"}`)
+		os.Exit(0)
+	}
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if (strings.HasPrefix(name, "MULTICA_") && !strings.HasPrefix(name, "MULTICA_TEST_")) ||
+			name == "CODEX_HOME" || name == "CODEX_THREAD_ID" ||
+			name == "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" {
+			_ = os.Unsetenv(name)
+		}
+	}
+	os.Exit(m.Run())
+}
+
+func setTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", home)
+	}
+}
+
 func createDaemonTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -186,7 +227,7 @@ func TestIsBlockedEnvKey(t *testing.T) {
 
 func TestPrepareReasonixTaskStateHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	t.Setenv("USERPROFILE", home)
 
 	got, err := prepareReasonixTaskStateHome("work", "runtime-1", "agent_2")

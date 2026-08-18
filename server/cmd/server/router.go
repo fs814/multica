@@ -298,6 +298,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		Schemas:   workflow.DefaultSchemaRegistry,
 	}
 	h.WorkflowEngine = workflowEngine
+	h.AutopilotService.WorkflowEngine = workflowEngine
+	h.WorkflowReconciler = workflow.NewReconciler(workflowEngine, queries)
+	h.WorkflowCallbackWorker = handler.NewWorkflowCallbackWorker(h)
 	// Without this line a finished workflow task never advances its Run: the Step
 	// stays queued and the Run stalls with no error recorded anywhere.
 	h.TaskService.WorkflowTerminal = workflowEngine
@@ -886,6 +889,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			slog.Error("vcs: secretbox.New failed; vcs integration disabled", "error", err)
 		} else {
 			h.VCSSecretBox = box
+			if migrated, migrateErr := h.BackfillAutopilotTriggerSigningSecrets(context.Background()); migrateErr != nil {
+				slog.Error("autopilot webhook signing-secret backfill failed; legacy plaintext secrets remain disabled", "error", migrateErr)
+			} else if migrated > 0 {
+				slog.Info("autopilot webhook signing-secret backfill complete", "migrated", migrated)
+			}
 			slog.Info("vcs integration enabled")
 		}
 	} else {
@@ -1188,6 +1196,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// are admin-gated below).
 					r.Get("/runtime-profiles", h.ListRuntimeProfiles)
 					r.Get("/runtime-profiles/{profileId}", h.GetRuntimeProfile)
+					r.Post("/workflow-intake", h.WorkflowIntake)
+					r.Get("/workflow-callback-destinations", h.ListWorkflowCallbackDestinations)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
@@ -1205,6 +1215,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Patch("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
 					r.Put("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
 					r.Delete("/runtime-profiles/{profileId}", h.DeleteRuntimeProfile)
+					r.Post("/workflow-callback-destinations", h.CreateWorkflowCallbackDestination)
 				})
 				// Owner-only access
 				r.With(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner")).Delete("/", h.DeleteWorkspace)
@@ -1568,13 +1579,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.ListWorkflowRuns)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetWorkflowRun)
+					r.Get("/callback-deliveries", h.ListWorkflowRunCallbackDeliveries)
 					r.Post("/cancel", h.CancelWorkflowRun)
+					r.Post("/reconcile", h.ReconcileWorkflowRun)
 					// The human accept/reject gate. This is the seam that
 					// makes "the agent said it was done" different from "a
 					// human agreed it was done" (plan section 4).
 					r.Post("/acceptance", h.DecideWorkflowAcceptance)
 				})
 			})
+			r.Post("/api/workflow-callback-deliveries/{id}/replay", h.ReplayWorkflowCallbackDelivery)
 
 			// Pins
 			r.Route("/api/pins", func(r chi.Router) {

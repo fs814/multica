@@ -181,9 +181,12 @@ export const WorkflowNodeSchema = z
     join_policy: z.string().optional().default(""),
     join_sources: z.array(z.string()).optional().default([]),
     fan_out_max: z.number().optional().default(0),
-    // Older published definitions omit this field; treat that as text rather
-    // than making an installed client unable to open the template.
-    input_mode: z.string().optional().default("text"),
+    // Older input nodes omit this field and the editor treats absence as text.
+    // Keep the wire value absent here rather than defaulting it: this schema is
+    // shared by every node type, so a schema-level default would synthesize
+    // input_mode on agent/condition/... nodes and the strict server validator
+    // correctly rejects those nodes on the next save.
+    input_mode: z.string().optional(),
     // The image is selected while authoring the node, ComfyUI-style. Persist
     // only the attachment id; previews derive a fresh download URL from it.
     image_attachment_id: z.string().optional().default(""),
@@ -532,6 +535,7 @@ export type WorkflowRun = {
   status: string;
   /** "manual" | "autopilot" | "external" | "api" | "agent" - lenient. */
   source: string;
+  source_event_id: string | null;
   accountable_user_id: string | null;
   /** Why the engine stopped short of a terminal state (e.g.
    *  `routing_no_candidate`, `submission_contract_invalid`). Server-side
@@ -670,6 +674,7 @@ export const WorkflowRunSchema = z
     // fabricated here. The server always emits it - it is a NOT NULL column.
     status: z.string(),
     source: z.string().optional().default(""),
+    source_event_id: z.string().nullable().optional().default(null),
     accountable_user_id: z.string().nullable().optional().default(null),
     blocked_reason: z.string().nullable().optional().default(null),
     failure_reason: z.string().nullable().optional().default(null),
@@ -824,6 +829,7 @@ export const EMPTY_WORKFLOW_RUN_DETAIL: WorkflowRunDetail = {
   template_version_id: "",
   status: "",
   source: "",
+  source_event_id: null,
   accountable_user_id: null,
   blocked_reason: null,
   failure_reason: null,

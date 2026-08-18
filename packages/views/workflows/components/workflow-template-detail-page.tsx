@@ -429,7 +429,7 @@ export function WorkflowTemplateDetailPage({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h1 className="min-w-0 truncate text-sm font-medium">{data.name}</h1>
+            <h1 className="min-w-0 truncate text-body font-medium">{data.name}</h1>
             <WorkflowStatusBadge status={data.status} />
             {builtin ? (
               <Badge variant="secondary">
@@ -438,11 +438,11 @@ export function WorkflowTemplateDetailPage({
             ) : null}
           </div>
           {data.description ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <p className="mt-0.5 truncate text-caption text-muted-foreground">
               {data.description}
             </p>
           ) : null}
-          <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+          <p className="mt-0.5 truncate font-mono text-micro text-muted-foreground">
             {t(($) => $.editor.key_line, { key: data.key })}
           </p>
         </div>
@@ -543,7 +543,7 @@ export function WorkflowTemplateDetailPage({
           onAdd={handleAddNode}
         />
         {readOnly ? (
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="truncate text-caption text-muted-foreground">
             {readOnlyReason}
           </span>
         ) : null}
@@ -552,7 +552,7 @@ export function WorkflowTemplateDetailPage({
             built-in template is the common case where the answers differ - it is
             uneditable by everyone and perfectly runnable. */}
         {runRefusalReason ? (
-          <span className="truncate text-xs text-muted-foreground">
+          <span className="truncate text-caption text-muted-foreground">
             {runRefusalReason}
           </span>
         ) : null}
@@ -701,7 +701,7 @@ function ProblemsStrip({
         />
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium">
+        <p className="text-caption font-medium">
           {clean
             ? t(($) => $.editor.problems.none)
             : report.source === "save"
@@ -718,7 +718,7 @@ function ProblemsStrip({
               // can break the same rule with the same wording).
               <li
                 key={index}
-                className="font-mono text-[11px] leading-snug break-words text-muted-foreground"
+                className="font-mono text-micro leading-snug break-words text-muted-foreground"
               >
                 {message}
               </li>

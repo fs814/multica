@@ -202,6 +202,64 @@ VALUES ($1, $2, 'owner')
 `, wsID, testUserID); err != nil {
 		t.Fatalf("create owner member: %v", err)
 	}
+	var workflowTemplateID, workflowVersionID, workflowRunID, workflowStepID string
+	if err := testPool.QueryRow(ctx, `
+INSERT INTO workflow_template (workspace_id, key, name, created_by_type, created_by_id)
+VALUES ($1, 'workspace-delete', 'Workspace delete workflow', 'member', $2)
+RETURNING id
+`, wsID, testUserID).Scan(&workflowTemplateID); err != nil {
+		t.Fatalf("create workflow template: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+INSERT INTO workflow_template_version (workspace_id, template_id, version, definition)
+VALUES ($1, $2, 1, '{}'::jsonb)
+RETURNING id
+`, wsID, workflowTemplateID).Scan(&workflowVersionID); err != nil {
+		t.Fatalf("create workflow version: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+INSERT INTO workflow_run (workspace_id, template_id, template_version_id, source, idempotency_key)
+VALUES ($1, $2, $3, 'manual', 'workspace-delete-run')
+RETURNING id
+`, wsID, workflowTemplateID, workflowVersionID).Scan(&workflowRunID); err != nil {
+		t.Fatalf("create workflow run: %v", err)
+	}
+	if err := testPool.QueryRow(ctx, `
+INSERT INTO workflow_step_instance (workspace_id, run_id, node_key, node_type, trace_position)
+VALUES ($1, $2, 'entry', 'end', 1)
+RETURNING id
+`, wsID, workflowRunID).Scan(&workflowStepID); err != nil {
+		t.Fatalf("create workflow step: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+INSERT INTO workflow_submission (workspace_id, run_id, step_id, verdict)
+VALUES ($1, $2, $3, 'pass')
+`, wsID, workflowRunID, workflowStepID); err != nil {
+		t.Fatalf("create workflow submission: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+INSERT INTO workflow_acceptance (workspace_id, run_id, step_id)
+VALUES ($1, $2, $3)
+`, wsID, workflowRunID, workflowStepID); err != nil {
+		t.Fatalf("create workflow acceptance: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+INSERT INTO workflow_event (workspace_id, run_id, step_id, event_type, idempotency_key, actor_type)
+VALUES ($1, $2, $3, 'run.started', 'workspace-delete-event', 'system')
+`, wsID, workflowRunID, workflowStepID); err != nil {
+		t.Fatalf("create workflow event: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `
+DELETE FROM workflow_submission WHERE workspace_id = $1;
+DELETE FROM workflow_acceptance WHERE workspace_id = $1;
+DELETE FROM workflow_event WHERE workspace_id = $1;
+DELETE FROM workflow_step_instance WHERE workspace_id = $1;
+DELETE FROM workflow_run WHERE workspace_id = $1;
+DELETE FROM workflow_template_version WHERE workspace_id = $1;
+DELETE FROM workflow_template WHERE workspace_id = $1
+`, wsID)
+	})
 	if _, err := testPool.Exec(ctx, `
 INSERT INTO github_pending_check_suite (
 	workspace_id, installation_id, repo_owner, repo_name, pr_number,
@@ -398,6 +456,22 @@ VALUES ($1, $2, gen_random_uuid(), 's3://workspace-delete/pending-object')
 	}
 	if exists {
 		t.Fatal("workspace still exists after owner DELETE")
+	}
+	var workflowRows int
+	if err := testPool.QueryRow(ctx, `
+SELECT
+    (SELECT COUNT(*) FROM workflow_template WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_template_version WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_run WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_step_instance WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_submission WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_acceptance WHERE workspace_id = $1) +
+    (SELECT COUNT(*) FROM workflow_event WHERE workspace_id = $1)
+`, wsID).Scan(&workflowRows); err != nil {
+		t.Fatalf("verify workflow cleanup: %v", err)
+	}
+	if workflowRows != 0 {
+		t.Fatalf("workflow rows were not cleaned up for deleted workspace: %d", workflowRows)
 	}
 
 	var pendingCount int

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -94,6 +95,8 @@ func setupTestEnv(t *testing.T) *testEnv {
 		// Explicit cleanup in dependency order: the workflow tables carry no
 		// foreign keys, so nothing cascades for us.
 		for _, stmt := range []string{
+			`DELETE FROM workflow_callback_delivery WHERE workspace_id = $1`,
+			`DELETE FROM workflow_callback_destination WHERE workspace_id = $1`,
 			`DELETE FROM workflow_event WHERE workspace_id = $1`,
 			`DELETE FROM workflow_acceptance WHERE workspace_id = $1`,
 			`DELETE FROM workflow_submission WHERE workspace_id = $1`,
@@ -382,6 +385,135 @@ func TestStartRunActivatesEntryStepAndEnqueuesTaskAtomically(t *testing.T) {
 	}
 }
 
+func TestStartRunCreatesIssueAndRunAtomicallyWithStableReplay(t *testing.T) {
+	env := setupTestEnv(t)
+	env.publishTemplate(t, linearDefinition())
+	ctx := context.Background()
+	destination, err := env.q.CreateWorkflowCallbackDestination(ctx, db.CreateWorkflowCallbackDestinationParams{
+		WorkspaceID: env.workspaceID, Name: "test callback", Url: "https://callbacks.example.test/workflow",
+		SigningSecretEncrypted: []byte("encrypted-in-handler"), CreatedByUserID: env.userID,
+	})
+	if err != nil {
+		t.Fatalf("create callback destination: %v", err)
+	}
+
+	input := StartRunInput{
+		WorkspaceID:           env.workspaceID,
+		TemplateID:            env.templateID,
+		Source:                "external",
+		SourceEventID:         "ticket-42",
+		IdempotencyKey:        "external:test:ticket-42",
+		RequestHash:           "same-request",
+		CallbackDestinationID: destination.ID,
+		AccountableUserID:     env.userID,
+		Issue: &RunIssueInput{
+			Title:       "External ticket 42",
+			Description: "Create the issue and workflow run in one transaction.",
+			CreatorType: "member",
+			CreatorID:   env.userID,
+			Subscribers: []RunIssueSubscriber{{UserType: "member", UserID: env.userID, Reason: "manual"}},
+		},
+		Input:     []byte(`{"title":"External ticket 42"}`),
+		ActorType: "member",
+		ActorID:   env.userID,
+	}
+
+	first, err := env.engine.StartRun(ctx, input)
+	if err != nil {
+		t.Fatalf("first StartRun: %v", err)
+	}
+	if first.Issue == nil || first.Run.IssueID != first.Issue.ID {
+		t.Fatalf("issue/run link was not returned atomically: issue=%v run.issue_id=%v", first.Issue, first.Run.IssueID)
+	}
+	var callbackCount int
+	if err := env.pool.QueryRow(ctx, `
+		SELECT count(*) FROM workflow_callback_delivery
+		WHERE workspace_id = $1 AND workflow_run_id = $2 AND event_type = 'run.started'`, env.workspaceID, first.Run.ID).Scan(&callbackCount); err != nil {
+		t.Fatalf("count start callbacks: %v", err)
+	}
+	if callbackCount != 1 {
+		t.Fatalf("run.started callback count = %d, want one transactionally queued delivery", callbackCount)
+	}
+
+	replay, err := env.engine.StartRun(ctx, input)
+	if err != nil {
+		t.Fatalf("replayed StartRun: %v", err)
+	}
+	if !replay.AlreadyExisted || replay.Run.ID != first.Run.ID || replay.Run.IssueID != first.Run.IssueID {
+		t.Fatalf("replay changed identity: first=%v/%v replay=%v/%v already_existed=%v", first.Run.ID, first.Run.IssueID, replay.Run.ID, replay.Run.IssueID, replay.AlreadyExisted)
+	}
+
+	conflict := input
+	conflict.RequestHash = "different-request"
+	if _, err := env.engine.StartRun(ctx, conflict); !IsIdempotencyConflict(err) {
+		t.Fatalf("mismatched replay error = %v, want idempotency conflict", err)
+	}
+
+	var issueCount int
+	if err := env.pool.QueryRow(ctx, `SELECT count(*) FROM issue WHERE workspace_id = $1`, env.workspaceID).Scan(&issueCount); err != nil {
+		t.Fatalf("count issues: %v", err)
+	}
+	if issueCount != 1 {
+		t.Fatalf("issue count = %d, want exactly one after replay and conflict", issueCount)
+	}
+	if err := env.pool.QueryRow(ctx, `SELECT count(*) FROM workflow_callback_delivery WHERE workflow_run_id = $1`, first.Run.ID).Scan(&callbackCount); err != nil {
+		t.Fatalf("count replayed callbacks: %v", err)
+	}
+	if callbackCount != 1 {
+		t.Fatalf("callback count = %d after replay, want event-key dedupe to preserve one", callbackCount)
+	}
+
+	failed := input
+	failed.IdempotencyKey = "external:test:ticket-43"
+	failed.SourceEventID = "ticket-43"
+	failed.RequestHash = "failed-request"
+	failed.Issue = &RunIssueInput{
+		Title:       "External ticket 43",
+		CreatorType: "member",
+		CreatorID:   env.userID,
+		Subscribers: []RunIssueSubscriber{{UserType: "member", UserID: env.userID, Reason: "not-a-valid-reason"}},
+	}
+	if _, err := env.engine.StartRun(ctx, failed); err == nil {
+		t.Fatal("StartRun unexpectedly succeeded with an invalid subscriber reason")
+	}
+	if err := env.pool.QueryRow(ctx, `SELECT count(*) FROM issue WHERE workspace_id = $1`, env.workspaceID).Scan(&issueCount); err != nil {
+		t.Fatalf("count issues after rollback: %v", err)
+	}
+	if issueCount != 1 {
+		t.Fatalf("issue count = %d after failed StartRun, want transaction rollback to preserve one", issueCount)
+	}
+
+	var before, after [4]int
+	countRows := func(dst *[4]int) {
+		t.Helper()
+		if err := env.pool.QueryRow(ctx,
+			"SELECT (SELECT count(*) FROM issue WHERE workspace_id = $1), (SELECT count(*) FROM workflow_run WHERE workspace_id = $1), (SELECT count(*) FROM workflow_event WHERE workspace_id = $1), (SELECT count(*) FROM agent_task_queue WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = $1))",
+			env.workspaceID,
+		).Scan(&dst[0], &dst[1], &dst[2], &dst[3]); err != nil {
+			t.Fatalf("count atomic StartRun rows: %v", err)
+		}
+	}
+	countRows(&before)
+
+	linkFailure := input
+	linkFailure.IdempotencyKey = "external:test:autopilot-link-failure"
+	linkFailure.SourceEventID = "autopilot-link-failure"
+	linkFailure.RequestHash = "autopilot-link-failure"
+	linkFailure.AutopilotRunID = pgtype.UUID{Bytes: [16]byte{0xff}, Valid: true}
+	linkFailure.Issue = &RunIssueInput{
+		Title:       "Must roll back with missing Autopilot receipt",
+		CreatorType: "member",
+		CreatorID:   env.userID,
+	}
+	if _, err := env.engine.StartRun(ctx, linkFailure); err == nil {
+		t.Fatal("StartRun unexpectedly committed without its Autopilot receipt linkage")
+	}
+	countRows(&after)
+	if before != after {
+		t.Fatalf("Autopilot linkage failure left partial rows: before=%v after=%v", before, after)
+	}
+}
+
 // TestStartRunIsIdempotent: replaying the same intake event must return the
 // original Run, never create a second one or a second Agent Task.
 func TestStartRunIsIdempotent(t *testing.T) {
@@ -433,6 +565,85 @@ func TestStartRunIsIdempotent(t *testing.T) {
 	}
 	if taskCount != 1 {
 		t.Errorf("task count = %d, want exactly 1; a replay must never duplicate an Agent Task", taskCount)
+	}
+}
+
+func TestStartRunConcurrentReplayIsSingleMaterialization(t *testing.T) {
+	env := setupTestEnv(t)
+	env.publishTemplate(t, linearDefinition())
+	ctx := context.Background()
+	input := StartRunInput{
+		WorkspaceID:       env.workspaceID,
+		TemplateID:        env.templateID,
+		Source:            "external",
+		SourceEventID:     "concurrent-ticket",
+		IdempotencyKey:    "external:test:concurrent-ticket",
+		RequestHash:       "concurrent-request",
+		AccountableUserID: env.userID,
+		Issue: &RunIssueInput{
+			Title:       "Concurrent external ticket",
+			CreatorType: "member",
+			CreatorID:   env.userID,
+			Subscribers: []RunIssueSubscriber{{UserType: "member", UserID: env.userID, Reason: "manual"}},
+		},
+		Input:     []byte("{\"title\":\"Concurrent external ticket\"}"),
+		ActorType: "member",
+		ActorID:   env.userID,
+	}
+
+	type result struct {
+		started *StartRunResult
+		err     error
+	}
+	ready := make(chan struct{})
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-ready
+			started, err := env.engine.StartRun(ctx, input)
+			results <- result{started: started, err: err}
+		}()
+	}
+	close(ready)
+	wg.Wait()
+	close(results)
+
+	var runID pgtype.UUID
+	created, replayed := 0, 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatalf("concurrent StartRun: %v", result.err)
+		}
+		if result.started == nil {
+			t.Fatal("concurrent StartRun returned nil result")
+		}
+		if !runID.Valid {
+			runID = result.started.Run.ID
+		} else if result.started.Run.ID != runID {
+			t.Fatalf("concurrent replay returned different runs: %v and %v", runID, result.started.Run.ID)
+		}
+		if result.started.AlreadyExisted {
+			replayed++
+		} else {
+			created++
+		}
+	}
+	if created != 1 || replayed != 1 {
+		t.Fatalf("concurrent outcomes: created=%d replayed=%d, want 1/1", created, replayed)
+	}
+
+	var issueCount, runCount, taskCount int
+	if err := env.pool.QueryRow(ctx,
+		"SELECT (SELECT count(*) FROM issue WHERE workspace_id=$1), (SELECT count(*) FROM workflow_run WHERE workspace_id=$1), (SELECT count(*) FROM agent_task_queue WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id=$1))",
+		env.workspaceID,
+	).Scan(&issueCount, &runCount, &taskCount); err != nil {
+		t.Fatalf("count concurrent materialization: %v", err)
+	}
+	if issueCount != 1 || runCount != 1 || taskCount != 1 {
+		t.Fatalf("concurrent materialization counts: issues=%d runs=%d tasks=%d, want 1/1/1", issueCount, runCount, taskCount)
 	}
 }
 

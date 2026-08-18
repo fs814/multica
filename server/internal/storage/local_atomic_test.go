@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -76,6 +77,11 @@ func TestLocalStorageUploadsAreWorldReadable(t *testing.T) {
 		info, err := os.Stat(filepath.Join(dir, key))
 		if err != nil {
 			t.Fatalf("stat %s: %v", key, err)
+		}
+		// Windows reports synthetic permission bits backed by ACLs, so an
+		// exact POSIX 0644 assertion is not meaningful there.
+		if runtime.GOOS == "windows" {
+			continue
 		}
 		if info.Mode().Perm() != 0644 {
 			t.Fatalf("%s mode = %o, want 0644", key, info.Mode().Perm())

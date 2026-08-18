@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestStreamingDecryptMatchesTheBufferedOneAtEveryPadLength(t *testing.T) {
 			t.Fatalf("streaming decrypt of %d bytes: %v", n, err)
 		}
 		got, readErr := io.ReadAll(f)
-		f.Close()
+		closeAndRemoveTempFile(f)
 		if readErr != nil {
 			t.Fatalf("read back %d bytes: %v", n, readErr)
 		}
@@ -118,7 +119,7 @@ func TestStreamingDecryptSurvivesADribblingReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decryptToFile: %v", err)
 	}
-	defer f.Close()
+	defer closeAndRemoveTempFile(f)
 	got, err := io.ReadAll(f)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
@@ -193,9 +194,9 @@ func TestStreamingDecryptRefusesAnEmptyBody(t *testing.T) {
 	}
 }
 
-// The plaintext is an attachment. Its temp file must not be readable by
-// anyone else, and must not outlive the handle — including if the process
-// dies holding it.
+// The plaintext is an attachment. On Unix it is unlinked immediately; on
+// Windows it remains in the user-protected temp directory until the handle
+// closes because the OS does not allow unlinking this open file.
 func TestTheTempFileIsPrivateAndUnlinked(t *testing.T) {
 	key, keyB64 := mediaTestKey(t)
 	dir := t.TempDir()
@@ -205,13 +206,17 @@ func TestTheTempFileIsPrivateAndUnlinked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decryptToFile: %v", err)
 	}
-	defer f.Close()
+	name := f.Name()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
 	}
-	if len(entries) != 0 {
+	if runtime.GOOS == "windows" {
+		if len(entries) != 1 {
+			t.Fatalf("Windows temp directory holds %d entries, want the open plaintext file", len(entries))
+		}
+	} else if len(entries) != 0 {
 		t.Fatalf("the temp directory still holds %d entries; the plaintext file was not unlinked", len(entries))
 	}
 
@@ -219,8 +224,13 @@ func TestTheTempFileIsPrivateAndUnlinked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm&0o077 != 0 {
 		t.Errorf("the plaintext file is mode %v, want no group or other access", perm)
+	}
+
+	closeAndRemoveTempFile(f)
+	if _, err := os.Stat(name); !os.IsNotExist(err) {
+		t.Fatalf("plaintext temp file survived close: %v", err)
 	}
 }
 
@@ -233,7 +243,7 @@ func TestPeekFileRewinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decryptToFile: %v", err)
 	}
-	defer f.Close()
+	defer closeAndRemoveTempFile(f)
 
 	head, err := peekFile(f, 4)
 	if err != nil {
@@ -259,7 +269,7 @@ func TestPeekFileHandlesAShortFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decryptToFile: %v", err)
 	}
-	defer f.Close()
+	defer closeAndRemoveTempFile(f)
 
 	head, err := peekFile(f, 512)
 	if err != nil {

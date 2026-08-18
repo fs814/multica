@@ -55,6 +55,26 @@ func priorityLabel(p string) string {
 
 var emptyDetails = []byte("{}")
 
+// issueResponseFromEvent accepts both issue payload shapes published on the
+// internal bus. HTTP handlers publish handler.IssueResponse values, while
+// background services publish the JSON-shaped map returned by
+// service.IssueToMap. Keeping the normalization at the listener boundary makes
+// every downstream notification path operate on one typed contract.
+func issueResponseFromEvent(value any) (handler.IssueResponse, bool) {
+	if issue, ok := value.(handler.IssueResponse); ok {
+		return issue, true
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return handler.IssueResponse{}, false
+	}
+	var issue handler.IssueResponse
+	if err := json.Unmarshal(raw, &issue); err != nil || issue.ID == "" || issue.WorkspaceID == "" {
+		return handler.IssueResponse{}, false
+	}
+	return issue, true
+}
+
 // parseMentions extracts mentions from markdown content.
 // Delegates to the shared util.ParseMentions and converts to the local type.
 func parseMentions(content string) []mention {
@@ -628,7 +648,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		if !ok {
 			return
 		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
+		issue, ok := issueResponseFromEvent(payload["issue"])
 		if !ok {
 			return
 		}
@@ -663,7 +683,7 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 		if !ok {
 			return
 		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
+		issue, ok := issueResponseFromEvent(payload["issue"])
 		if !ok {
 			return
 		}

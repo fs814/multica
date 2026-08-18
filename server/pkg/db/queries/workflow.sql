@@ -129,15 +129,22 @@ RETURNING *;
 -- Run
 -- ---------------------------------------------------------------------------
 
+-- name: NextWorkflowIssuePosition :one
+SELECT CAST(COALESCE(MIN(position), 0) - 1 AS DOUBLE PRECISION) AS position
+FROM issue
+WHERE workspace_id = $1 AND status = $2;
+
 -- name: CreateWorkflowRun :one
 INSERT INTO workflow_run (
     workspace_id, issue_id, template_id, template_version_id, status, source,
-    source_event_id, idempotency_key, accountable_user_id, input, context, policy
+    source_event_id, idempotency_key, accountable_user_id, input, context, policy,
+    request_hash, callback_destination_id
 ) VALUES (
     $1, sqlc.narg('issue_id'), $2, $3, 'pending', $4,
     sqlc.narg('source_event_id'), sqlc.arg('idempotency_key')::text,
     sqlc.narg('accountable_user_id'),
-    sqlc.arg('input')::jsonb, sqlc.arg('context')::jsonb, sqlc.arg('policy')::jsonb
+    sqlc.arg('input')::jsonb, sqlc.arg('context')::jsonb, sqlc.arg('policy')::jsonb,
+    sqlc.narg('request_hash'), sqlc.narg('callback_destination_id')
 )
 RETURNING *;
 
@@ -671,4 +678,18 @@ WHERE t.workflow_step_instance_id IS NOT NULL
   AND s.status IN ('queued', 'running')
   AND t.completed_at < now() - make_interval(secs => sqlc.arg('stale_seconds')::float)
 ORDER BY t.completed_at ASC
+LIMIT sqlc.arg('limit_count')::int;
+
+-- name: ListAutopilotWorkflowRunsAwaitingSync :many
+-- A workflow Run is canonical; this projects its terminal state onto the
+-- linked Autopilot history row after crashes or asynchronous completion.
+SELECT ar.id AS autopilot_run_id, wr.id AS workflow_run_id,
+       wr.status AS workflow_status, wr.failure_reason, wr.blocked_reason,
+       wr.failure_detail
+FROM autopilot_run ar
+JOIN workflow_run wr ON wr.id = ar.workflow_run_id
+WHERE ar.workflow_run_id IS NOT NULL
+  AND ar.status IN ('running', 'issue_created')
+  AND wr.status IN ('completed', 'failed', 'cancelled', 'blocked')
+ORDER BY wr.updated_at ASC
 LIMIT sqlc.arg('limit_count')::int;

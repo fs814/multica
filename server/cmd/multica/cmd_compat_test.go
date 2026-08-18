@@ -30,7 +30,7 @@ func TestLegacyCompatibilityCommandsRemainAvailable(t *testing.T) {
 }
 
 func TestRunConfigSetPersistsValues(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	cmd := testCmd()
 
 	if err := runConfigSet(cmd, []string{"server_url", "http://example.com"}); err != nil {

@@ -99,7 +99,9 @@ func TestBuiltinSkillsFrontmatterIsStrictYAML(t *testing.T) {
 
 	for _, skill := range skills {
 		t.Run(skill.Name, func(t *testing.T) {
-			content := skill.Content
+			// embed preserves checkout line endings. Normalize CRLF so this
+			// content contract is identical on Windows and Unix worktrees.
+			content := strings.ReplaceAll(skill.Content, "\r\n", "\n")
 			if !strings.HasPrefix(content, "---\n") {
 				t.Fatalf("SKILL.md must lead with a --- frontmatter block")
 			}
@@ -605,6 +607,7 @@ func skillHasFile(skill AgentSkillData, path string) bool {
 // frontmatter block, the body after it, and whether a block was found. It only
 // understands flat `key: value` lines — enough for the template's frontmatter.
 func splitFrontmatter(content string) (map[string]string, string, bool) {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
 	if !strings.HasPrefix(content, "---\n") {
 		return nil, content, false
 	}
