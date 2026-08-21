@@ -5,7 +5,9 @@ import {
   CircleCheckBig,
   Flag,
   GitBranch,
+  GitFork,
   Inbox,
+  Merge,
   Plus,
   type LucideIcon,
 } from "lucide-react";
@@ -17,15 +19,6 @@ import type { WorkflowNodeType } from "../graph";
 
 /**
  * The node kinds a human may add, in the screenshot's order.
- *
- * `fan_out` and `join` are deliberately absent even though the engine's node
- * vocabulary includes them and the validator accepts them. Their executors are
- * not implemented yet - a run reaching one passes straight through - so a node
- * added here would be a step the author designed, the server accepted, and the
- * run silently skipped. That is worse than the feature being missing, because
- * the graph *looks* correct. An existing graph that already declares them still
- * renders and still saves: the omission is only in what a human may newly
- * author, never in what the model can carry.
  *
  * `input` IS offered, and it leads the row because it is the step that comes
  * first in every graph that has one: it declares what the Run dialog collects, so
@@ -41,7 +34,7 @@ import type { WorkflowNodeType } from "../graph";
 const ADDABLE_NODES: {
   type: Extract<
     WorkflowNodeType,
-    "input" | "agent" | "acceptance" | "condition" | "end"
+    "input" | "agent" | "acceptance" | "condition" | "fan_out" | "join" | "end"
   >;
   icon: LucideIcon;
   /** Matches the canvas badge accent for this node type. */
@@ -51,6 +44,8 @@ const ADDABLE_NODES: {
   { type: "agent", icon: Bot, accent: "text-indigo-500" },
   { type: "acceptance", icon: CircleCheckBig, accent: "text-emerald-500" },
   { type: "condition", icon: GitBranch, accent: "text-purple-500" },
+  { type: "fan_out", icon: GitFork, accent: "text-amber-500" },
+  { type: "join", icon: Merge, accent: "text-cyan-500" },
   { type: "end", icon: Flag, accent: "text-slate-500" },
 ];
 
@@ -93,6 +88,8 @@ export function AddNodeToolbar({
     agent: t(($) => $.add_node.agent),
     acceptance: t(($) => $.add_node.acceptance),
     condition: t(($) => $.add_node.condition),
+    fan_out: t(($) => $.add_node.fan_out),
+    join: t(($) => $.add_node.join),
     end: t(($) => $.add_node.end),
   };
 
@@ -128,7 +125,7 @@ export function AddNodeToolbar({
           state raises. Mirrors how the page states its read-only reason in this
           same row. */}
       {inputRefusal ? (
-        <span className="truncate text-xs text-muted-foreground">
+        <span className="truncate text-caption text-muted-foreground">
           {inputRefusal}
         </span>
       ) : null}

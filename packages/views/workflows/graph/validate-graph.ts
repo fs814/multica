@@ -26,6 +26,7 @@
 
 import type { WorkflowDefinition, WorkflowNode } from "@multica/core/workflows";
 import { isWorkflowNodeType } from "./types";
+import { legalReworkTargetNodes } from "./rework-targets";
 
 /** The only definition format any current server understands. */
 const SCHEMA_VERSION = 1;
@@ -125,11 +126,23 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
     problems.push(`entry_node "${def.entry_node}" is not a declared node`);
   }
 
+  const forwardEdgesAreDeclared = def.nodes.every(
+    (node) =>
+      node.next.every((target) => target !== "" && byKey.has(target)) &&
+      node.branches.every(
+        (branch) => branch.target !== "" && byKey.has(branch.target),
+      ),
+  );
+  const cycleProbe: string[] = [];
+  if (forwardEdgesAreDeclared) checkAcyclic(cycleProbe, def, byKey);
+  const canCheckReworkUpstream =
+    forwardEdgesAreDeclared && cycleProbe.length === 0;
+
   let endCount = 0;
   let inputCount = 0;
   for (const node of def.nodes) {
     checkEdges(problems, node, byKey);
-    checkReworkTargets(problems, node, byKey);
+    checkReworkTargets(problems, def, node, byKey, canCheckReworkUpstream);
     const imageAttachmentId = (node.image_attachment_id ?? "").trim();
 
     if (node.type !== "input" && imageAttachmentId !== "") {
@@ -326,9 +339,14 @@ function checkEdges(
  */
 function checkReworkTargets(
   problems: string[],
+  definition: WorkflowDefinition,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
+  checkReachableUpstream: boolean,
 ): void {
+  const legalTargets = new Set(
+    legalReworkTargetNodes(definition, node.key).map((target) => target.key),
+  );
   for (const target of node.rework_targets) {
     const targetNode = byKey.get(target);
     if (!targetNode) {
@@ -349,6 +367,16 @@ function checkReworkTargets(
     if (targetNode.type === "input") {
       problems.push(
         `node "${node.key}" lists input node "${target}" as a rework target; nothing can be sent back to intake because the engine cannot re-prompt a human mid-run — use an acceptance node for that`,
+      );
+    }
+    if (
+      checkReachableUpstream &&
+      target !== node.key &&
+      targetNode.type !== "input" &&
+      !legalTargets.has(target)
+    ) {
+      problems.push(
+        `node "${node.key}" lists rework target "${target}" that is not a reachable upstream node on a forward path from entry_node "${definition.entry_node}" to "${node.key}"`,
       );
     }
   }

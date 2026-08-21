@@ -38,6 +38,9 @@ const (
 	ReasonAcceptanceRejected        = "acceptance_rejected"
 	ReasonActivationTimeout         = "activation_timeout"
 	ReasonRuntimeOffline            = "runtime_offline"
+	ReasonFanOutEmpty               = "fan_out_empty"
+	ReasonFanOutLimitExceeded       = "fan_out_limit_exceeded"
+	ReasonJoinChildFailed           = "join_child_failed"
 	ReasonCancelled                 = "cancelled"
 )
 

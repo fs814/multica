@@ -64,6 +64,11 @@ type ModelCatalogSnapshot struct {
 	Models    []ModelEntry `json:"models"`
 	Supported bool         `json:"supported"`
 	StoredAt  time.Time    `json:"stored_at"`
+	// KnotAgents is the knot/knot-http agent list captured with the models.
+	// Cached alongside them because both come from the same discovery round:
+	// omitting it would make a cache hit serve models with no agent list, so the
+	// picker would populate only on a cold open.
+	KnotAgents []KnotAgentEntry `json:"knot_agents,omitempty"`
 }
 
 // Age reports how long ago the snapshot was captured.
@@ -82,7 +87,7 @@ func (s *ModelCatalogSnapshot) Age(now time.Time) time.Duration {
 // Implementations must be safe for concurrent use.
 type ModelCatalogCache interface {
 	Get(ctx context.Context, runtimeID string) (*ModelCatalogSnapshot, error)
-	Put(ctx context.Context, runtimeID string, models []ModelEntry, supported bool) error
+	Put(ctx context.Context, runtimeID string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error
 	// Invalidate drops any snapshot for the runtime. Used when the cached
 	// catalog can no longer be trusted (e.g. the runtime row was deleted).
 	Invalidate(ctx context.Context, runtimeID string) error
@@ -198,10 +203,22 @@ func (c *InMemoryModelCatalogCache) Get(_ context.Context, runtimeID string) (*M
 	// Copy so a caller mutating the response cannot corrupt the cache.
 	snapshot := entry
 	snapshot.Models = cloneModelEntries(entry.Models)
+	snapshot.KnotAgents = cloneKnotAgentEntries(entry.KnotAgents)
 	return &snapshot, nil
 }
 
-func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, supported bool) error {
+// cloneKnotAgentEntries copies the agent list for the same reason
+// cloneModelEntries exists: the in-memory cache hands out snapshots, and a
+// caller that mutated the returned slice would corrupt every later reader.
+// KnotAgentEntry holds only strings, so a shallow element copy suffices.
+func cloneKnotAgentEntries(agents []KnotAgentEntry) []KnotAgentEntry {
+	if agents == nil {
+		return nil
+	}
+	return append([]KnotAgentEntry(nil), agents...)
+}
+
+func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error {
 	// fallback=false: ReportModelListResult refuses to Put a fallback catalog
 	// at all, so anything reaching a cache backend is a real discovery result.
 	if runtimeID == "" || !cacheableModelCatalog(models, supported, false) {
@@ -220,10 +237,11 @@ func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, mod
 	}
 
 	c.entries[runtimeID] = ModelCatalogSnapshot{
-		RuntimeID: runtimeID,
-		Models:    cloneModelEntries(models),
-		Supported: supported,
-		StoredAt:  now,
+		RuntimeID:  runtimeID,
+		Models:     cloneModelEntries(models),
+		KnotAgents: cloneKnotAgentEntries(knotAgents),
+		Supported:  supported,
+		StoredAt:   now,
 	}
 	return nil
 }

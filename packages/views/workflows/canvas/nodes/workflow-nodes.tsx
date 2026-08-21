@@ -99,7 +99,7 @@ export const InputNode = memo(function InputNode({
               className="h-36 w-full rounded-md bg-muted/30 object-contain"
             />
           ) : (
-            <p className="text-xs text-destructive">
+            <p className="text-caption text-destructive">
               {t(($) => $.canvas.summary.input_image_missing)}
             </p>
           )
@@ -111,7 +111,7 @@ export const InputNode = memo(function InputNode({
               // rejects but the canvas still has to draw.
               <li
                 key={index}
-                className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground"
+                className="flex min-w-0 items-center gap-1 text-micro text-muted-foreground"
               >
                 <span className="min-w-0 truncate">
                   {field.label || field.key}
@@ -138,7 +138,7 @@ export const InputNode = memo(function InputNode({
               </li>
             ))}
             {hidden > 0 ? (
-              <li className="text-[10px] text-muted-foreground/70">
+              <li className="text-micro text-muted-foreground">
                 {t(($) => $.canvas.summary.input_more, { count: hidden })}
               </li>
             ) : null}

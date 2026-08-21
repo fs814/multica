@@ -591,6 +591,22 @@
       "saved_toast": "路由配置已保存",
       "save_failed_toast": "保存路由配置失败"
     },
+    "knot_config": {
+      "intro": "选择由哪个已注册的 Knot 智能体执行该智能体的任务。该 ID 会包含在 Knot API 的请求路径中，因此未设置时任务无法运行。留空则使用 daemon 级别的默认值（MULTICA_KNOT_AGENT_ID）。",
+      "agent_label": "Knot 智能体 ID",
+      "agent_unset": "使用 daemon 默认值",
+      "agent_required_unset": "选择 Knot 智能体",
+      "agent_clear": "清除选择（使用 daemon 默认值）",
+      "agent_placeholder": "ec4633074fe4413c83218e1f36b8e24d",
+      "agent_discovering": "正在获取已注册的 Knot 智能体…",
+      "agent_manual_hint": "未发现智能体——运行时可能离线，或未安装 knot-cli。请手动输入 ID；可用 `knot-cli list-agents` 查看。",
+      "agent_invalid": "Knot 智能体 ID 是 32 位小写十六进制字符。",
+      "agent_required": "请选择一个 Knot 智能体后再启动 Agent Builder。",
+      "agent_default_hint": "未选择智能体。任务将使用 daemon 级别的默认值。",
+      "save": "保存",
+      "saved_toast": "Knot 智能体已保存",
+      "save_failed_toast": "保存 Knot 智能体失败"
+    },
     "skills": {
       "intro": "这里展示该智能体实际拥有的全部 skill。工作区 skill 可在此管理；从 Codex 和 Claude Code 继承的 skill 也可以按智能体单独关闭。",
       "assigned_title": "分配给智能体",

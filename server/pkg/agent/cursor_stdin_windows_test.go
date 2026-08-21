@@ -114,6 +114,12 @@ func assertPromptSurvivesShim(t *testing.T) {
 	dir := t.TempDir()
 	argvPath := filepath.Join(dir, "argv.txt")
 	stdinPath := filepath.Join(dir, "stdin.txt")
+	selfBytes, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatalf("read test binary to use as native child: %v", err)
+	}
+	nativeChild := filepath.Join(dir, "cursor-shim-helper.exe")
+	writeTestExecutable(t, nativeChild, selfBytes)
 
 	// The .cmd only has to exist and carry the right extension; the rewrite
 	// routes around it to the sibling .ps1, which is what actually runs.
@@ -122,15 +128,10 @@ func assertPromptSurvivesShim(t *testing.T) {
 
 	// Shaped like the official shim: set up, then hand $args to a native child.
 	ps1 := fmt.Sprintf(""+
-		"$env:%s = '1'\r\n"+
-		"$env:%s = '%s'\r\n"+
-		"$env:%s = '%s'\r\n"+
-		"& '%s' '-test.run=^TestCursorShimHelperProcess$' '--' $args\r\n"+
-		"exit $LASTEXITCODE\r\n",
-		shimHelperEnv,
-		shimHelperArgvFile, argvPath,
-		shimHelperInFile, stdinPath,
-		self)
+		"$childArgs = @('%s', '%s', '%s', '--') + $args\r\n"+
+		"$child = Start-Process -FilePath '%s' -ArgumentList $childArgs -NoNewWindow -Wait -PassThru\r\n"+
+		"exit $child.ExitCode\r\n",
+		cursorShimHelperArg, argvPath, stdinPath, nativeChild)
 	writeFile(t, filepath.Join(dir, "cursor-agent.ps1"), ps1)
 
 	prompt := "Please fix the build.\n" +

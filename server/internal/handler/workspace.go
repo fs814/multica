@@ -902,6 +902,10 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 			run:  func() error { return qtx.DeleteWorkspaceLeafData(ctx, requester.WorkspaceID) },
 		},
 		{
+			name: "delete workflow data",
+			run:  func() error { return qtx.DeleteWorkspaceWorkflowData(ctx, requester.WorkspaceID) },
+		},
+		{
 			name: "delete autopilot runs",
 			run:  func() error { return qtx.DeleteWorkspaceAutopilotRuns(ctx, requester.WorkspaceID) },
 		},

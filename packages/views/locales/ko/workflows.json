@@ -212,6 +212,8 @@
     "agent": "Issue",
     "acceptance": "승인",
     "condition": "조건",
+    "fan_out": "팬아웃",
+    "join": "조인",
     "end": "종료"
   },
   "panel": {
@@ -370,10 +372,12 @@
       "unknown": "인식할 수 없는 정책 \"{{policy}}\"",
       "rework_targets": "되돌릴 단계",
       "rework_targets_aria": "재작업 대상",
-      "rework_targets_hint": "실행이 되돌아갈 수 있는 단계는 이들뿐이며, 그래서 순환 횟수가 제한됩니다.",
-      "rework_targets_empty": "되돌릴 다른 단계가 없습니다.",
+      "rework_targets_hint": "도달 가능한 상위 단계 중 하나 이상을 선택하세요. 실행은 이 단계들로만 되돌아갈 수 있습니다.",
+      "rework_targets_empty": "이 단계를 적합한 상위 작업 단계 뒤에 연결하면 여기에 표시됩니다.",
       "rework_targets_required": "재작업에는 최소 하나의 대상이 필요합니다. 없으면 실행이 취할 수 있는 동작이 없습니다.",
-      "rework_targets_required_acceptance": "승인 단계에는 최소 하나의 대상이 필요합니다. 그렇지 않으면 반려된 작업이 갈 곳이 없습니다."
+      "rework_targets_required_acceptance": "승인 단계에는 최소 하나의 대상이 필요합니다. 그렇지 않으면 반려된 작업이 갈 곳이 없습니다.",
+      "rework_targets_invalid": "다음 대상은 도달 가능한 상위 단계가 아닙니다: {{targets}}. 제거하고 적합한 대상을 선택하세요.",
+      "rework_targets_invalid_option": "{{name}}(적합한 상위 단계 아님)"
     }
   },
   "graph": {
@@ -517,6 +521,7 @@
       "not_found": "실행을 찾을 수 없습니다",
       "unreadable": "이 실행의 상세를 읽을 수 없어 트레이스를 표시하지 않습니다. 변경된 것은 없습니다.",
       "source": "출처: {{source}}",
+      "source_event": "소스 이벤트",
       "cancel": "실행 취소",
       "cancelling": "취소 중…",
       "toast_cancelled": "실행을 취소했습니다",

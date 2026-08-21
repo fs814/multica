@@ -24,10 +24,20 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
-import type { WorkflowTemplateDetail } from "@multica/core/workflows";
+import {
+  WorkflowDefinitionSchema,
+  type WorkflowDefinition,
+  type WorkflowTemplateDetail,
+} from "@multica/core/workflows";
 import enCommon from "../../locales/en/common.json";
 import enWorkflows from "../../locales/en/workflows.json";
 import enUi from "../../locales/en/ui.json";
@@ -55,15 +65,35 @@ const navigationPushMock = vi.hoisted(() => vi.fn());
 vi.mock("../canvas/workflow-canvas", () => ({
   WorkflowCanvas: (props: {
     nodes: { id: string }[];
+    edges: { id: string }[];
     readOnly: boolean;
     selectedNodeId: string | null;
+    onEdgesChange(edges: { id: string }[]): void;
+    onSelectNode(nodeId: string | null): void;
   }) => (
     <div
       data-testid="canvas"
       data-read-only={String(props.readOnly)}
       data-selected={props.selectedNodeId ?? ""}
+      data-edges={props.edges.map((edge) => edge.id).join(",")}
     >
       {props.nodes.map((node) => node.id).join(",")}
+      {!props.readOnly && props.edges.length > 0 ? (
+        <button
+          type="button"
+          data-testid="canvas-delete-first-edge"
+          onClick={() => props.onEdgesChange(props.edges.slice(1))}
+        ></button>
+      ) : null}
+      {!props.readOnly &&
+      props.nodes.some((node) => node.id === "acceptance") ? (
+        <button
+          type="button"
+          data-testid="canvas-select-acceptance"
+          onClick={() => props.onSelectNode("acceptance")}
+          aria-label="Select acceptance"
+        ></button>
+      ) : null}
     </div>
   ),
 }));
@@ -111,10 +141,9 @@ vi.mock("@multica/core/api", () => ({
   api: { validateWorkflowDefinition: validateMock },
 }));
 vi.mock("@multica/core/workflows", async () => {
-  const actual =
-    await vi.importActual<typeof import("@multica/core/workflows")>(
-      "@multica/core/workflows",
-    );
+  const actual = await vi.importActual<
+    typeof import("@multica/core/workflows")
+  >("@multica/core/workflows");
   return {
     ...actual,
     workflowTemplateDetailOptions: (wsId: string, id: string) => ({
@@ -148,7 +177,9 @@ vi.mock("sonner", () => ({
 
 import { WorkflowTemplateDetailPage } from "./workflow-template-detail-page";
 
-function detail(patch: Partial<WorkflowTemplateDetail> = {}): WorkflowTemplateDetail {
+function detail(
+  patch: Partial<WorkflowTemplateDetail> = {},
+): WorkflowTemplateDetail {
   return {
     id: "wft-1",
     workspace_id: "ws-1",
@@ -174,6 +205,57 @@ function detail(patch: Partial<WorkflowTemplateDetail> = {}): WorkflowTemplateDe
   };
 }
 
+function allNodeTypesDefinition(): WorkflowDefinition {
+  return WorkflowDefinitionSchema.parse({
+    entry_node: "intake",
+    nodes: [
+      { key: "intake", type: "input", input_mode: "text", next: ["plan"] },
+      {
+        key: "plan",
+        type: "agent",
+        next: ["gate"],
+        routing: { strategy: "capability", capability: "code_change" },
+        submission_schema: "code_change",
+      },
+      {
+        key: "gate",
+        type: "condition",
+        branches: [
+          { when_verdict: "pass", target: "spread" },
+          { when_verdict: "fail", target: "acceptance" },
+        ],
+      },
+      {
+        key: "spread",
+        type: "fan_out",
+        next: ["worker"],
+        fan_out_max: 3,
+      },
+      {
+        key: "worker",
+        type: "agent",
+        next: ["gather"],
+        routing: { strategy: "capability", capability: "code_change" },
+        submission_schema: "code_change",
+      },
+      {
+        key: "gather",
+        type: "join",
+        next: ["acceptance"],
+        join_policy: "fail_fast",
+        join_sources: ["worker"],
+      },
+      {
+        key: "acceptance",
+        type: "acceptance",
+        next: ["end"],
+        rework_targets: ["plan"],
+      },
+      { key: "end", type: "end" },
+    ],
+  });
+}
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -186,7 +268,7 @@ function renderPage() {
     searchParams: new URLSearchParams(),
     getShareableUrl: (path) => path,
   };
-  render(
+  return render(
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
       <NavigationProvider value={navigation}>
         <QueryClientProvider client={queryClient}>
@@ -277,9 +359,7 @@ describe("read-only", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Duplicate" }));
 
     await waitFor(() => expect(duplicateMock).toHaveBeenCalledWith("wft-1"));
-    expect(navigationPushMock).toHaveBeenCalledWith(
-      "/acme/workflows/wft-copy",
-    );
+    expect(navigationPushMock).toHaveBeenCalledWith("/acme/workflows/wft-copy");
     expect(toastSuccessMock).toHaveBeenCalledWith("Workflow duplicated");
   });
 
@@ -382,6 +462,156 @@ describe("validate", () => {
 });
 
 describe("save", () => {
+  it("saves one deleted edge and keeps it deleted after reopening", async () => {
+    const before = bugFixDefinition();
+    const view = renderPage();
+    await canvas();
+
+    fireEvent.click(screen.getByTestId("canvas-delete-first-edge"));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    const sent = saveMock.mock.calls[0]?.[0] as {
+      definition: ReturnType<typeof bugFixDefinition>;
+    };
+    expect(sent.definition.nodes).toHaveLength(before.nodes.length);
+    expect(sent.definition.nodes[0]?.next).toEqual([]);
+    expect(sent.definition.nodes.slice(1)).toStrictEqual(before.nodes.slice(1));
+
+    view.unmount();
+    detailRef.current = detail({ definition: sent.definition });
+    renderPage();
+    const reopened = await canvas();
+    expect(reopened.textContent).toContain(
+      before.nodes.map((node) => node.key).join(","),
+    );
+    expect(reopened.dataset.edges?.split(",")).not.toContain(
+      "next:analyze:0:implement",
+    );
+  });
+
+  it("cleans polluted node types before validate, save, publish, and reload", async () => {
+    const polluted = allNodeTypesDefinition();
+    for (const node of polluted.nodes) {
+      if (node.type !== "input") node.input_mode = "text";
+    }
+    detailRef.current = detail({
+      definition: polluted,
+      node_count: polluted.nodes.length,
+    });
+
+    const view = renderPage();
+    await canvas();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(validateMock).toHaveBeenCalledTimes(1));
+    const validated = validateMock.mock.calls[0]?.[0] as WorkflowDefinition;
+    expect(
+      validated.nodes.find((node) => node.type === "input")?.input_mode,
+    ).toBe("text");
+    for (const node of validated.nodes.filter(
+      (node) => node.type !== "input",
+    )) {
+      expect(node).not.toHaveProperty("input_mode");
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    const sent = saveMock.mock.calls[0]?.[0] as {
+      id: string;
+      definition: WorkflowDefinition;
+    };
+    expect(sent.id).toBe("wft-1");
+    expect(new Set(sent.definition.nodes.map((node) => node.type))).toEqual(
+      new Set([
+        "input",
+        "agent",
+        "condition",
+        "fan_out",
+        "join",
+        "acceptance",
+        "end",
+      ]),
+    );
+    for (const node of sent.definition.nodes.filter(
+      (node) => node.type !== "input",
+    )) {
+      expect(node).not.toHaveProperty("input_mode");
+    }
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+
+    view.unmount();
+    detailRef.current = detail({ definition: sent.definition });
+    renderPage();
+    await canvas();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("repairs an existing empty Acceptance target before save, publish, and reload", async () => {
+    const incomplete = bugFixDefinition();
+    incomplete.nodes.find((node) => node.key === "acceptance")!.rework_targets =
+      [];
+    detailRef.current = detail({ definition: incomplete });
+
+    const view = renderPage();
+    await canvas();
+    fireEvent.click(screen.getByTestId("canvas-select-acceptance"));
+
+    expect(
+      await screen.findByText(
+        "An acceptance step needs at least one target, so a rejection can route somewhere.",
+      ),
+    ).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Rework targets" });
+    expect(within(group).getAllByRole("checkbox")).toHaveLength(3);
+    fireEvent.click(within(group).getAllByRole("checkbox")[1]!);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+    await waitFor(() => expect(validateMock).toHaveBeenCalledTimes(1));
+    const validated = validateMock.mock.calls[0]?.[0] as WorkflowDefinition;
+    expect(
+      validated.nodes.find((node) => node.key === "acceptance")?.rework_targets,
+    ).toEqual(["implement"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    const sent = saveMock.mock.calls[0]?.[0] as {
+      definition: WorkflowDefinition;
+    };
+    expect(
+      sent.definition.nodes.find((node) => node.key === "acceptance")
+        ?.rework_targets,
+    ).toEqual(["implement"]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+
+    view.unmount();
+    detailRef.current = detail({ definition: sent.definition });
+    renderPage();
+    await canvas();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByTestId("canvas-select-acceptance"));
+    const reopened = screen.getByRole("group", { name: "Rework targets" });
+    expect(within(reopened).getAllByRole("checkbox")[1]).toBeChecked();
+  });
+
   it("sends the working graph and reports success", async () => {
     renderPage();
     await canvas();
@@ -431,7 +661,9 @@ describe("save", () => {
     expect(
       await screen.findByText('Agent node "step_1" declares no routing'),
     ).toBeInTheDocument();
-    expect(screen.getByText("The server refused this graph.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The server refused this graph."),
+    ).toBeInTheDocument();
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 });
@@ -454,7 +686,12 @@ describe("publish", () => {
       status: "published",
       current_version: 1,
       versions: [
-        { id: "wftv-1", version: 1, status: "published", published_at: "2026-06-01T00:00:00Z" },
+        {
+          id: "wftv-1",
+          version: 1,
+          status: "published",
+          published_at: "2026-06-01T00:00:00Z",
+        },
         { id: "wftv-2", version: 2, status: "draft", published_at: null },
       ],
     });
@@ -469,7 +706,12 @@ describe("publish", () => {
       status: "published",
       current_version: 1,
       versions: [
-        { id: "wftv-1", version: 1, status: "published", published_at: "2026-06-01T00:00:00Z" },
+        {
+          id: "wftv-1",
+          version: 1,
+          status: "published",
+          published_at: "2026-06-01T00:00:00Z",
+        },
       ],
     });
     renderPage();

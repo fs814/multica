@@ -3,7 +3,18 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NAMES_FILE="$SCRIPT_DIR/agent-cli-command-names.txt"
-GUARD_DIR=$(mktemp -d "${TMPDIR:-/tmp}/multica-agent-cli-guard.XXXXXX")
+temp_root=${TMPDIR:-/tmp}
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [ -z "${TMPDIR:-}" ] && [ ! -d "$temp_root" ]; then
+      temp_root=${TEMP:-${TMP:-$temp_root}}
+      if command -v cygpath >/dev/null 2>&1; then
+        temp_root=$(cygpath -u "$temp_root")
+      fi
+    fi
+    ;;
+esac
+GUARD_DIR=$(mktemp -d "${temp_root%/}/multica-agent-cli-guard.XXXXXX")
 BIN_DIR="$GUARD_DIR/bin"
 MARKER_FILE="$GUARD_DIR/invocations.log"
 
@@ -17,6 +28,9 @@ trap 'exit 143' TERM
 mkdir -p "$BIN_DIR"
 
 while IFS= read -r name || [ -n "$name" ]; do
+  # Git may check this text file out with CRLF on Windows. Normalize the
+  # trailing carriage return before validating or creating sentinels.
+  name=${name%$'\r'}
   case "$name" in
     ""|'#'*) continue ;;
     *[!A-Za-z0-9._-]*)

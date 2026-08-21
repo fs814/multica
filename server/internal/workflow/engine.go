@@ -48,6 +48,18 @@ type Engine struct {
 	Schemas SchemaRegistry
 	// Now is injectable so tests can exercise timeout logic deterministically.
 	Now func() time.Time
+	// Metrics is optional; production wires a bounded-label collector and tests
+	// may leave it nil.
+	Metrics Metrics
+}
+
+type Metrics interface {
+	RecordEvent(event string)
+	RecordReconciliation(outcome string)
+	ObserveFanOut(children int)
+	ObserveRun(status string, seconds float64)
+	ObserveStep(nodeType, status string, seconds float64)
+	ObserveAcceptanceWait(seconds float64)
 }
 
 // TxStarter matches the existing service-layer interface (service.TxStarter), so
@@ -233,7 +245,66 @@ func (e *Engine) recordEvent(ctx context.Context, q *db.Queries, ev eventSpec) e
 		}
 		return fmt.Errorf("record workflow event %q: %w", ev.Type, err)
 	}
+	if callbackEventType(ev.Type) {
+		run, getErr := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: ev.RunID, WorkspaceID: ev.WorkspaceID})
+		if getErr != nil {
+			return fmt.Errorf("load workflow run for callback: %w", getErr)
+		}
+		if run.CallbackDestinationID.Valid {
+			callbackPayload := mustJSON(map[string]any{
+				"event":           ev.Type,
+				"event_key":       ev.IdempotencyKey,
+				"occurred_at":     e.now().UTC().Format(time.RFC3339Nano),
+				"workflow_run_id": uuidString(run.ID),
+				"issue_id":        uuidString(run.IssueID),
+				"source_event_id": run.SourceEventID.String,
+				"status":          run.Status,
+				"data":            json.RawMessage(payload),
+			})
+			if _, createErr := q.CreateWorkflowCallbackDelivery(ctx, db.CreateWorkflowCallbackDeliveryParams{
+				WorkspaceID:   ev.WorkspaceID,
+				DestinationID: run.CallbackDestinationID,
+				WorkflowRunID: run.ID,
+				EventType:     ev.Type,
+				EventKey:      ev.IdempotencyKey,
+				Payload:       callbackPayload,
+			}); createErr != nil && !errors.Is(createErr, pgx.ErrNoRows) {
+				return fmt.Errorf("queue workflow callback %q: %w", ev.Type, createErr)
+			}
+		}
+	}
+	if e.Metrics != nil {
+		e.Metrics.RecordEvent(ev.Type)
+		switch ev.Type {
+		case EventRunCompleted, EventRunFailed, EventRunBlocked, EventRunCancelled:
+			if run, getErr := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: ev.RunID, WorkspaceID: ev.WorkspaceID}); getErr == nil {
+				e.Metrics.ObserveRun(run.Status, e.now().Sub(run.CreatedAt.Time).Seconds())
+			}
+		case EventStepPassed, EventStepFailed, EventStepBlocked, EventStepSkipped:
+			if ev.StepID.Valid {
+				if step, getErr := q.GetWorkflowStepInstance(ctx, db.GetWorkflowStepInstanceParams{ID: ev.StepID, WorkspaceID: ev.WorkspaceID}); getErr == nil {
+					e.Metrics.ObserveStep(step.NodeType, step.Status, e.now().Sub(step.CreatedAt.Time).Seconds())
+				}
+			}
+		case EventAcceptanceDecided:
+			if ev.StepID.Valid {
+				if step, getErr := q.GetWorkflowStepInstance(ctx, db.GetWorkflowStepInstanceParams{ID: ev.StepID, WorkspaceID: ev.WorkspaceID}); getErr == nil {
+					e.Metrics.ObserveAcceptanceWait(e.now().Sub(step.CreatedAt.Time).Seconds())
+				}
+			}
+		}
+	}
 	return nil
+}
+
+func callbackEventType(eventType string) bool {
+	switch eventType {
+	case EventRunStarted, EventRunCompleted, EventRunFailed, EventRunBlocked,
+		EventRunCancelled, EventAcceptanceRequested, EventAcceptanceDecided:
+		return true
+	default:
+		return false
+	}
 }
 
 type eventSpec struct {
@@ -283,16 +354,52 @@ type StartRunInput struct {
 	SourceEventID     string
 	// IdempotencyKey is required. Callers derive it from the originating event
 	// (intake event id, autopilot run id) so a replay collides.
-	IdempotencyKey    string
-	AccountableUserID pgtype.UUID
-	Input             json.RawMessage
-	ActorType         string
-	ActorID           pgtype.UUID
+	IdempotencyKey        string
+	AccountableUserID     pgtype.UUID
+	RequestHash           string
+	CallbackDestinationID pgtype.UUID
+	// AutopilotRunID links a Workflow-bound Autopilot receipt inside the same
+	// transaction as the Issue, Workflow Run, first event, Step, and Task. It is
+	// intentionally narrow rather than a generic commit hook: no other caller
+	// may add side effects to StartRun's transaction.
+	AutopilotRunID pgtype.UUID
+	// Issue is created in the same transaction as the Run and its first Task.
+	// Leave nil only for legacy callers that intentionally start an unattached
+	// Run; new manual, Autopilot, and external callers must provide it.
+	Issue     *RunIssueInput
+	Input     json.RawMessage
+	ActorType string
+	ActorID   pgtype.UUID
+}
+
+type RunIssueSubscriber struct {
+	UserType string
+	UserID   pgtype.UUID
+	Reason   string
+}
+
+// RunIssueInput is the common Issue allocation contract shared by every
+// Workflow entry point. It deliberately contains no Workflow state: the Run is
+// canonical and projects status after activation in the same transaction.
+type RunIssueInput struct {
+	Title        string
+	Description  string
+	Status       string
+	Priority     string
+	AssigneeType pgtype.Text
+	AssigneeID   pgtype.UUID
+	CreatorType  string
+	CreatorID    pgtype.UUID
+	ProjectID    pgtype.UUID
+	OriginType   pgtype.Text
+	OriginID     pgtype.UUID
+	Subscribers  []RunIssueSubscriber
 }
 
 // StartRunResult reports the created Run and whether this call created it.
 type StartRunResult struct {
-	Run db.WorkflowRun
+	Run   db.WorkflowRun
+	Issue *db.Issue
 	// AlreadyExisted is true when the idempotency key matched an existing Run.
 	// Callers return 200 with the original Run rather than an error: a duplicate
 	// intake delivery is expected, not exceptional.
@@ -315,6 +422,9 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 		WorkspaceID:    in.WorkspaceID,
 		IdempotencyKey: in.IdempotencyKey,
 	}); err == nil {
+		if in.RequestHash != "" && existing.RequestHash.Valid && existing.RequestHash.String != in.RequestHash {
+			return nil, newEngineError(ErrCodeIdempotencyConflict, "the idempotency key was already used with a different payload")
+		}
 		return &StartRunResult{Run: existing, AlreadyExisted: true}, nil
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("lookup run by idempotency key: %w", err)
@@ -386,18 +496,72 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 			return fmt.Errorf("marshal workflow run context: %w", err)
 		}
 
+		issueID := in.IssueID
+		if in.Issue != nil {
+			number, err := q.IncrementIssueCounter(ctx, in.WorkspaceID)
+			if err != nil {
+				return fmt.Errorf("allocate workflow issue number: %w", err)
+			}
+			status := in.Issue.Status
+			if status == "" {
+				status = "todo"
+			}
+			priority := in.Issue.Priority
+			if priority == "" {
+				priority = "none"
+			}
+			position, err := q.NextWorkflowIssuePosition(ctx, db.NextWorkflowIssuePositionParams{WorkspaceID: in.WorkspaceID, Status: status})
+			if err != nil {
+				return fmt.Errorf("position workflow issue: %w", err)
+			}
+			issue, err := q.CreateIssueWithOrigin(ctx, db.CreateIssueWithOriginParams{
+				WorkspaceID:  in.WorkspaceID,
+				Title:        in.Issue.Title,
+				Description:  textOrNull(in.Issue.Description),
+				Status:       status,
+				Priority:     priority,
+				AssigneeType: in.Issue.AssigneeType,
+				AssigneeID:   in.Issue.AssigneeID,
+				CreatorType:  in.Issue.CreatorType,
+				CreatorID:    in.Issue.CreatorID,
+				Position:     position,
+				Number:       number,
+				ProjectID:    in.Issue.ProjectID,
+				OriginType:   in.Issue.OriginType,
+				OriginID:     in.Issue.OriginID,
+			})
+			if err != nil {
+				return fmt.Errorf("create workflow issue: %w", err)
+			}
+			for _, sub := range in.Issue.Subscribers {
+				reason := sub.Reason
+				if reason == "" {
+					reason = "manual"
+				}
+				if _, err := q.AddIssueSubscriber(ctx, db.AddIssueSubscriberParams{
+					IssueID: issue.ID, UserType: sub.UserType, UserID: sub.UserID, Reason: reason,
+				}); err != nil {
+					return fmt.Errorf("subscribe workflow issue owner: %w", err)
+				}
+			}
+			issueID = issue.ID
+			result.Issue = &issue
+		}
+
 		run, err := q.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
-			WorkspaceID:       in.WorkspaceID,
-			TemplateID:        in.TemplateID,
-			TemplateVersionID: version.ID,
-			Source:            in.Source,
-			IssueID:           in.IssueID,
-			SourceEventID:     textOrNull(in.SourceEventID),
-			IdempotencyKey:    in.IdempotencyKey,
-			AccountableUserID: in.AccountableUserID,
-			Input:             input,
-			Context:           runContext,
-			Policy:            policyJSON,
+			WorkspaceID:           in.WorkspaceID,
+			TemplateID:            in.TemplateID,
+			TemplateVersionID:     version.ID,
+			Source:                in.Source,
+			IssueID:               issueID,
+			SourceEventID:         textOrNull(in.SourceEventID),
+			IdempotencyKey:        in.IdempotencyKey,
+			AccountableUserID:     in.AccountableUserID,
+			Input:                 input,
+			Context:               runContext,
+			Policy:                policyJSON,
+			RequestHash:           textOrNull(in.RequestHash),
+			CallbackDestinationID: in.CallbackDestinationID,
 		})
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -443,6 +607,16 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 			return err
 		}
 
+		if in.AutopilotRunID.Valid {
+			if _, err := q.UpdateAutopilotRunWorkflowRunning(ctx, db.UpdateAutopilotRunWorkflowRunningParams{
+				ID:            in.AutopilotRunID,
+				WorkflowRunID: running.ID,
+				IssueID:       running.IssueID,
+			}); err != nil {
+				return fmt.Errorf("link autopilot workflow run: %w", err)
+			}
+		}
+
 		result.Run = running
 		effects.runChanged(running)
 		return nil
@@ -454,6 +628,9 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 				WorkspaceID:    in.WorkspaceID,
 				IdempotencyKey: in.IdempotencyKey,
 			}); rerr == nil {
+				if in.RequestHash != "" && existing.RequestHash.Valid && existing.RequestHash.String != in.RequestHash {
+					return nil, newEngineError(ErrCodeIdempotencyConflict, "the idempotency key was already used with a different payload")
+				}
 				return &StartRunResult{Run: existing, AlreadyExisted: true}, nil
 			}
 		}
@@ -555,8 +732,14 @@ type activateInput struct {
 	// ReworkContext is injected into the step input on a rework attempt so the
 	// Agent sees why the previous attempt was rejected.
 	ReworkContext map[string]any
-	ActorType     string
-	ActorID       pgtype.UUID
+	// Fan-out children retain the parent barrier and one deterministic item.
+	// Empty on ordinary sequential traversal.
+	ParentStepID   pgtype.UUID
+	ExpansionKey   string
+	ExpansionValue string
+	Reconcile      bool
+	ActorType      string
+	ActorID        pgtype.UUID
 	// Effects collects post-commit notifications.
 	Effects *txEffects
 }
@@ -588,7 +771,7 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 		}
 	}
 
-	if in.Attempt > int32(in.Node.EffectiveMaxAttempts(limits)) {
+	if !in.ParentStepID.Valid && in.Attempt > int32(in.Node.EffectiveMaxAttempts(limits)) {
 		return db.WorkflowStepInstance{}, newEngineError(ErrCodeReworkLimit,
 			fmt.Sprintf("node %q exhausted its %d attempts", in.Node.Key, in.Node.EffectiveMaxAttempts(limits)))
 	}
@@ -663,17 +846,25 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 	if in.ReworkContext != nil {
 		stepInput["rework"] = in.ReworkContext
 	}
+	if in.ExpansionKey != "" {
+		stepInput["fan_out"] = map[string]any{
+			"expansion_key": in.ExpansionKey,
+			"value":         in.ExpansionValue,
+		}
+	}
 
 	now := e.now()
 	step, err := q.CreateWorkflowStepInstance(ctx, db.CreateWorkflowStepInstanceParams{
-		WorkspaceID: run.WorkspaceID,
-		RunID:       run.ID,
-		NodeKey:     in.Node.Key,
-		NodeType:    string(in.Node.Type),
-		Attempt:     in.Attempt,
-		Status:      string(StepReady),
-		Input:       mustJSON(stepInput),
-		ReadyAt:     pgtype.Timestamptz{Time: now, Valid: true},
+		WorkspaceID:  run.WorkspaceID,
+		RunID:        run.ID,
+		NodeKey:      in.Node.Key,
+		NodeType:     string(in.Node.Type),
+		Attempt:      in.Attempt,
+		Status:       string(StepReady),
+		Input:        mustJSON(stepInput),
+		ParentStepID: in.ParentStepID,
+		ExpansionKey: textOrNull(in.ExpansionKey),
+		ReadyAt:      pgtype.Timestamptz{Time: now, Valid: true},
 		ActivationTimeoutAt: pgtype.Timestamptz{
 			Time:  now.Add(activationTimeout),
 			Valid: true,
@@ -711,16 +902,19 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 		})
 	case NodeTypeAcceptance:
 		return e.requestAcceptance(ctx, q, in, step)
+	case NodeTypeCondition:
+		return e.executeCondition(ctx, q, in, step, upstream)
+	case NodeTypeFanOut:
+		return e.executeFanOut(ctx, q, in, step, upstream)
+	case NodeTypeJoin:
+		return e.executeJoin(ctx, q, in, step)
 	case NodeTypeEnd:
 		return e.completeAtEnd(ctx, q, in, step)
 	case NodeTypeInput:
 		// An intake node is a DELIBERATE passthrough, not a fallthrough.
 		//
-		// This case is written out rather than left to the default branch below
-		// because the reasons are opposite. The default branch is "we have not
-		// implemented this yet" (condition/fan_out/join get executors in U7, and
-		// when they do, that branch starts routing and creating tasks). An input
-		// node is finished: its work was done by a human before StartRun, whose
+		// This case is written out rather than left to the default branch below.
+		// An input node is finished: its work was done by a human before StartRun, whose
 		// ValidateRunInput already checked the declared fields, and the values are
 		// on run.Input. There is nothing to dispatch, now or ever.
 		//
@@ -738,30 +932,16 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 		// Unlike the default branch, intake ADVANCES. It is the entry node, so
 		// stopping here would leave a running Run whose only step is already
 		// terminal and whose first agent never dispatched — a silent stall on the
-		// happy path, which is exactly what the U7 nodes suffer from today and what
-		// makes their passthrough a placeholder rather than an implementation.
+		// happy path.
 		// Validate guarantees exactly one outgoing edge, so advanceToNext's
 		// Next[0] is the whole successor set.
-		if err := e.advanceToNext(ctx, q, run, in.Def, in.Node, in.Effects, in.ActorType, in.ActorID); err != nil {
+		if err := e.advanceFromStep(ctx, q, run, in.Def, passed, in.Node, in.Effects, in.ActorType, in.ActorID); err != nil {
 			return db.WorkflowStepInstance{}, err
 		}
 		return passed, nil
 	default:
-		// Condition, FanOut, and Join are validated and persisted, but their
-		// executors land in U7. Passing through keeps a graph that uses them
-		// honest about what happened rather than silently stalling.
-		//
-		// NOTE: do not add a node type here that is finished. NodeTypeInput has its
-		// own case above precisely so that when this branch grows a router call, an
-		// intake node does not come along for the ride.
-		passed, err := q.MarkWorkflowStepPassed(ctx, db.MarkWorkflowStepPassedParams{
-			ID:          step.ID,
-			WorkspaceID: run.WorkspaceID,
-		})
-		if err != nil {
-			return db.WorkflowStepInstance{}, fmt.Errorf("pass %s step: %w", in.Node.Type, err)
-		}
-		return passed, nil
+		return db.WorkflowStepInstance{}, newEngineError(ErrCodeInvariantViolation,
+			fmt.Sprintf("node %q has unsupported type %q", in.Node.Key, in.Node.Type))
 	}
 }
 
@@ -876,12 +1056,16 @@ func (e *Engine) dispatchAgentStep(ctx context.Context, q *db.Queries, in activa
 		return db.WorkflowStepInstance{}, fmt.Errorf("bind step task: %w", err)
 	}
 
+	queuedVerb := "queued"
+	if in.Reconcile {
+		queuedVerb = "requeued"
+	}
 	if err := e.recordEvent(ctx, q, eventSpec{
 		WorkspaceID:    run.WorkspaceID,
 		RunID:          run.ID,
 		StepID:         step.ID,
 		Type:           EventStepQueued,
-		IdempotencyKey: stepEventKey(step, "queued"),
+		IdempotencyKey: stepEventKey(step, queuedVerb),
 		ActorType:      "system",
 		Payload:        mustJSON(map[string]any{"routing_reason": route.Reason}),
 	}); err != nil {
@@ -918,11 +1102,9 @@ type upstreamSubmission struct {
 // the first release executes (Agent -> Agent -> Agent -> Acceptance -> End): in a
 // linear chain the latest submission IS the upstream one, and it is also the
 // right answer on a rework attempt, where the reason the work came back is the
-// most recent thing that happened. It becomes wrong for fan-out/Join, where a
-// Join has several upstreams and "latest" would arbitrarily pick one - those
-// executors land with the fan-out work (U7) and must resolve their own upstreams
-// from parent_step_id instead. Noted here so that change is made deliberately
-// rather than discovered.
+// most recent thing that happened. Join instead resolves its full durable child
+// set through parent_step_id, because selecting only the latest child would be
+// arbitrary.
 func (e *Engine) latestSubmissionForRun(ctx context.Context, q *db.Queries, run db.WorkflowRun) (*upstreamSubmission, error) {
 	subs, err := q.ListWorkflowSubmissionsForRun(ctx, db.ListWorkflowSubmissionsForRunParams{
 		RunID:       run.ID,
@@ -984,6 +1166,8 @@ func (e *Engine) buildTaskContext(in activateInput, step db.WorkflowStepInstance
 		AcceptanceCriteria: in.Node.AcceptanceCriteria,
 		SubmissionSchema:   in.Node.SubmissionSchema,
 		SubmissionContract: SubmissionContractInstructions(stepID),
+		ExpansionKey:       in.ExpansionKey,
+		ExpansionValue:     truncateContextField(in.ExpansionValue),
 	}
 	if brief.Upstream != nil {
 		tc.UpstreamNodeKey = brief.Upstream.NodeKey

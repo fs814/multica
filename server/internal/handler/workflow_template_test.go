@@ -987,6 +987,134 @@ func TestWorkflowTemplatePatchPublishedCreatesNewDraft(t *testing.T) {
 	}
 }
 
+func builderAllNodeTypesDefinition() map[string]any {
+	return map[string]any{
+		"schema_version": 1,
+		"entry_node":     "intake",
+		"nodes": []map[string]any{
+			{"key": "intake", "type": "input", "input_mode": "text", "next": []string{"plan"}},
+			{
+				"key": "plan", "type": "agent", "next": []string{"gate"},
+				"routing":           map[string]any{"strategy": "capability", "capability": "code_change"},
+				"submission_schema": "code_change",
+			},
+			{
+				"key": "gate", "type": "condition",
+				"branches": []map[string]any{
+					{"when_verdict": "pass", "target": "spread"},
+					{"when_verdict": "fail", "target": "acceptance"},
+				},
+			},
+			{"key": "spread", "type": "fan_out", "next": []string{"worker"}, "fan_out_max": 3},
+			{
+				"key": "worker", "type": "agent", "next": []string{"gather"},
+				"routing":           map[string]any{"strategy": "capability", "capability": "code_change"},
+				"submission_schema": "code_change",
+			},
+			{
+				"key": "gather", "type": "join", "next": []string{"acceptance"},
+				"join_policy": "fail_fast", "join_sources": []string{"worker"},
+			},
+			{"key": "acceptance", "type": "acceptance", "next": []string{"end"}, "rework_targets": []string{"plan"}},
+			{"key": "end", "type": "end"},
+		},
+	}
+}
+
+// TestWorkflowTemplateValidateAcceptsBuilderAllNodeTypes is the cross-language
+// contract for the builder's outgoing JSON: every currently supported node kind
+// is present, but input_mode belongs only to the input node. This goes through
+// the HTTP decoder and the same strict validator used by save and publish.
+func TestWorkflowTemplateValidateAcceptsBuilderAllNodeTypes(t *testing.T) {
+	body := map[string]any{"definition": builderAllNodeTypesDefinition()}
+	w := httptest.NewRecorder()
+	testHandler.ValidateWorkflowDefinition(w, newRequest("POST", "/api/workflow-templates/validate", body))
+	if w.Code != http.StatusOK {
+		t.Fatalf("validate(builder payload): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp ValidateWorkflowDefinitionResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("validate(builder payload): decode body: %v", err)
+	}
+	if !resp.Valid || len(resp.Messages) != 0 {
+		t.Fatalf("builder payload must pass strict server validation, got %+v", resp)
+	}
+}
+
+func assertOnlyInputNodeHasInputMode(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var definition struct {
+		Nodes []map[string]any `json:"nodes"`
+	}
+	if err := json.Unmarshal(raw, &definition); err != nil {
+		t.Fatalf("decode stored builder definition: %v", err)
+	}
+	wantTypes := map[string]bool{
+		"input": false, "agent": false, "condition": false, "fan_out": false,
+		"join": false, "acceptance": false, "end": false,
+	}
+	for _, node := range definition.Nodes {
+		typeName, _ := node["type"].(string)
+		if _, known := wantTypes[typeName]; known {
+			wantTypes[typeName] = true
+		}
+		mode, hasMode := node["input_mode"]
+		if typeName == "input" {
+			if !hasMode || mode != "text" {
+				t.Fatalf("input node lost input_mode: %+v", node)
+			}
+		} else if hasMode {
+			t.Fatalf("%s node retained forbidden input_mode: %+v", typeName, node)
+		}
+	}
+	for typeName, seen := range wantTypes {
+		if !seen {
+			t.Fatalf("reloaded definition is missing %s node: %s", typeName, string(raw))
+		}
+	}
+}
+
+func TestWorkflowTemplateBuilderAllNodeTypesSavePublishReload(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	definition := builderAllNodeTypesDefinition()
+	w := httptest.NewRecorder()
+	testHandler.CreateWorkflowTemplate(w, newRequest("POST", "/api/workflow-templates", map[string]any{
+		"key": "builder_all_node_types", "name": "Builder All Node Types", "definition": definition,
+	}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create(builder payload): expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created WorkflowTemplateDetailResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("create(builder payload): decode body: %v", err)
+	}
+
+	w = patchWorkflowTemplateForTest(t, created.ID, map[string]any{"definition": definition})
+	if w.Code != http.StatusOK {
+		t.Fatalf("save(builder payload): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.PublishWorkflowTemplate(w, withURLParam(newRequest("POST", "/api/workflow-templates/"+created.ID+"/publish", nil), "id", created.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("publish(builder payload): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	testHandler.GetWorkflowTemplate(w, withURLParam(newRequest("GET", "/api/workflow-templates/"+created.ID, nil), "id", created.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("reload(builder payload): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var reloaded WorkflowTemplateDetailResponse
+	if err := json.NewDecoder(w.Body).Decode(&reloaded); err != nil {
+		t.Fatalf("reload(builder payload): decode body: %v", err)
+	}
+	if reloaded.CurrentVersion == nil || *reloaded.CurrentVersion != 1 {
+		t.Fatalf("reloaded builder template is not published: current_version=%v", reloaded.CurrentVersion)
+	}
+	assertOnlyInputNodeHasInputMode(t, reloaded.Definition)
+}
+
 // TestWorkflowTemplateValidateEndpoint pins the deliberate status-code choice:
 // this endpoint answers a question and writes nothing, so an invalid graph is a
 // 200 with valid:false. Returning 422 would make every keystroke-triggered

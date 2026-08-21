@@ -481,6 +481,61 @@ describe("ApiClient label response schemas", () => {
   });
 });
 
+describe("ApiClient agent builder session creation", () => {
+  it("sends and parses the selected Knot agent id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          session_id: "session-1",
+          builder_agent_id: "builder-1",
+          runtime_id: "runtime-1",
+          knot_agent_id: "7a5d51d0b14f449683fdb839c5e3e448",
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient("https://api.example.test");
+    await expect(
+      client.createAgentBuilderSession({
+        runtime_id: "runtime-1",
+        knot_agent_id: "7a5d51d0b14f449683fdb839c5e3e448",
+      }),
+    ).resolves.toMatchObject({
+      session_id: "session-1",
+      knot_agent_id: "7a5d51d0b14f449683fdb839c5e3e448",
+    });
+
+    const call = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(call[1].body))).toMatchObject({
+      runtime_id: "runtime-1",
+      knot_agent_id: "7a5d51d0b14f449683fdb839c5e3e448",
+    });
+  });
+
+  it("defaults a missing Knot id from an older backend to empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            session_id: "session-1",
+            builder_agent_id: "builder-1",
+            runtime_id: "runtime-1",
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    const client = new ApiClient("https://api.example.test");
+    await expect(
+      client.createAgentBuilderSession({ runtime_id: "runtime-1" }),
+    ).resolves.toMatchObject({ knot_agent_id: "" });
+  });
+});
+
 describe("ApiClient agent builder runtime switch", () => {
   it("PATCHes the session runtime endpoint and returns the runtime the server bound", async () => {
     const fetchMock = vi.fn().mockResolvedValue(

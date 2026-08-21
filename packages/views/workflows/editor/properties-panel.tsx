@@ -10,7 +10,7 @@ import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
-import { isWorkflowNodeType } from "../graph";
+import { isWorkflowNodeType, legalReworkTargetNodes } from "../graph";
 import { useT } from "../../i18n";
 import { AgentRoutingSection } from "./agent-routing-fields";
 import { InputFieldsSection } from "./input-fields-section";
@@ -285,11 +285,11 @@ function BasicSection({
           the author to keep clicking it. See the file header for why renaming is
           not offered here. */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium">
+        <span className="text-caption font-medium">
           {t(($) => $.panel.basic.key)}
         </span>
         <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-lg border border-input bg-muted/40 px-2.5 py-1.5 font-mono text-xs text-muted-foreground">
+          <code className="min-w-0 flex-1 truncate rounded-lg border border-input bg-muted/40 px-2.5 py-1.5 font-mono text-caption text-muted-foreground">
             {node.key}
           </code>
           {isEntry ? (
@@ -311,10 +311,10 @@ function BasicSection({
       </PanelField>
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-medium">
+        <span className="text-caption font-medium">
           {t(($) => $.panel.basic.type)}
         </span>
-        <span className="text-sm">{typeLabel}</span>
+        <span className="text-body">{typeLabel}</span>
       </div>
     </PanelSection>
   );
@@ -763,13 +763,43 @@ function FailureSection({
     });
   }
 
-  // Rework must move the work somewhere else: the validator rejects a node that
-  // lists itself, so it is not a candidate.
-  const candidates = definition.nodes.filter(
-    (candidate) => candidate.key !== node.key && candidate.key !== "",
+  const candidates = legalReworkTargetNodes(definition, node.key);
+  const candidateKeys = new Set(candidates.map((candidate) => candidate.key));
+  // A hand-edited or older draft may already contain a target this build would
+  // no longer offer. Keep it visible and removable instead of hiding the only
+  // control that can repair it; it is never offered unchecked.
+  const invalidSelected = node.rework_targets.filter(
+    (target) => !candidateKeys.has(target),
   );
+  const byKey = new Map(
+    definition.nodes.map((candidate) => [candidate.key, candidate] as const),
+  );
+  const targetOptions: PanelOption[] = [
+    ...candidates.map((candidate) => ({
+      value: candidate.key,
+      label: candidate.name || candidate.key,
+    })),
+    ...invalidSelected.map((target) => ({
+      value: target,
+      label: t(($) => $.panel.failure.rework_targets_invalid_option, {
+        name: byKey.get(target)?.name || target,
+      }),
+    })),
+  ];
 
-  const missing = showReworkTargets && node.rework_targets.length === 0;
+  const missing =
+    showReworkTargets &&
+    !node.rework_targets.some((target) => candidateKeys.has(target));
+  const targetProblem =
+    invalidSelected.length > 0
+      ? t(($) => $.panel.failure.rework_targets_invalid, {
+          targets: invalidSelected.join(", "),
+        })
+      : missing
+        ? node.type === "acceptance"
+          ? t(($) => $.panel.failure.rework_targets_required_acceptance)
+          : t(($) => $.panel.failure.rework_targets_required)
+        : undefined;
 
   return (
     <PanelSection title={t(($) => $.panel.section.failure)}>
@@ -793,19 +823,10 @@ function FailureSection({
         <PanelSelectField
           label={t(($) => $.panel.failure.rework_targets)}
           hint={t(($) => $.panel.failure.rework_targets_hint)}
-          problem={
-            missing
-              ? node.type === "acceptance"
-                ? t(($) => $.panel.failure.rework_targets_required_acceptance)
-                : t(($) => $.panel.failure.rework_targets_required)
-              : undefined
-          }
+          problem={targetProblem}
         >
           <PanelCheckList
-            options={candidates.map((candidate) => ({
-              value: candidate.key,
-              label: candidate.name || candidate.key,
-            }))}
+            options={targetOptions}
             selected={node.rework_targets}
             onToggle={(value, checked) =>
               onChange({

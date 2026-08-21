@@ -33,7 +33,7 @@
  *     drag, because it has no way to know whether the page wants to remember it.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -53,7 +53,10 @@ import { useT } from "../../i18n";
 import { workflowEdgeTypes } from "./edge-types";
 import { NODE_ACCENT } from "./node-accent";
 import { workflowNodeTypes } from "./node-types";
-import { WorkflowEdgeMarkers } from "./workflow-edge";
+import {
+  WorkflowEdgeActionsProvider,
+  WorkflowEdgeMarkers,
+} from "./workflow-edge";
 
 // xyflow's own stylesheet. `base.css` rather than `style.css`: base carries only
 // the layout and transform rules the library cannot work without, while
@@ -144,6 +147,39 @@ function CanvasInner({
     [edges, onEdgesChange],
   );
 
+  const handleDeleteEdge = useCallback(
+    (edgeId: string) => {
+      if (readOnly) return;
+      onEdgesChange(edges.filter((edge) => edge.id !== edgeId));
+    },
+    [edges, onEdgesChange, readOnly],
+  );
+
+  useEffect(() => {
+    if (readOnly) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || (event.key !== "Delete" && event.key !== "Backspace")) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.closest("input, textarea, select, [role='textbox']") !== null)
+      ) {
+        return;
+      }
+      const selected = new Set(
+        edges.filter((edge) => edge.selected).map((edge) => edge.id),
+      );
+      if (selected.size === 0) return;
+      event.preventDefault();
+      onEdgesChange(edges.filter((edge) => !selected.has(edge.id)));
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [edges, onEdgesChange, readOnly]);
+
   const handleConnect = useCallback(
     (connection: Connection) => {
       // A connection with no target is a drag released on empty pane. xyflow
@@ -171,8 +207,12 @@ function CanvasInner({
       className="workflow-canvas relative min-h-0 min-w-0 flex-1"
       data-read-only={readOnly ? "true" : "false"}
     >
-      <WorkflowEdgeMarkers />
-      <ReactFlow<FlowNode, FlowEdge>
+      <WorkflowEdgeActionsProvider
+        readOnly={readOnly}
+        onDeleteEdge={handleDeleteEdge}
+      >
+        <WorkflowEdgeMarkers />
+        <ReactFlow<FlowNode, FlowEdge>
         nodes={projected}
         edges={edges}
         nodeTypes={workflowNodeTypes}
@@ -186,10 +226,9 @@ function CanvasInner({
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
         elementsSelectable
-        // Deleting is offered through explicit UI rather than the Delete key: a
-        // keystroke that removes a node *and every edge touching it* is not
-        // recoverable from the keyboard, and the page's undo stack only records
-        // definition edits.
+        // Keep xyflow's broad deletion disabled: it deletes selected nodes and
+        // their incident edges together. The scoped listener above accepts the
+        // same keys only when one or more EDGES are selected.
         deleteKeyCode={null}
         fitView
         fitViewOptions={{ padding: FIT_VIEW_PADDING }}
@@ -214,7 +253,8 @@ function CanvasInner({
           // graph's structure rather than a field of identical grey rectangles.
           nodeClassName={(node) => NODE_ACCENT[node.data.type].minimap}
         />
-      </ReactFlow>
+        </ReactFlow>
+      </WorkflowEdgeActionsProvider>
     </div>
   );
 }

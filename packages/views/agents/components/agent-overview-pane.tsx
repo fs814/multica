@@ -35,6 +35,7 @@ import { McpConfigTab } from "./tabs/mcp-config-tab";
 import { AgentMcpTab } from "./tabs/agent-mcp-tab";
 import { IntegrationsTab } from "./tabs/integrations-tab";
 import { RuntimeConfigTab } from "./tabs/runtime-config-tab";
+import { KnotConfigTab } from "./tabs/knot-config-tab";
 import { AgentDetailInspector } from "./agent-detail-inspector";
 import { AgentAccessSettings } from "./agent-access-settings";
 import { AgentOverviewSummary } from "./agent-overview-summary";
@@ -220,7 +221,16 @@ export function AgentOverviewPane({
         // showing the tab to anyone else guarantees a 403 on "Reveal & edit".
         // The server stays the boundary; this only removes a dead entry point.
         if (tab.id === "env") return canEdit;
-        if (tab.id === "runtime_config") return runtime?.provider === "openclaw";
+        // OpenClaw owns local/gateway routing here. Knot CLI keeps its optional
+        // per-agent selector in this tab; Knot HTTP's required agent id lives
+        // beside Runtime and Model in General → Execution config, where users
+        // choose every other execution value.
+        if (tab.id === "runtime_config") {
+          return (
+            runtime?.provider === "openclaw" ||
+            runtime?.provider === "knot"
+          );
+        }
         return true;
       }),
     [canEdit, runtime?.provider],
@@ -478,13 +488,22 @@ export function AgentOverviewPane({
                       onDirtyChange={setActiveDirty}
                     />
                   )}
-                  {effectiveView === "runtime_config" && (
-                    <RuntimeConfigTab
-                      agent={agent}
-                      onSave={(updates) => onUpdate(agent.id, updates)}
-                      onDirtyChange={setActiveDirty}
-                    />
-                  )}
+                  {effectiveView === "runtime_config" &&
+                    (runtime?.provider === "knot" ? (
+                      <KnotConfigTab
+                        agent={agent}
+                        runtimeId={runtime?.id ?? null}
+                        runtimeOnline={runtime?.status === "online"}
+                        onSave={(updates) => onUpdate(agent.id, updates)}
+                        onDirtyChange={setActiveDirty}
+                      />
+                    ) : (
+                      <RuntimeConfigTab
+                        agent={agent}
+                        onSave={(updates) => onUpdate(agent.id, updates)}
+                        onDirtyChange={setActiveDirty}
+                      />
+                    ))}
                 </div>
               </div>
             </section>

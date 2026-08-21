@@ -72,11 +72,11 @@ function NameCell({ template }: { template: WorkflowTemplate }) {
   return (
     <ListGridCell className="gap-2">
       <div className="min-w-0 flex-1">
-        <span className="block min-w-0 truncate text-sm font-medium">
+        <span className="block min-w-0 truncate text-body font-medium">
           {template.name}
         </span>
         {template.description ? (
-          <span className="block min-w-0 truncate text-xs text-muted-foreground">
+          <span className="block min-w-0 truncate text-caption text-muted-foreground">
             {template.description}
           </span>
         ) : null}
@@ -226,7 +226,7 @@ export function WorkflowsPage() {
               >
                 <NameCell template={template} />
                 <ListGridCell className="hidden @2xl:flex">
-                  <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
+                  <span className="min-w-0 truncate font-mono text-caption text-muted-foreground">
                     {template.key}
                   </span>
                 </ListGridCell>
@@ -234,7 +234,7 @@ export function WorkflowsPage() {
                   <WorkflowStatusBadge status={template.status} />
                 </ListGridCell>
                 <ListGridCell className="hidden @2xl:flex">
-                  <span className="text-xs tabular-nums text-muted-foreground">
+                  <span className="text-caption tabular-nums text-muted-foreground">
                     {/* No current version = never published. Shown as a dash
                         rather than "v0", which would imply a real version. */}
                     {template.current_version === null
@@ -245,7 +245,7 @@ export function WorkflowsPage() {
                   </span>
                 </ListGridCell>
                 <ListGridCell className="hidden justify-end @2xl:flex">
-                  <span className="text-xs tabular-nums text-muted-foreground">
+                  <span className="text-caption tabular-nums text-muted-foreground">
                     {template.node_count}
                   </span>
                 </ListGridCell>

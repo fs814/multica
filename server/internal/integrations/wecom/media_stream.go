@@ -66,21 +66,21 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 	if err != nil {
 		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
 	}
-	// Unlink now: the file stays readable through the handle and disappears
-	// the moment the process lets go of it, including on a crash. Nothing
-	// with decrypted attachment content is left behind for anyone to find.
-	if err := os.Remove(out.Name()); err != nil {
+	// Unix can unlink an open file immediately. Windows cannot, so its
+	// platform helper keeps the private temp file named until the caller
+	// closes it; closeAndRemoveTempFile handles both forms.
+	if err := unlinkOpenTempFile(out); err != nil {
 		out.Close()
 		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
 	}
 	if err := out.Chmod(0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// Best effort: the file is already unlinked, so this is belt as well
-		// as braces.
+		// Best effort: Unix has already unlinked the file, while Windows uses
+		// the user's temp-directory ACL instead of POSIX mode bits.
 		_ = err
 	}
 	defer func() {
 		if err != nil {
-			out.Close()
+			closeAndRemoveTempFile(out)
 		}
 	}()
 
@@ -154,6 +154,20 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 		return nil, 0, fmt.Errorf("wecom: media decrypt: rewind: %w", err)
 	}
 	return out, written, nil
+}
+
+// closeAndRemoveTempFile releases a decrypted attachment and removes its
+// name when the platform could not unlink it while open. It is intentionally
+// safe to call after a successful Unix unlink or more than once.
+func closeAndRemoveTempFile(f *os.File) {
+	if f == nil {
+		return
+	}
+	name := f.Name()
+	_ = f.Close()
+	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = err
+	}
 }
 
 // peekFile reads up to n bytes from the head of f and rewinds it, so a caller

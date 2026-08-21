@@ -9,6 +9,7 @@ grok
 hermes
 kimi
 kiro-cli
+knot-cli
 omp
 openclaw
 opencode

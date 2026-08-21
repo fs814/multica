@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 )
 
 const maxLegacyMigrationPrefix = 148
+const maxLegacyImplicitIndexPrefix = 272
 
 var legacyDuplicateMigrationStems = map[string][]string{
 	"020": {"020_issue_number", "020_task_session"},
@@ -45,6 +47,35 @@ var legacyDuplicateMigrationStems = map[string][]string{
 	"124": {"124_autopilot_run_planned_at", "124_channel_generalization", "124_task_prepare_lease"},
 	"127": {"127_issue_pull_request_reference_only", "127_task_squad_id", "127_user_composio_connection"},
 	"128": {"128_agent_task_queue_runtime_mcp_overlay", "128_autopilot_collaborator", "128_comment_routing_escalation"},
+	// Workflow migrations 232-253 shipped with these prefixes before the
+	// repository's uniqueness guard caught the collisions. They may already be
+	// recorded in schema_migrations, whose version key is the FULL stem. Renaming
+	// them would make an upgraded database replay non-idempotent CREATE/ALTER
+	// statements. Freeze the exact pairs instead: fresh databases apply both
+	// stems once, upgraded databases skip the already-recorded workflow stem, and
+	// any third use of one of these prefixes still fails this test.
+	"232": {"232_channel_media_pending_object_due_index", "232_workflow_template"},
+	"233": {"233_agent_task_queue_agent_terminal_latest_index", "233_workflow_template_ws_key_index"},
+	"234": {"234_agent_task_queue_retired_session_id", "234_workflow_template_version_unique_index"},
+	"235": {"235_chat_message_quick_actions", "235_workflow_run"},
+	"236": {"236_agent_task_quick_actions_disabled", "236_workflow_run_idempotency_index"},
+	"237": {"237_quick_action", "237_workflow_run_workspace_created_index"},
+	"238": {"238_quick_action_workspace_index", "238_workflow_run_active_index"},
+	"239": {"239_comment_quick_action", "239_workflow_run_issue_index"},
+	"240": {"240_agent_task_regenerate_quick_actions", "240_workflow_step_run_node_attempt_index"},
+	"241": {"241_comment_parent_lookup_index", "241_workflow_step_task_unique_index"},
+	"242": {"242_runtime_profile_add_qoderclicn", "242_workflow_step_run_index"},
+	"243": {"243_workflow_step_active_index", "243_workspace_teardown_dirty_trigger_guard"},
+	"244": {"244_issue_dependency_issue_index", "244_workflow_submission_acceptance_event"},
+	"245": {"245_issue_dependency_depends_on_index", "245_workflow_submission_step_index"},
+	"246": {"246_inbox_item_issue_index", "246_workflow_acceptance_pending_index"},
+	"247": {"247_comment_parent_index", "247_workflow_event_idempotency_index"},
+	"248": {"248_agent_task_trigger_comment_index", "248_workflow_event_run_index"},
+	"249": {"249_issue_subscriber_delegated", "249_workflow_existing_table_links"},
+	"250": {"250_agent_task_queue_workflow_step_index", "250_issue_subscriber_opt_out_scope"},
+	"251": {"251_agent_runtime_unbind", "251_workflow_step_input_node_type"},
+	"252": {"252_agent_builder_draft", "252_workflow_step_trace_position"},
+	"253": {"253_runtime_profile_add_qwenpaw", "253_workflow_step_trace_position_index"},
 }
 
 var migrationPrefixPattern = regexp.MustCompile(`^(\d+)_`)
@@ -103,6 +134,40 @@ func TestNewMigrationPrefixesStartAfterLegacyRange(t *testing.T) {
 		}
 		if n <= maxLegacyMigrationPrefix && !isKnownLegacyPrefix(prefix) {
 			t.Errorf("migration prefix %s is in the frozen legacy range 001-%03d: %v; new migrations must start at %03d", prefix, maxLegacyMigrationPrefix, stems, maxLegacyMigrationPrefix+1)
+		}
+	}
+}
+
+func TestNewMigrationsDoNotCreateImplicitIndexes(t *testing.T) {
+	for _, file := range migrationFilesForLint(t, "*.up.sql") {
+		stem := strings.TrimSuffix(filepath.Base(file), ".up.sql")
+		match := migrationPrefixPattern.FindStringSubmatch(stem)
+		if match == nil {
+			continue
+		}
+		prefix, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatalf("parse migration prefix for %s: %v", file, err)
+		}
+		if prefix <= maxLegacyImplicitIndexPrefix {
+			continue
+		}
+
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read migration %s: %v", file, err)
+		}
+		for lineNumber, line := range strings.Split(string(raw), "\n") {
+			sql := strings.ToUpper(strings.TrimSpace(strings.SplitN(line, "--", 2)[0]))
+			if sql == "" {
+				continue
+			}
+			if strings.Contains(sql, "PRIMARY KEY") && !strings.Contains(sql, "PRIMARY KEY USING INDEX") {
+				t.Errorf("%s:%d creates an implicit primary-key index; create a unique index concurrently in its own migration, then attach it with PRIMARY KEY USING INDEX", filepath.Base(file), lineNumber+1)
+			}
+			if strings.Contains(sql, "UNIQUE") && !strings.Contains(sql, "CREATE UNIQUE INDEX CONCURRENTLY") {
+				t.Errorf("%s:%d creates an implicit unique index; use CREATE UNIQUE INDEX CONCURRENTLY in its own migration", filepath.Base(file), lineNumber+1)
+			}
 		}
 	}
 }

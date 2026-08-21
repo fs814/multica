@@ -370,21 +370,9 @@ func TestHermesOverlayPermissions(t *testing.T) {
 		t.Fatalf("prepareHermesHome failed: %v", err)
 	}
 
-	if fi, err := os.Stat(hermesHome); err != nil {
-		t.Fatalf("stat home: %v", err)
-	} else if fi.Mode().Perm() != 0o700 {
-		t.Errorf("task home perms = %o, want 0700", fi.Mode().Perm())
-	}
-	if fi, err := os.Stat(filepath.Join(hermesHome, "config.yaml")); err != nil {
-		t.Fatalf("stat config: %v", err)
-	} else if fi.Mode().Perm() != 0o600 {
-		t.Errorf("derived config perms = %o, want 0600", fi.Mode().Perm())
-	}
-	if fi, err := os.Stat(filepath.Join(hermesHome, hermesTaskLocalStateMarker)); err != nil {
-		t.Fatalf("stat task-local state marker: %v", err)
-	} else if fi.Mode().Perm() != 0o600 {
-		t.Errorf("task-local state marker perms = %o, want 0600", fi.Mode().Perm())
-	}
+	assertPrivateMode(t, hermesHome, 0o700)
+	assertPrivateMode(t, filepath.Join(hermesHome, "config.yaml"), 0o600)
+	assertPrivateMode(t, filepath.Join(hermesHome, hermesTaskLocalStateMarker), 0o600)
 }
 
 // TestHermesOverlayReconcilesDeletedSharedEntry asserts a top-level entry
@@ -587,11 +575,7 @@ func TestHermesOverlayEnvPinsHomeAfterDotenvOverride(t *testing.T) {
 	}
 
 	envPath := filepath.Join(hermesHome, ".env")
-	if fi, err := os.Stat(envPath); err != nil {
-		t.Fatalf(".env missing: %v", err)
-	} else if perm := fi.Mode().Perm(); perm != 0o600 {
-		t.Errorf(".env perms = %o, want 600 (holds credentials)", perm)
-	}
+	assertPrivateMode(t, envPath, 0o600)
 
 	env := applyDotenvOverride(t, envPath)
 	if env["HERMES_HOME"] != hermesHome {

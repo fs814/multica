@@ -295,7 +295,7 @@ export function WorkflowRunDialog({
         </DialogTitle>
 
         <div className="shrink-0 border-b px-5 pt-3 pb-2">
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-caption">
             <span className="inline-flex size-5 items-center justify-center rounded-md bg-primary/15 text-primary">
               <Play className="size-3" aria-hidden="true" />
             </span>
@@ -303,7 +303,7 @@ export function WorkflowRunDialog({
               {t(($) => $.runs.dialog.header)}
             </span>
             <ChevronRight
-              className="size-3 text-muted-foreground/40"
+              className="size-3 text-faint-foreground"
               aria-hidden="true"
             />
             <span className="min-w-0 truncate text-muted-foreground">
@@ -312,7 +312,7 @@ export function WorkflowRunDialog({
             {workspaceName ? (
               <>
                 <ChevronRight
-                  className="size-3 text-muted-foreground/40"
+                  className="size-3 text-faint-foreground"
                   aria-hidden="true"
                 />
                 <span className="min-w-0 truncate text-muted-foreground">
@@ -321,7 +321,7 @@ export function WorkflowRunDialog({
               </>
             ) : null}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-caption text-muted-foreground">
             {t(($) => $.runs.dialog.subtitle)}
           </p>
         </div>
@@ -332,7 +332,7 @@ export function WorkflowRunDialog({
         {runnable ? null : (
           <div
             role="status"
-            className="shrink-0 border-b border-amber-500/30 bg-amber-500/5 px-5 py-2.5 text-xs leading-relaxed text-amber-700 dark:text-amber-400"
+            className="shrink-0 border-b border-amber-500/30 bg-amber-500/5 px-5 py-2.5 text-caption leading-relaxed text-amber-700 dark:text-amber-400"
           >
             {refusal === "archived"
               ? t(($) => $.runs.dialog.archived)
@@ -371,7 +371,7 @@ export function WorkflowRunDialog({
           ))}
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium">
+            <span className="text-caption font-medium">
               {t(($) => $.runs.dialog.project_label)}
             </span>
             <ProjectPicker
@@ -399,7 +399,7 @@ export function WorkflowRunDialog({
                       <FolderKanban className="size-3.5" aria-hidden="true" />
                     </span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-sm">
+                  <span className="min-w-0 flex-1 truncate text-body">
                     {selectedProjectOf(projects, projectId)?.title ??
                       t(($) => $.runs.dialog.no_project)}
                   </span>
@@ -621,7 +621,7 @@ function RunFormControl({
   // "Severity*" - which is the field's identity being corrupted by a property
   // of it, and it is the name a screen reader reads back on every focus.
   const label = (
-    <span className="text-xs font-medium">
+    <span className="text-caption font-medium">
       {field.label}
       {field.required ? (
         <span aria-hidden="true" className="ml-0.5 text-destructive">
@@ -641,12 +641,12 @@ function RunFormControl({
   const messages = (
     <>
       {hint ? (
-        <span className="text-xs leading-snug text-muted-foreground">
+        <span className="text-caption leading-snug text-muted-foreground">
           {hint}
         </span>
       ) : null}
       {problem ? (
-        <span role="alert" className="text-xs leading-snug text-destructive">
+        <span role="alert" className="text-caption leading-snug text-destructive">
           {problem}
         </span>
       ) : null}

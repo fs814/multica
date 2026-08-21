@@ -103,7 +103,7 @@ describe("RichContent import boundary", () => {
     // types, and reuses the same leaf components rather than the readonly
     // renderer. Rewriting the editor is explicitly out of scope for MUL-4922.
     // Narrow, named, and justified — not a general loophole.
-    const TIPTAP_NODEVIEW = "editor/extensions/code-block-view.tsx";
+    const TIPTAP_NODEVIEW = join("editor", "extensions", "code-block-view.tsx");
 
     const offenders = sourceFiles([...PRODUCT_SURFACES, "common", "editor"])
       .filter(({ path }) => path !== TIPTAP_NODEVIEW)

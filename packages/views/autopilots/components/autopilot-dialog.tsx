@@ -40,6 +40,7 @@ import { useCurrentWorkspace } from "@multica/core/paths";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
+import { workflowTemplateListOptions } from "@multica/core/workflows";
 import {
   useCreateAutopilot,
   useCreateAutopilotTrigger,
@@ -84,6 +85,8 @@ export interface AutopilotInitial {
   assignee_type: AutopilotAssigneeType;
   assignee_id: string;
   execution_mode: AutopilotExecutionMode;
+  workflow_template_id?: string | null;
+  workflow_template_version_id?: string | null;
   subscriber_user_ids?: string[];
 }
 
@@ -143,6 +146,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const { data: projects = [] } = useQuery(projectListOptions(wsId));
+  const { data: workflowTemplates = [] } = useQuery(workflowTemplateListOptions(wsId));
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isCreate = props.mode === "create";
@@ -160,6 +164,8 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const [executionMode, setExecutionMode] = useState<AutopilotExecutionMode>(
     initial.execution_mode ?? "create_issue",
   );
+  const [workflowTemplateId, setWorkflowTemplateId] = useState<string | null>(initial.workflow_template_id ?? null);
+  const [workflowTemplateVersionId, setWorkflowTemplateVersionId] = useState<string | null>(initial.workflow_template_version_id ?? null);
   const [subscriberUserIds, setSubscriberUserIds] = useState<string[]>(
     initial.subscriber_user_ids ?? [],
   );
@@ -319,6 +325,8 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
+          workflow_template_id: workflowTemplateId,
+          workflow_template_version_id: workflowTemplateVersionId,
           subscribers: subscriberUserIds.map((user_id) => ({
             user_type: "member" as const,
             user_id,
@@ -372,6 +380,8 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
+          workflow_template_id: workflowTemplateId,
+          workflow_template_version_id: workflowTemplateVersionId,
           subscribers: subscriberUserIds.map((user_id) => ({
             user_type: "member" as const,
             user_id,
@@ -620,6 +630,15 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
             />
 
             <OutputModeSection mode={executionMode} onChange={setExecutionMode} />
+
+            <WorkflowTemplateSection
+              templates={workflowTemplates.filter((template) => template.status === "published")}
+              value={workflowTemplateId}
+              onChange={(value) => {
+                setWorkflowTemplateId(value);
+                setWorkflowTemplateVersionId(null);
+              }}
+            />
 
             {executionMode === "create_issue" && (
               <ProjectSection
@@ -885,6 +904,42 @@ function OutputModeSection({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function WorkflowTemplateSection({
+  templates,
+  value,
+  onChange,
+}: {
+  templates: Array<{ id: string; name: string; current_version: number | null }>;
+  value: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  const { t } = useT("autopilots");
+  return (
+    <div>
+      <SectionLabel>{t(($) => $.dialog.section_workflow_template)}</SectionLabel>
+      <select
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value || null)}
+        className="h-9 w-full rounded-md border border-input bg-background px-3 text-body"
+        aria-label={t(($) => $.dialog.section_workflow_template)}
+      >
+        <option value="">{t(($) => $.dialog.no_workflow_template)}</option>
+        {templates.map((template) => (
+          <option key={template.id} value={template.id}>
+            {t(($) => $.dialog.workflow_template_option, {
+              name: template.name,
+              version: template.current_version ?? 0,
+            })}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-caption text-muted-foreground">
+        {t(($) => $.dialog.workflow_template_hint)}
+      </p>
     </div>
   );
 }

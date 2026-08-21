@@ -94,6 +94,8 @@ func prepareCodexHome(codexHome string, logger *slog.Logger) error {
 	return prepareCodexHomeWithOpts(codexHome, CodexHomeOptions{GOOS: "linux"}, logger)
 }
 
+var ensureCodexSandboxConfigForHome = ensureCodexSandboxConfig
+
 // sharedConfigPresence is the tri-state existence of the shared
 // ~/.codex/config.toml copy source. It is three-valued so a stat that fails for
 // a reason other than "not found" (permission/IO) never masquerades as a
@@ -279,7 +281,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 		winState = resolveWindowsSandboxState(configFile, configSyncErr, statSharedCodexConfig(sharedHome), opts.CodexCustomArgs, logger)
 	}
 	policy := codexSandboxPolicyForConfig(opts.GOOS, opts.CodexVersion, winState)
-	if err := ensureCodexSandboxConfig(configFile, policy, opts.CodexVersion, logger); err != nil {
+	if err := ensureCodexSandboxConfigForHome(configFile, policy, opts.CodexVersion, logger); err != nil {
 		// The managed block is the authoritative on-disk sandbox policy. If it
 		// can't be written, config.toml keeps whatever it already had — on a
 		// reused home that may be a stale danger-full-access from a prior run —

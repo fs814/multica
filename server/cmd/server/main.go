@@ -343,6 +343,7 @@ func main() {
 	var businessMetrics *obsmetrics.BusinessMetrics
 	var samplerPool *pgxpool.Pool
 	var channelMediaMetrics *obsmetrics.ChannelMediaReconcilerMetrics
+	var workflowMetrics *obsmetrics.WorkflowMetrics
 	var wecomMetrics *obsmetrics.WecomMetrics
 	if metricsConfig.Enabled() {
 		// Build a dedicated tiny pool for the BusinessSamplerCollector
@@ -372,6 +373,7 @@ func main() {
 		httpMetrics = metricsRegistry.HTTP
 		businessMetrics = metricsRegistry.Business
 		channelMediaMetrics = metricsRegistry.ChannelMedia
+		workflowMetrics = metricsRegistry.Workflow
 		wecomMetrics = metricsRegistry.Wecom
 		// Forward inbound daemon WS frames into the per-kind counter so
 		// dashboards can split heartbeat / unknown / invalid traffic.
@@ -436,8 +438,15 @@ func main() {
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
 	go runDBStatsLogger(sweepCtx, pool)
+	if h.WorkflowReconciler != nil {
+		h.WorkflowEngine.Metrics = workflowMetrics
+		go h.WorkflowReconciler.Run(sweepCtx)
+	}
 	if h.WebhookDeliveryWorker != nil {
 		go h.WebhookDeliveryWorker.Run(sweepCtx)
+	}
+	if h.WorkflowCallbackWorker != nil {
+		go h.WorkflowCallbackWorker.Run(sweepCtx)
 	}
 	// GitHub PR-card API snapshot pipeline (MUL-5265): worker pool + TTL sweeper.
 	// No-op when unconfigured (no App private key).

@@ -249,5 +249,25 @@ var probeAgentCLIs = func() map[string]AgentEntry {
 	if e, ok := probe("MULTICA_QWENPAW_PATH", "qwenpaw", ""); ok {
 		agents["qwenpaw"] = e
 	}
+	// Knot background agent (`knot-cli`), run headlessly as
+	// `knot-cli chat -p … --output-format stream-json`. It reads AGENTS.md from
+	// the workdir, which execenv prepares.
+	//
+	// MULTICA_KNOT_AGENT_ID (read by the backend, not here) selects WHICH
+	// registered agent from `knot-cli list-agents` serves the task; the model
+	// env var below feeds -m, so the two are independent knobs.
+	if e, ok := probe("MULTICA_KNOT_PATH", "knot-cli", "MULTICA_KNOT_MODEL"); ok {
+		agents["knot"] = e
+	}
+	// Knot over its HTTP AG-UI endpoint instead of the CLI subprocess. It
+	// deliberately probes the SAME `knot-cli` binary: the family talks HTTP and
+	// needs no binary to run a turn, but it does need one to enumerate models
+	// (`knot-cli model list`) and to read this host's client uuid
+	// (`knot-cli client-status`) — and probing it here is what lets knot-http
+	// reuse the shared --version gate rather than inventing a binary-less
+	// registration path through discovery.
+	if e, ok := probe("MULTICA_KNOT_HTTP_PATH", "knot-cli", "MULTICA_KNOT_HTTP_MODEL"); ok {
+		agents["knot-http"] = e
+	}
 	return agents
 }

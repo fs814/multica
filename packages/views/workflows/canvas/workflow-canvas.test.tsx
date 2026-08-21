@@ -19,7 +19,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enWorkflows from "../../locales/en/workflows.json";
@@ -29,22 +29,30 @@ import { WorkflowCanvas } from "./workflow-canvas";
 
 const TEST_RESOURCES = { en: { common: enCommon, workflows: enWorkflows } };
 
-function renderCanvas(options: { readOnly?: boolean } = {}) {
+function renderCanvas(
+  options: { readOnly?: boolean; selectedEdgeIndex?: number } = {},
+) {
   const { nodes, edges } = definitionToGraph(bugFixDefinition());
+  const selectedEdges = edges.map((edge, index) =>
+    index === options.selectedEdgeIndex ? { ...edge, selected: true } : edge,
+  );
+  const onNodesChange = vi.fn();
+  const onEdgesChange = vi.fn();
   render(
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
       <WorkflowCanvas
         nodes={nodes}
-        edges={edges}
+        edges={selectedEdges}
         selectedNodeId={null}
         readOnly={options.readOnly ?? false}
-        onNodesChange={vi.fn()}
-        onEdgesChange={vi.fn()}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onSelectNode={vi.fn()}
         onConnect={vi.fn()}
       />
     </I18nProvider>,
   );
+  return { nodes, edges: selectedEdges, onNodesChange, onEdgesChange };
 }
 
 /** Node cards by xyflow's own per-node test id, so a dropped node is visible. */
@@ -128,5 +136,29 @@ describe("WorkflowCanvas", () => {
     ]) {
       expect(document.getElementById(id)).not.toBeNull();
     }
+  });
+
+  it("deletes only the selected edge from a graph with multiple connections", () => {
+    const rendered = renderCanvas({ selectedEdgeIndex: 1 });
+    const removed = rendered.edges[1];
+    expect(rendered.edges.length).toBeGreaterThan(1);
+
+    fireEvent.keyDown(window, { key: "Delete" });
+
+    expect(rendered.onEdgesChange).toHaveBeenCalledTimes(1);
+    const next = rendered.onEdgesChange.mock.calls[0]?.[0];
+    expect(next).toHaveLength(rendered.edges.length - 1);
+    expect(next.map((edge: { id: string }) => edge.id)).not.toContain(removed?.id);
+    expect(rendered.onNodesChange).not.toHaveBeenCalled();
+    expect(rendered.nodes).toHaveLength(bugFixDefinition().nodes.length);
+  });
+
+  it("ignores keyboard deletion for a selected edge in read-only mode", () => {
+    const rendered = renderCanvas({ readOnly: true, selectedEdgeIndex: 1 });
+
+    fireEvent.keyDown(window, { key: "Backspace" });
+
+    expect(rendered.onEdgesChange).not.toHaveBeenCalled();
+    expect(rendered.onNodesChange).not.toHaveBeenCalled();
   });
 });

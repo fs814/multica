@@ -47,7 +47,7 @@ export function PanelSection({
 }) {
   return (
     <section className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 last:border-b-0">
-      <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+      <h3 className="text-caption font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </h3>
       {children}
@@ -110,12 +110,12 @@ export function PanelSelectField({
 }
 
 export function PanelLabelText({ children }: { children: React.ReactNode }) {
-  return <span className="text-xs font-medium">{children}</span>;
+  return <span className="text-caption font-medium">{children}</span>;
 }
 
 export function PanelHint({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-xs leading-snug text-muted-foreground">
+    <span className="text-caption leading-snug text-muted-foreground">
       {children}
     </span>
   );
@@ -132,7 +132,7 @@ export function PanelHint({ children }: { children: React.ReactNode }) {
  */
 export function PanelProblem({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-xs leading-snug text-destructive">{children}</span>
+    <span className="text-caption leading-snug text-destructive">{children}</span>
   );
 }
 
@@ -230,7 +230,7 @@ export function PanelCheckList({
         <label
           key={option.value}
           className={cn(
-            "flex items-center gap-2 text-xs",
+            "flex items-center gap-2 text-caption",
             disabled ? "opacity-50" : "cursor-pointer",
           )}
         >
@@ -266,7 +266,7 @@ export function PanelNotice({
 }) {
   return (
     <div className="flex flex-col gap-1.5 px-4 py-6">
-      <p className="text-sm font-medium">{title}</p>
+      <p className="text-body font-medium">{title}</p>
       <PanelHint>{hint}</PanelHint>
     </div>
   );

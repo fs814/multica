@@ -33,7 +33,14 @@
  * and three files would let the label pill drift apart between them.
  */
 
-import { memo } from "react";
+import {
+  createContext,
+  memo,
+  useContext,
+  useMemo,
+  type ReactNode,
+} from "react";
+import { Trash2 } from "lucide-react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -41,6 +48,7 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
+import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../i18n";
 import type { EdgeKind, EditorEdge, FlowEdge } from "../graph";
 
@@ -76,6 +84,63 @@ const EDGE_VISUAL = {
 } as const;
 
 type EdgeVisualRole = keyof typeof EDGE_VISUAL;
+
+type WorkflowEdgeActions = {
+  readOnly: boolean;
+  onDeleteEdge(edgeId: string): void;
+};
+
+const WorkflowEdgeActionsContext = createContext<WorkflowEdgeActions>({
+  readOnly: true,
+  onDeleteEdge: () => undefined,
+});
+
+export function WorkflowEdgeActionsProvider({
+  readOnly,
+  onDeleteEdge,
+  children,
+}: WorkflowEdgeActions & { children: ReactNode }) {
+  const value = useMemo(
+    () => ({ readOnly, onDeleteEdge }),
+    [readOnly, onDeleteEdge],
+  );
+  return (
+    <WorkflowEdgeActionsContext.Provider value={value}>
+      {children}
+    </WorkflowEdgeActionsContext.Provider>
+  );
+}
+
+/** Visible only after edge selection, matching the editor's other contextual actions. */
+export function WorkflowEdgeDeleteButton({
+  edgeId,
+  selected,
+}: {
+  edgeId: string;
+  selected: boolean | undefined;
+}) {
+  const { readOnly, onDeleteEdge } = useContext(WorkflowEdgeActionsContext);
+  const { t } = useT("common");
+  if (readOnly || !selected) return null;
+
+  return (
+    <Button
+      type="button"
+      variant="destructive"
+      size="icon-xs"
+      className="pointer-events-auto"
+      aria-label={t(($) => $.delete)}
+      title={t(($) => $.delete)}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onDeleteEdge(edgeId);
+      }}
+    >
+      <Trash2 className="size-3" aria-hidden="true" />
+    </Button>
+  );
+}
 
 /**
  * Arrowhead `<marker>` elements, referenced by `url(#id)` from every edge path.
@@ -181,6 +246,7 @@ function useEdgeLabel(data: EditorEdge | undefined): string {
  * un-memoised edge would re-run `getBezierPath` on each frame of a pan.
  */
 export const WorkflowEdge = memo(function WorkflowEdge({
+  id,
   sourceX,
   sourceY,
   targetX,
@@ -222,13 +288,14 @@ export const WorkflowEdge = memo(function WorkflowEdge({
           // pane, so without it a click on the pill would start a canvas pan
           // instead of selecting the edge under it.
           className={cn(
-            "nodrag nopan pointer-events-none absolute rounded-full border border-border bg-card px-1.5 py-0.5 text-[10px] leading-none font-medium text-card-foreground shadow-sm",
+            "nodrag nopan pointer-events-none absolute flex items-center gap-1 rounded-full border border-border bg-card px-1.5 py-0.5 text-micro leading-none font-medium text-card-foreground shadow-sm",
           )}
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
         >
-          {label}
+          <span>{label}</span>
+          <WorkflowEdgeDeleteButton edgeId={id} selected={selected} />
         </div>
       </EdgeLabelRenderer>
     </>

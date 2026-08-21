@@ -20,7 +20,14 @@
     "DESKTOP_RENDERER_PORT",
     "DESKTOP_APP_SUFFIX"
   ],
-  "globalPassThroughEnv": ["npm_config_script_shell"],
+  "globalPassThroughEnv": [
+    "npm_config_script_shell",
+    // Go needs one of these to locate its per-user build cache. Turbo's strict
+    // environment otherwise strips LOCALAPPDATA on Windows, so the Desktop
+    // bundle step fails before it can compile the CLI.
+    "GOCACHE",
+    "LOCALAPPDATA"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

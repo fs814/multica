@@ -214,8 +214,8 @@ export function CreateWorkflowDialog({
                 id="create-workflow-key-hint"
                 className={
                   Boolean(trimmedKey) && !keyValid
-                    ? "text-xs text-destructive"
-                    : "text-xs text-muted-foreground"
+                    ? "text-caption text-destructive"
+                    : "text-caption text-muted-foreground"
                 }
               >
                 {Boolean(trimmedKey) && !keyValid
@@ -244,7 +244,7 @@ export function CreateWorkflowDialog({
             {formError ? (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-body text-destructive"
               >
                 <AlertCircle className="mt-0.5 size-4 shrink-0" />
                 <span>{formError}</span>
@@ -287,7 +287,7 @@ export function CreateWorkflowDialog({
             {formError ? (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-body text-destructive"
               >
                 <AlertCircle className="mt-0.5 size-4 shrink-0" />
                 <span>{formError}</span>

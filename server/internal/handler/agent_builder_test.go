@@ -143,6 +143,84 @@ func TestCreateAgentBuilderSessionCreatesIsolatedHiddenBuilder(t *testing.T) {
 	}
 }
 
+func TestCreateAgentBuilderSessionPersistsKnotAgentID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	knotRuntimeID := newTestRuntime(t, "knot-http", "online")
+	const knotAgentID = "7a5d51d0b14f449683fdb839c5e3e448"
+
+	w := httptest.NewRecorder()
+	testHandler.CreateAgentBuilderSession(w, newRequest(
+		http.MethodPost,
+		"/api/agent-builder/sessions",
+		map[string]any{
+			"runtime_id":    knotRuntimeID,
+			"knot_agent_id": knotAgentID,
+		},
+	))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateAgentBuilderSession: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response CreateAgentBuilderSessionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.KnotAgentID != knotAgentID {
+		t.Fatalf("knot_agent_id = %q, want %q", response.KnotAgentID, knotAgentID)
+	}
+
+	var runtimeConfig []byte
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT runtime_config FROM agent WHERE id = $1
+	`, response.BuilderAgentID).Scan(&runtimeConfig); err != nil {
+		t.Fatalf("load builder runtime_config: %v", err)
+	}
+	var stored struct {
+		Knot struct {
+			AgentID string `json:"agent_id"`
+		} `json:"knot"`
+	}
+	if err := json.Unmarshal(runtimeConfig, &stored); err != nil {
+		t.Fatalf("decode runtime_config: %v", err)
+	}
+	if stored.Knot.AgentID != knotAgentID {
+		t.Fatalf("stored knot agent id = %q, want %q", stored.Knot.AgentID, knotAgentID)
+	}
+
+	insertChatMessage(t, response.SessionID, "user", "Create a release manager")
+	for _, summary := range listBuilderSessions(t).Sessions {
+		if summary.SessionID == response.SessionID {
+			if summary.KnotAgentID != knotAgentID {
+				t.Fatalf("listed knot_agent_id = %q, want %q", summary.KnotAgentID, knotAgentID)
+			}
+			return
+		}
+	}
+	t.Fatalf("builder session %s missing from the list", response.SessionID)
+}
+
+func TestCreateAgentBuilderSessionRejectsInvalidKnotAgentID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	knotRuntimeID := newTestRuntime(t, "knot-http", "online")
+
+	w := httptest.NewRecorder()
+	testHandler.CreateAgentBuilderSession(w, newRequest(
+		http.MethodPost,
+		"/api/agent-builder/sessions",
+		map[string]any{
+			"runtime_id":    knotRuntimeID,
+			"knot_agent_id": "not-an-agent-id",
+		},
+	))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateWorkflowBuilderSessionUsesCodexHiddenCarrier(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")

@@ -20,6 +20,12 @@ import (
 // invoked with a real agent CLI's argv: TestMain runs before the testing
 // package parses flags, so arguments like `run --format json` never reach it.
 func TestMain(m *testing.M) {
+	if exitCode, ok := runWindowsPowerShellShimHelper(); ok {
+		os.Exit(exitCode)
+	}
+	if exitCode, ok := runWindowsTestExecutableFixture(); ok {
+		os.Exit(exitCode)
+	}
 	if os.Getenv(opencodeStdinHelperEnv) == "1" {
 		runFakeOpencodeStdinHelper()
 		os.Exit(0)

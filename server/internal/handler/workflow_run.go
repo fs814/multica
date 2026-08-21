@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/multica-ai/multica/server/internal/issueposition"
 	"github.com/multica-ai/multica/server/internal/logger"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflow"
@@ -48,6 +47,7 @@ type WorkflowRunResponse struct {
 	TemplateVersionID string  `json:"template_version_id"`
 	Status            string  `json:"status"`
 	Source            string  `json:"source"`
+	SourceEventID     *string `json:"source_event_id"`
 	AccountableUserID *string `json:"accountable_user_id"`
 	// BlockedReason and FailureReason are the bounded reason codes from
 	// workflow/errors.go, never free text: they are what the UI branches on to
@@ -256,6 +256,7 @@ func workflowRunToResponse(run db.WorkflowRun, sum runSummary) WorkflowRunRespon
 		TemplateVersionID: uuidToString(run.TemplateVersionID),
 		Status:            run.Status,
 		Source:            run.Source,
+		SourceEventID:     textToPtr(run.SourceEventID),
 		AccountableUserID: uuidToPtr(run.AccountableUserID),
 		BlockedReason:     textToPtr(run.BlockedReason),
 		FailureReason:     textToPtr(run.FailureReason),
@@ -713,25 +714,11 @@ func (h *Handler) workflowRunAcceptance(ctx context.Context, run db.WorkflowRun)
 // POST /api/workflow-templates/{id}/run
 // ---------------------------------------------------------------------------
 
-// RunWorkflowTemplate creates an Issue and starts a Run on it.
+// RunWorkflowTemplate atomically creates an Issue and starts a Run on it.
+// Engine.StartRun owns the transaction containing the Issue, subscriber, Run,
+// first event, entry Step, and initial Agent task, so no orphan window exists.
 //
-// ORDERING. The Issue is created and committed FIRST, in its own transaction,
-// and only then does engine.StartRun open its own. The obvious alternative —
-// wrapping both in one transaction — is not available: StartRun begins its own
-// transaction internally (Engine.runInTx), and it must, because Step activation
-// and Agent Task enqueue have to share one commit or a crash leaves a queued Step
-// with no Task. Passing it a caller's transaction would break the one invariant
-// the engine exists to hold.
-//
-// So the failure window is "issue committed, run failed", and it is the correct
-// direction to fail. An orphan Issue is a visible, editable, deletable row that
-// says exactly what the user asked for; the reverse (a Run whose issue_id points
-// at a row that was rolled back) would be a Run permanently referencing nothing,
-// invisible to the issue list and unrepairable by the user. We also clean up: on
-// a StartRun failure the just-created Issue is deleted, so the ordinary failure
-// path leaves nothing behind at all and only a crash between the two can orphan.
-//
-// IDEMPOTENCY. The key is derived server-side from
+// The idempotency key is derived server-side from
 // (workspace, template, user, normalized title+description) — the client cannot
 // send one. A double-clicked Run button issues two identical requests, and the
 // point is that the second must return the first's Run rather than start a
@@ -841,10 +828,9 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	idempotencyKey := workflowRunIdempotencyKey(tpl.ID, userUUID, title, description)
 
-	// Short-circuit a replay BEFORE creating an issue. StartRun dedups on its own,
-	// but it does so after this handler has already committed an issue - so
-	// without this read a double-clicked button would return the first Run
-	// (correct) while leaving a second orphan Issue behind (not).
+	// Short-circuit the common replay before entering the engine transaction.
+	// StartRun repeats the same check and catches the unique-index race, so this
+	// is only a latency optimization and never the idempotency authority.
 	if existing, err := h.Queries.GetWorkflowRunByIdempotencyKey(r.Context(), db.GetWorkflowRunByIdempotencyKeyParams{
 		WorkspaceID:    tpl.WorkspaceID,
 		IdempotencyKey: idempotencyKey,
@@ -859,39 +845,31 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	issue, ok := h.createWorkflowRunIssue(w, r, tpl, userUUID, title, description, projectID)
-	if !ok {
-		return
-	}
-
 	started, err := engine.StartRun(r.Context(), workflow.StartRunInput{
 		WorkspaceID: tpl.WorkspaceID,
 		TemplateID:  tpl.ID,
 		// TemplateVersionID left zero: StartRun resolves the published version
 		// inside its own transaction, so a concurrent publish cannot change the
 		// answer between our check above and the pin.
-		IssueID:        issue.ID,
 		Source:         "manual",
 		IdempotencyKey: idempotencyKey,
+		RequestHash:    idempotencyKey,
 		// The member who pressed Run is answerable for the Run, and routing checks
 		// every candidate agent's invocation permission against exactly this user.
 		AccountableUserID: userUUID,
-		Input:             input,
-		ActorType:         "member",
-		ActorID:           userUUID,
+		Issue: &workflow.RunIssueInput{
+			Title:       title,
+			Description: description,
+			CreatorType: "member",
+			CreatorID:   userUUID,
+			ProjectID:   projectID,
+			Subscribers: []workflow.RunIssueSubscriber{{UserType: "member", UserID: userUUID, Reason: "manual"}},
+		},
+		Input:     input,
+		ActorType: "member",
+		ActorID:   userUUID,
 	})
 	if err != nil {
-		// Undo the issue. Leaving it would show the user an issue for work that
-		// was never started, with nothing explaining why nothing happened.
-		if derr := h.Queries.DeleteIssue(r.Context(), db.DeleteIssueParams{
-			ID:          issue.ID,
-			WorkspaceID: tpl.WorkspaceID,
-		}); derr != nil {
-			// Logged, not returned: the StartRun failure is the caller's answer,
-			// and an undeletable issue is a stray row rather than a wrong result.
-			slog.Error("failed to roll back workflow run issue",
-				append(logger.RequestAttrs(r), "error", derr, "issue_id", uuidToString(issue.ID))...)
-		}
 		h.writeWorkflowEngineError(w, r, err, "StartRun")
 		return
 	}
@@ -904,6 +882,7 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	// snapshot after the engine's `issue:updated` event would otherwise move the
 	// client back to stale state.
 	if !started.AlreadyExisted {
+		issue := *started.Issue
 		if fresh, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
 			ID:          issue.ID,
 			WorkspaceID: tpl.WorkspaceID,
@@ -950,80 +929,6 @@ func (h *Handler) reloadWorkflowRun(ctx context.Context, run db.WorkflowRun) db.
 		return run
 	}
 	return fresh
-}
-
-// createWorkflowRunIssue writes the Issue a Run executes against.
-//
-// Follows the autopilot dispatch precedent (IncrementIssueCounter ->
-// NextTopPosition -> CreateIssueWithOrigin) so the issue gets a real workspace
-// number and sorts to the top of its column like every other new issue. The
-// counter increment and the insert share one transaction because a consumed
-// number with no issue would leave a permanent gap in the workspace's sequence.
-//
-// Status 'todo' with NO assignee, deliberately. A workflow Run does its own
-// routing per Step, and assigning the issue to an agent would make the ordinary
-// issue listener enqueue a second, non-workflow task for the same work - two
-// agents on one issue, one of them outside the Run's control. origin_type is left
-// unset for the same reason it is not 'workflow': the CHECK constraint
-// (migrations 042/060/111/131/149) does not admit a workflow value, and widening
-// it belongs with the migration that adds it, not with a handler that would then
-// fail every create.
-//
-// Returns ok=false after writing the response.
-func (h *Handler) createWorkflowRunIssue(
-	w http.ResponseWriter,
-	r *http.Request,
-	tpl db.WorkflowTemplate,
-	userUUID pgtype.UUID,
-	title, description string,
-	projectID pgtype.UUID,
-) (db.Issue, bool) {
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
-		return db.Issue{}, false
-	}
-	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
-
-	number, err := qtx.IncrementIssueCounter(r.Context(), tpl.WorkspaceID)
-	if err != nil {
-		slog.Warn("IncrementIssueCounter for workflow run failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to allocate an issue number")
-		return db.Issue{}, false
-	}
-	// Computed after the counter has taken the workspace row lock, so two
-	// concurrent runs in one workspace see each other's positions.
-	position, err := issueposition.NextTopPosition(r.Context(), tx, tpl.WorkspaceID, "todo")
-	if err != nil {
-		slog.Warn("NextTopPosition for workflow run failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to position the issue")
-		return db.Issue{}, false
-	}
-
-	issue, err := qtx.CreateIssue(r.Context(), db.CreateIssueParams{
-		WorkspaceID: tpl.WorkspaceID,
-		Title:       title,
-		Description: strToText(description),
-		Status:      "todo",
-		Priority:    "none",
-		// No assignee: see the doc comment. The Run routes each Step itself.
-		CreatorType: "member",
-		CreatorID:   userUUID,
-		Position:    position,
-		Number:      number,
-		ProjectID:   projectID,
-	})
-	if err != nil {
-		slog.Warn("CreateIssue for workflow run failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to create the run's issue")
-		return db.Issue{}, false
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit the run's issue")
-		return db.Issue{}, false
-	}
-	return issue, true
 }
 
 // workflowRunIdempotencyKey derives the StartRun dedup key from the request.
@@ -1299,6 +1204,33 @@ func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeWorkflowRunDetail(w, r, cancelled, http.StatusOK)
+}
+
+// ReconcileWorkflowRun lets a workspace owner/admin request the same bounded,
+// idempotent repair the background worker performs. It is intentionally not a
+// generic state-edit endpoint.
+func (h *Handler) ReconcileWorkflowRun(w http.ResponseWriter, r *http.Request) {
+	run, ok := h.loadWorkflowRun(w, r)
+	if !ok {
+		return
+	}
+	if _, ok := h.requireWorkspaceRole(w, r, uuidToString(run.WorkspaceID), "workflow run not found", "owner", "admin"); !ok {
+		return
+	}
+	engine, ok := h.requireWorkflowEngine(w)
+	if !ok {
+		return
+	}
+	if err := engine.ReconcileRun(r.Context(), run.WorkspaceID, run.ID); err != nil {
+		h.writeWorkflowEngineError(w, r, err, "ReconcileRun")
+		return
+	}
+	updated, err := h.Queries.GetWorkflowRun(r.Context(), db.GetWorkflowRunParams{ID: run.ID, WorkspaceID: run.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reload workflow run")
+		return
+	}
+	h.writeWorkflowRunDetail(w, r, updated, http.StatusOK)
 }
 
 // ---------------------------------------------------------------------------

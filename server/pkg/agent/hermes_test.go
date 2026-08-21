@@ -3151,8 +3151,9 @@ func TestHermesExecuteFailsClosedOnMalformedMcpConfig(t *testing.T) {
 // tests don't need to thread one through; session/prompt returns
 // end_turn so Execute completes cleanly.
 func fakeACPRecordingScript(recordPath, sessionID, caps string) string {
+	recordPath = filepath.ToSlash(recordPath)
 	return `#!/bin/sh
-RECORD_PATH=` + recordPath + `
+RECORD_PATH="` + recordPath + `"
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$RECORD_PATH"
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')
@@ -3180,8 +3181,9 @@ done
 // so tests can drive the "session is already on this model" branch of the
 // set_model gate.
 func fakeACPRecordingScriptWithCurrentModel(recordPath, sessionID, currentModelID string) string {
+	recordPath = filepath.ToSlash(recordPath)
 	return `#!/bin/sh
-RECORD_PATH=` + recordPath + `
+RECORD_PATH="` + recordPath + `"
 while IFS= read -r line; do
   printf '%s\n' "$line" >> "$RECORD_PATH"
   id=$(printf '%s' "$line" | sed -n 's/.*"id":\([0-9]*\).*/\1/p')

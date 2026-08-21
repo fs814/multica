@@ -79,7 +79,7 @@ INSERT INTO agent (
     visibility, permission_mode, max_concurrent_tasks, owner_id, instructions,
     custom_env, custom_args, model, kind, system_key
 ) VALUES (
-    @workspace_id, @name, '', @runtime_mode, '{}'::jsonb, @runtime_id,
+    @workspace_id, @name, '', @runtime_mode, @runtime_config, @runtime_id,
     'private', 'private', 1, @owner_id, @instructions,
     '{}'::jsonb, '[]'::jsonb, sqlc.narg('model'), 'system', @system_key
 )

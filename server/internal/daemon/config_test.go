@@ -294,7 +294,7 @@ func TestLoadConfig_SkipsMulticaHooksShadowingAgentBinaries(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	hooksDir := filepath.Join(home, ".multica", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatalf("create hooks dir: %v", err)
@@ -354,7 +354,7 @@ func TestLoadConfig_SkipsMulticaHooksFromLoginShellFallback(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	hooksDir := filepath.Join(home, ".multica", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatalf("create hooks dir: %v", err)
@@ -849,9 +849,7 @@ func TestLoadConfig_UsesCodexDesktopAppBundleFallback(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(fakeCodex), 0o755); err != nil {
 		t.Fatalf("mkdir fake Codex bundle: %v", err)
 	}
-	if err := os.WriteFile(fakeCodex, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake Codex bundle CLI: %v", err)
-	}
+	writeExecStub(t, fakeCodex)
 
 	oldBundlePaths := codexDesktopAppBundlePaths
 	codexDesktopAppBundlePaths = func() []string { return []string{fakeCodex} }
@@ -976,9 +974,10 @@ func TestLoadConfig_CodexDesktopFallbackDoesNotOverrideExplicitPath(t *testing.T
 	t.Setenv("MULTICA_CODEX_PATH", filepath.Join(t.TempDir(), "missing-codex"))
 	pinNonCodexAgentsToMissingPaths(t)
 	fakeClaude := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(fakeClaude, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake claude: %v", err)
+	if runtime.GOOS == "windows" {
+		fakeClaude += ".exe"
 	}
+	writeExecStub(t, fakeClaude)
 	t.Setenv("MULTICA_CLAUDE_PATH", fakeClaude)
 
 	cfg, err := LoadConfig(Overrides{
@@ -1023,7 +1022,7 @@ func pinNonCodexAgentsToMissingPaths(t *testing.T) {
 func writeCLIConfigForProfile(t *testing.T, profile string, cfg cli.CLIConfig) {
 	t.Helper()
 	tmp := t.TempDir()
-	t.Setenv("HOME", tmp)
+	setTestHome(t, tmp)
 	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
 		t.Fatalf("write cli config: %v", err)
 	}
@@ -1168,7 +1167,7 @@ func TestLoadConfig_AppliesBackendOverridesFromConfigFile(t *testing.T) {
 	// Drop a CLI config under the user's HOME (already pointed at TempDir
 	// by stageFakeAgent's t.Setenv chain — but reassert here for clarity).
 	homeForCLIConfig := t.TempDir()
-	t.Setenv("HOME", homeForCLIConfig)
+	setTestHome(t, homeForCLIConfig)
 	cfg := cli.CLIConfig{
 		ServerURL: "http://localhost:8080",
 		Backends: &cli.BackendOverrides{
@@ -1210,7 +1209,7 @@ func TestLoadConfig_BackendOverrides_BackwardCompat_NoConfigFile(t *testing.T) {
 	stageFakeAgent(t)
 
 	// Point HOME at an empty dir — no config.json present.
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	os.Unsetenv("MULTICA_OPENCLAW_PATH")
 	os.Unsetenv("OPENCLAW_STATE_DIR")
 	t.Cleanup(func() {
@@ -1239,7 +1238,7 @@ func TestLoadConfig_BackendOverrides_BackwardCompat_NoConfigFile(t *testing.T) {
 func TestLoadConfig_BackendOverrides_MalformedConfigFileNonFatal(t *testing.T) {
 	stageFakeAgent(t)
 	homeDir := t.TempDir()
-	t.Setenv("HOME", homeDir)
+	setTestHome(t, homeDir)
 
 	// Write malformed JSON.
 	cfgDir := filepath.Join(homeDir, ".multica")

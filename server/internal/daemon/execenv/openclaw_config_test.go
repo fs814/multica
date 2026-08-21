@@ -300,7 +300,7 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 			setup: func(t *testing.T) string {
 				home := t.TempDir()
 				path := filepath.Join(home, ".openclaw", "openclaw.json")
-				t.Setenv("HOME", home)
+				setExecenvTestHome(t, home)
 				return path
 			},
 		},
@@ -308,7 +308,7 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 			setup: func(t *testing.T) string {
 				home := t.TempDir()
 				path := filepath.Join(home, ".clawdbot", "clawdbot.json")
-				t.Setenv("HOME", home)
+				setExecenvTestHome(t, home)
 				return path
 			},
 		},
@@ -316,7 +316,7 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 			setup: func(t *testing.T) string {
 				home := t.TempDir()
 				path := filepath.Join(home, ".moltbot", "moltbot.json")
-				t.Setenv("HOME", home)
+				setExecenvTestHome(t, home)
 				return path
 			},
 		},
@@ -324,7 +324,7 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 			setup: func(t *testing.T) string {
 				home := t.TempDir()
 				path := filepath.Join(home, ".moldbot", "moldbot.json")
-				t.Setenv("HOME", home)
+				setExecenvTestHome(t, home)
 				return path
 			},
 		},
@@ -333,6 +333,10 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			clearOpenclawPathEnv(t)
+			// Every fallback computes the canonical home candidates before
+			// selecting a legacy override. Make that lookup deterministic when
+			// Make's restricted Windows environment omits USERPROFILE.
+			setExecenvTestHome(t, t.TempDir())
 			want := tc.setup(t)
 			if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
 				t.Fatalf("mkdir config dir: %v", err)
@@ -361,7 +365,7 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 func TestOpenclawActiveConfigPathFallbackFreshInstallUsesCanonicalPath(t *testing.T) {
 	clearOpenclawPathEnv(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setExecenvTestHome(t, home)
 	stub := installOpenclawStub(t, map[string]openclawResponse{
 		"config file": {err: openclawConfigFileUnsupportedErr()},
 	})
@@ -382,7 +386,7 @@ func TestOpenclawActiveConfigPathFallbackFreshInstallUsesCanonicalPath(t *testin
 func TestOpenclawActiveConfigPathFallbackOpenclawConfigPathHardOverride(t *testing.T) {
 	clearOpenclawPathEnv(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setExecenvTestHome(t, home)
 	explicitPath := filepath.Join(t.TempDir(), "missing-openclaw.json")
 	t.Setenv("OPENCLAW_CONFIG_PATH", explicitPath)
 	legacyPath := filepath.Join(home, ".clawdbot", "clawdbot.json")
@@ -596,7 +600,7 @@ func TestPrepareOpenclawConfigExpandsTilde(t *testing.T) {
 	}
 
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
+	setExecenvTestHome(t, fakeHome)
 	if err := os.MkdirAll(filepath.Join(fakeHome, ".openclaw"), 0o755); err != nil {
 		t.Fatalf("mkdir home/.openclaw: %v", err)
 	}
@@ -1588,8 +1592,7 @@ func TestPrepareOpenclawConfigNewSchemaEmptyRegistry(t *testing.T) {
 // (issue #6630).
 func TestExpandOpenclawPathTildeSeparators(t *testing.T) {
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
-	t.Setenv("USERPROFILE", fakeHome)
+	setExecenvTestHome(t, fakeHome)
 
 	cases := []struct {
 		name string
@@ -1627,8 +1630,7 @@ func TestPrepareOpenclawConfigExpandsWindowsTilde(t *testing.T) {
 	}
 
 	fakeHome := t.TempDir()
-	t.Setenv("HOME", fakeHome)
-	t.Setenv("USERPROFILE", fakeHome)
+	setExecenvTestHome(t, fakeHome)
 
 	// filepath.Join normalizes the reported remainder to the host separator,
 	// so build the expected target the same way the production path does and

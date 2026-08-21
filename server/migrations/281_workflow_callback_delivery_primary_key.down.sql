@@ -1,0 +1,1 @@
+ALTER TABLE workflow_callback_delivery DROP CONSTRAINT IF EXISTS workflow_callback_delivery_pkey;

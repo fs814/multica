@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -249,11 +250,18 @@ func validateFilePath(p string) bool {
 	if p == "" {
 		return false
 	}
-	if filepath.IsAbs(p) {
+	// Imported paths are archive paths, so validate them with slash semantics
+	// on every host. filepath.IsAbs("/abs") is false on Windows because that
+	// path has no drive letter, which previously let an absolute ZIP entry
+	// through only on Windows. Normalize backslashes as well so drive-qualified
+	// and traversal paths cannot change meaning between upload and extraction.
+	portable := strings.ReplaceAll(p, "\\", "/")
+	if path.IsAbs(portable) || strings.HasPrefix(portable, "//") ||
+		(len(portable) >= 2 && portable[1] == ':') {
 		return false
 	}
-	cleaned := filepath.Clean(p)
-	if strings.HasPrefix(cleaned, "..") {
+	cleaned := path.Clean(portable)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return false
 	}
 	return true

@@ -203,7 +203,8 @@ func TestGuardLocalPathLinksOnlyFiresInAgentContext(t *testing.T) {
 	if err := os.WriteFile(shot, []byte("x"), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	body := "[screenshot](" + shot + ")"
+	linkTarget := filepath.ToSlash(shot)
+	body := "[screenshot](" + linkTarget + ")"
 
 	t.Run("human PAT context is never linted", func(t *testing.T) {
 		// No MULTICA_AGENT_ID / MULTICA_TASK_ID: a person running the CLI. Their
@@ -222,7 +223,7 @@ func TestGuardLocalPathLinksOnlyFiresInAgentContext(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected a hard failure inside agent context")
 		}
-		if !strings.Contains(err.Error(), shot) {
+		if !strings.Contains(err.Error(), linkTarget) {
 			t.Errorf("error should name the offending target, got: %v", err)
 		}
 	})

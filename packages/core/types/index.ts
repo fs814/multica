@@ -68,6 +68,7 @@ export type {
   RuntimeModelListRequest,
   RuntimeModelListStatus,
   RuntimeModelsResult,
+  KnotAgent,
   RuntimeLocalSkillStatus,
   RuntimeLocalSkillImportAction,
   RuntimeLocalSkillImportConflict,

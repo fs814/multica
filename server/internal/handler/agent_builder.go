@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	agentpkg "github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -60,14 +61,54 @@ Rules:
 - Do not claim the workflow has been created. The user must review and confirm the generated draft in the UI.`
 
 type CreateAgentBuilderSessionRequest struct {
-	RuntimeID string `json:"runtime_id"`
-	Model     string `json:"model,omitempty"`
+	RuntimeID   string `json:"runtime_id"`
+	Model       string `json:"model,omitempty"`
+	KnotAgentID string `json:"knot_agent_id,omitempty"`
 }
 
 type CreateAgentBuilderSessionResponse struct {
 	SessionID      string `json:"session_id"`
 	BuilderAgentID string `json:"builder_agent_id"`
 	RuntimeID      string `json:"runtime_id"`
+	KnotAgentID    string `json:"knot_agent_id,omitempty"`
+}
+
+type builderKnotRuntimeConfig struct {
+	Knot struct {
+		AgentID string `json:"agent_id"`
+	} `json:"knot"`
+}
+
+func buildBuilderRuntimeConfig(provider, rawKnotAgentID string) ([]byte, string, error) {
+	knotAgentID := strings.TrimSpace(rawKnotAgentID)
+	if knotAgentID == "" {
+		return []byte(`{}`), "", nil
+	}
+	if provider != "knot-http" {
+		return nil, "", fmt.Errorf("knot_agent_id requires a knot-http runtime")
+	}
+	if !agentpkg.LooksLikeKnotAgentID(knotAgentID) {
+		return nil, "", fmt.Errorf("knot_agent_id must be a 32-character lowercase hex id from `knot-cli list-agents`")
+	}
+	var cfg builderKnotRuntimeConfig
+	cfg.Knot.AgentID = knotAgentID
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	return raw, knotAgentID, nil
+}
+
+func builderKnotAgentID(raw []byte) string {
+	var cfg builderKnotRuntimeConfig
+	if len(raw) == 0 || json.Unmarshal(raw, &cfg) != nil {
+		return ""
+	}
+	knotAgentID := strings.TrimSpace(cfg.Knot.AgentID)
+	if !agentpkg.LooksLikeKnotAgentID(knotAgentID) {
+		return ""
+	}
+	return knotAgentID
 }
 
 // CreateAgentBuilderSession starts a private configuration conversation on an
@@ -100,6 +141,11 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	runtimeConfig, knotAgentID, err := buildBuilderRuntimeConfig(runtime.Provider, req.KnotAgentID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	flowID := uuid.NewString()
 	ownerUUID := parseUUID(userID)
@@ -125,13 +171,14 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 	}
 
 	builder, err := qtx.CreateAgentBuilder(r.Context(), db.CreateAgentBuilderParams{
-		WorkspaceID:  workspaceUUID,
-		Name:         fmt.Sprintf(".multica-agent-builder-%s", flowID),
-		RuntimeMode:  runtime.RuntimeMode,
-		RuntimeID:    runtime.ID,
-		OwnerID:      ownerUUID,
-		Instructions: agentBuilderInstructions,
-		Model:        pgtype.Text{String: model, Valid: model != ""},
+		WorkspaceID:   workspaceUUID,
+		Name:          fmt.Sprintf(".multica-agent-builder-%s", flowID),
+		RuntimeMode:   runtime.RuntimeMode,
+		RuntimeConfig: runtimeConfig,
+		RuntimeID:     runtime.ID,
+		OwnerID:       ownerUUID,
+		Instructions:  agentBuilderInstructions,
+		Model:         pgtype.Text{String: model, Valid: model != ""},
 		SystemKey: pgtype.Text{
 			String: fmt.Sprintf("agent_builder:%s", flowID),
 			Valid:  true,
@@ -161,6 +208,7 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 		SessionID:      uuidToString(session.ID),
 		BuilderAgentID: uuidToString(builder.ID),
 		RuntimeID:      runtimeID,
+		KnotAgentID:    knotAgentID,
 	})
 }
 
@@ -171,9 +219,10 @@ type AgentBuilderSessionSummary struct {
 	// RuntimeID is the carrier's runtime — where this conversation actually
 	// executes. The client seeds its runtime picker from it so the picker can
 	// never disagree with what answers the next message (MUL-5163).
-	RuntimeID string `json:"runtime_id"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	RuntimeID   string `json:"runtime_id"`
+	KnotAgentID string `json:"knot_agent_id,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 	// LastMessageContent is the raw stored message, still in the builder's wire
 	// format (the user side is a JSON envelope, the assistant side carries an
 	// <agent_draft> block). Decoding is the client's job: the protocol is
@@ -229,6 +278,7 @@ func (h *Handler) ListAgentBuilderSessions(w http.ResponseWriter, r *http.Reques
 			SessionID:          uuidToString(row.ID),
 			Title:              row.Title,
 			RuntimeID:          uuidToString(row.RuntimeID),
+			KnotAgentID:        builderKnotAgentID(row.RuntimeConfig),
 			CreatedAt:          timestampToString(row.CreatedAt),
 			UpdatedAt:          timestampToString(row.UpdatedAt),
 			LastMessageContent: row.LastMessageContent,
@@ -412,12 +462,13 @@ func (h *Handler) CreateWorkflowBuilderSession(w http.ResponseWriter, r *http.Re
 	}
 
 	builder, err := qtx.CreateAgentBuilder(r.Context(), db.CreateAgentBuilderParams{
-		WorkspaceID:  workspaceUUID,
-		Name:         fmt.Sprintf(".multica-workflow-builder-%s", flowID),
-		RuntimeMode:  runtime.RuntimeMode,
-		RuntimeID:    runtime.ID,
-		OwnerID:      ownerUUID,
-		Instructions: workflowBuilderInstructions,
+		WorkspaceID:   workspaceUUID,
+		Name:          fmt.Sprintf(".multica-workflow-builder-%s", flowID),
+		RuntimeMode:   runtime.RuntimeMode,
+		RuntimeConfig: []byte(`{}`),
+		RuntimeID:     runtime.ID,
+		OwnerID:       ownerUUID,
+		Instructions:  workflowBuilderInstructions,
 		SystemKey: pgtype.Text{
 			String: fmt.Sprintf("agent_builder:workflow:%s", flowID),
 			Valid:  true,

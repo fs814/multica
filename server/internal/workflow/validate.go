@@ -74,6 +74,10 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 		v.add("entry_node", fmt.Sprintf("entry_node %q is not a declared node", d.EntryNode))
 	}
 
+	cycleCheck := &ValidationErrors{}
+	validateAcyclic(cycleCheck, d, byKey)
+	forwardGraphIsAcyclic := !cycleCheck.HasErrors()
+
 	endCount := 0
 	inputCount := 0
 	for i := range d.Nodes {
@@ -113,6 +117,9 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			// what the acceptance gate is for.
 			if t.Type == NodeTypeInput {
 				v.add(rf, fmt.Sprintf("node %q lists input node %q as a rework target; nothing can be sent back to intake because the engine cannot re-prompt a human mid-run — use an acceptance node for that", n.Key, target))
+			}
+			if forwardGraphIsAcyclic && target != n.Key && t.Type != NodeTypeInput && (!forwardReachable(byKey, d.EntryNode, target) || !forwardReachable(byKey, target, n.Key)) {
+				v.add(rf, fmt.Sprintf("node %q lists rework target %q that is not a reachable upstream node on a forward path from entry_node %q to %q", n.Key, target, d.EntryNode, n.Key))
 			}
 		}
 
@@ -510,6 +517,39 @@ func outgoing(n *Node) []string {
 	return out
 }
 
+// forwardOutgoing excludes rework edges: an upstream target must be on the
+// ordinary execution path that produced the result being rejected.
+func forwardOutgoing(n *Node) []string {
+	out := make([]string, 0, len(n.Next)+len(n.Branches))
+	out = append(out, n.Next...)
+	for _, b := range n.Branches {
+		if b.Target != "" {
+			out = append(out, b.Target)
+		}
+	}
+	return out
+}
+
+func forwardReachable(byKey map[string]*Node, from, target string) bool {
+	seen := make(map[string]bool, len(byKey))
+	stack := []string{from}
+	for len(stack) > 0 {
+		key := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if key == target {
+			return true
+		}
+		if node, ok := byKey[key]; ok {
+			stack = append(stack, forwardOutgoing(node)...)
+		}
+	}
+	return false
+}
+
 // validateAcyclic rejects cycles that are not made exclusively of declared
 // rework edges. "Arbitrary cycles" are deferred (plan section 2); only explicit
 // bounded rework may loop, because only rework carries an attempt ceiling that
@@ -530,25 +570,13 @@ func validateAcyclic(v *ValidationErrors, d *Definition, byKey map[string]*Node)
 		i     int
 	}
 
-	forward := func(n *Node) []string {
-		// Deliberately excludes ReworkTargets: those are the permitted cycles.
-		out := make([]string, 0, len(n.Next)+len(n.Branches))
-		out = append(out, n.Next...)
-		for _, b := range n.Branches {
-			if b.Target != "" {
-				out = append(out, b.Target)
-			}
-		}
-		return out
-	}
-
 	for i := range d.Nodes {
 		root := d.Nodes[i].Key
 		if color[root] != white {
 			continue
 		}
 		n := byKey[root]
-		stack := []frame{{key: root, edges: forward(n)}}
+		stack := []frame{{key: root, edges: forwardOutgoing(n)}}
 		color[root] = grey
 
 		for len(stack) > 0 {
@@ -572,7 +600,7 @@ func validateAcyclic(v *ValidationErrors, d *Definition, byKey map[string]*Node)
 					continue
 				}
 				color[next] = grey
-				stack = append(stack, frame{key: next, edges: forward(child)})
+				stack = append(stack, frame{key: next, edges: forwardOutgoing(child)})
 			}
 		}
 	}

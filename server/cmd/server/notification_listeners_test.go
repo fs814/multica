@@ -6,6 +6,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -313,6 +314,46 @@ func TestNotification_StatusChanged(t *testing.T) {
 	}
 	if sub2Items[0].Type != "status_changed" {
 		t.Fatalf("expected type 'status_changed', got %q", sub2Items[0].Type)
+	}
+}
+
+// TestNotification_WorkflowIssueProjectionNotifiesOwner exercises the actual
+// WorkflowNotifier map payload through the bus and listener into inbox_item.
+// This guards the internal producer/consumer type contract that ordinary
+// handler.IssueResponse-based listener tests do not cover.
+func TestNotification_WorkflowIssueProjectionNotifiesOwner(t *testing.T) {
+	for _, status := range []string{"in_review", "blocked", "done"} {
+		t.Run(status, func(t *testing.T) {
+			queries := db.New(testPool)
+			bus := newNotificationBus(t, queries)
+			notifier := service.NewWorkflowNotifier(bus, nil)
+
+			ownerEmail := "notif-workflow-owner-" + status + "@multica.ai"
+			ownerID := createTestUser(t, ownerEmail)
+			t.Cleanup(func() { cleanupTestUser(t, ownerEmail) })
+
+			issueID := createTestIssue(t, testWorkspaceID, testUserID)
+			t.Cleanup(func() {
+				cleanupInboxForIssue(t, issueID)
+				cleanupTestIssue(t, issueID)
+			})
+			addTestSubscriber(t, issueID, "member", ownerID, "autopilot")
+
+			issue, err := queries.GetIssue(context.Background(), util.MustParseUUID(issueID))
+			if err != nil {
+				t.Fatalf("GetIssue: %v", err)
+			}
+			issue.Status = status
+			notifier.IssueChanged(context.Background(), issue, "in_progress")
+
+			items := inboxItemsForRecipient(t, queries, ownerID)
+			if len(items) != 1 {
+				t.Fatalf("expected one workflow lifecycle notification, got %d", len(items))
+			}
+			if items[0].Type != "status_changed" {
+				t.Fatalf("notification type = %q, want status_changed", items[0].Type)
+			}
+		})
 	}
 }
 

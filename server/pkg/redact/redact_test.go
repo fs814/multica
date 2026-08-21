@@ -3,7 +3,6 @@ package redact
 import (
 	"encoding/json"
 	"os"
-	"os/user"
 	"strings"
 	"testing"
 )
@@ -368,9 +367,8 @@ func TestInputMapRedactsNestedHomePath(t *testing.T) {
 	if err != nil || home == "" {
 		t.Skip("no home directory resolved in this environment")
 	}
-	u, err := user.Current()
-	if err != nil || u.Username == "" {
-		t.Skip("no current user resolved in this environment")
+	if username == "" {
+		t.Skip("no username resolved from the home directory")
 	}
 	m := map[string]any{
 		"changes": []any{
@@ -381,8 +379,11 @@ func TestInputMapRedactsNestedHomePath(t *testing.T) {
 	changes, _ := got["changes"].([]any)
 	first, _ := changes[0].(map[string]any)
 	path, _ := first["path"].(string)
-	if strings.Contains(path, u.Username) {
+	if strings.Contains(path, username) {
 		t.Fatalf("username leaked from nested path: %s", path)
+	}
+	if !strings.Contains(path, "****") {
+		t.Fatalf("home path was not masked: %s", path)
 	}
 }
 

@@ -2,7 +2,18 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/multica-test-go.XXXXXX")
+temp_root=${TMPDIR:-/tmp}
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [ -z "${TMPDIR:-}" ] && [ ! -d "$temp_root" ]; then
+      temp_root=${TEMP:-${TMP:-$temp_root}}
+      if command -v cygpath >/dev/null 2>&1; then
+        temp_root=$(cygpath -u "$temp_root")
+      fi
+    fi
+    ;;
+esac
+TEST_DIR=$(mktemp -d "${temp_root%/}/multica-test-go.XXXXXX")
 BIN_DIR="$TEST_DIR/bin"
 CALLS_FILE="$TEST_DIR/go-calls.log"
 OUTPUT_FILE="$TEST_DIR/output.log"

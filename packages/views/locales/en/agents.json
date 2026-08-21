@@ -602,6 +602,22 @@
       "saved_toast": "Routing config saved",
       "save_failed_toast": "Failed to save routing config"
     },
+    "knot_config": {
+      "intro": "Choose which registered Knot agent serves this agent's tasks. The id is sent in the Knot API request path, so a task cannot run without one. Leave it unset to use the daemon-wide default (MULTICA_KNOT_AGENT_ID).",
+      "agent_label": "Knot agent ID",
+      "agent_unset": "Use daemon default",
+      "agent_required_unset": "Select a Knot agent",
+      "agent_clear": "Clear selection (use daemon default)",
+      "agent_placeholder": "ec4633074fe4413c83218e1f36b8e24d",
+      "agent_discovering": "Discovering registered Knot agents…",
+      "agent_manual_hint": "No agents discovered — the runtime may be offline or knot-cli may not be installed. Enter an id manually; list them with `knot-cli list-agents`.",
+      "agent_invalid": "A Knot agent id is 32 lowercase hex characters.",
+      "agent_required": "Select a Knot agent to start Agent Builder.",
+      "agent_default_hint": "No agent selected. Tasks will use the daemon-wide default.",
+      "save": "Save",
+      "saved_toast": "Knot agent saved",
+      "save_failed_toast": "Failed to save Knot agent"
+    },
     "skills": {
       "intro": "This is the agent's effective skill set. Workspace skills are managed here; inherited Codex and Claude Code skills can also be turned off per agent.",
       "assigned_title": "Assigned to agent",

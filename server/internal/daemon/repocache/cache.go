@@ -4,6 +4,7 @@ package repocache
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -305,6 +306,15 @@ func (c *Cache) Fetch(barePath string) error {
 //	my-repo                                      -> my-repo.git (bare name fallback)
 func bareDirName(rawURL string) string {
 	rawURL = strings.TrimRight(rawURL, "/")
+	if localPath, ok := localRepoPath(rawURL); ok {
+		identity := localPath
+		if runtime.GOOS == "windows" {
+			identity = strings.ToLower(identity)
+		}
+		digest := sha256.Sum256([]byte(identity))
+		base := strings.TrimSuffix(filepath.Base(localPath), ".git")
+		return fmt.Sprintf("local-%s-%x.git", sanitizeName(base), digest[:8])
+	}
 
 	host, path := splitHostAndPath(rawURL)
 	host = strings.ToLower(strings.TrimSpace(host))
@@ -334,6 +344,21 @@ func bareDirName(rawURL string) string {
 		name = "repo.git"
 	}
 	return name
+}
+
+// localRepoPath recognizes filesystem remotes before URL/scp parsing. A
+// Windows drive colon is not an scp-style host separator, and embedding an
+// absolute path in the cache directory name creates invalid or overlong
+// paths. file:// and direct-path spellings normalize to the same identity.
+func localRepoPath(rawURL string) (string, bool) {
+	value := strings.TrimSpace(rawURL)
+	if strings.HasPrefix(strings.ToLower(value), "file://") {
+		value = value[len("file://"):]
+	}
+	if !filepath.IsAbs(value) && filepath.VolumeName(value) == "" {
+		return "", false
+	}
+	return filepath.Clean(value), true
 }
 
 // splitHostAndPath extracts the host and path-with-namespace from the
@@ -1373,6 +1398,13 @@ func excludeFromGit(worktreePath, pattern string) error {
 // repoNameFromURL extracts a short directory name from a git remote URL.
 // e.g. "https://github.com/org/my-repo.git" → "my-repo"
 func repoNameFromURL(url string) string {
+	if localPath, ok := localRepoPath(url); ok {
+		name := strings.TrimSuffix(filepath.Base(localPath), ".git")
+		if name == "" || name == "." {
+			return "repo"
+		}
+		return name
+	}
 	url = strings.TrimRight(url, "/")
 	url = strings.TrimSuffix(url, ".git")
 

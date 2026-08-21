@@ -37,6 +37,8 @@ type WebhookDeliveryResponse struct {
 	ContentType            *string `json:"content_type"`
 	ResponseStatus         *int32  `json:"response_status"`
 	AutopilotRunID         *string `json:"autopilot_run_id"`
+	WorkflowRunID          *string `json:"workflow_run_id"`
+	IssueID                *string `json:"issue_id"`
 	ReplayedFromDeliveryID *string `json:"replayed_from_delivery_id"`
 	Error                  *string `json:"error"`
 	ReceivedAt             string  `json:"received_at"`
@@ -210,7 +212,32 @@ func (h *Handler) GetAutopilotDelivery(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, deliveryToResponse(delivery, true))
+	resp := deliveryToResponse(delivery, true)
+	h.enrichWebhookDeliveryWorkflowIdentity(r, delivery, &resp)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) enrichWebhookDeliveryWorkflowIdentity(r *http.Request, delivery db.WebhookDelivery, resp *WebhookDeliveryResponse) {
+	runID := delivery.AutopilotRunID
+	if !runID.Valid {
+		run, err := h.Queries.GetAutopilotRunByWebhookDelivery(r.Context(), delivery.ID)
+		if err != nil {
+			return
+		}
+		runID = run.ID
+	}
+	run, err := h.Queries.GetAutopilotRun(r.Context(), runID)
+	if err != nil {
+		return
+	}
+	if run.WorkflowRunID.Valid {
+		value := uuidToString(run.WorkflowRunID)
+		resp.WorkflowRunID = &value
+	}
+	if run.IssueID.Valid {
+		value := uuidToString(run.IssueID)
+		resp.IssueID = &value
+	}
 }
 
 // ReplayAutopilotDelivery creates a NEW delivery row from a prior one and
@@ -354,7 +381,9 @@ func (h *Handler) ReplayAutopilotDelivery(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusCreated, respBody)
 		return
 	}
-	writeJSON(w, http.StatusCreated, deliveryToResponse(final, true))
+	resp := deliveryToResponse(final, true)
+	h.enrichWebhookDeliveryWorkflowIdentity(r, final, &resp)
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // loadDeliveryForAutopilot returns the delivery row when it exists in the

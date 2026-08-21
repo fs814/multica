@@ -161,6 +161,7 @@ authenticated, so switching providers is a dropdown, not a migration.
 | Qoder CLI | `qodercli` | Qoder CN | `qoderclicn` |
 | Qwen Code | `qwen` | QwenPaw | `qwenpaw` |
 | Reasonix | `reasonix` | Trae CLI | `traecli` |
+| Knot | `knot-cli` | | |
 
 Installing and authenticating them: [Install an agent runtime](https://multica.ai/docs/install-agent-runtime) ·
 [Providers](https://multica.ai/docs/providers)

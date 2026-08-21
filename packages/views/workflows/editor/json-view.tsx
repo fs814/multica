@@ -141,7 +141,7 @@ export function WorkflowJsonView({
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-caption text-muted-foreground">
         {readOnly
           ? t(($) => $.toolbar.json_view.read_only_hint)
           : t(($) => $.toolbar.json_view.hint)}
@@ -156,11 +156,11 @@ export function WorkflowJsonView({
         translate="no"
         aria-label={t(($) => $.toolbar.json_view.textarea_aria)}
         aria-invalid={error !== null}
-        className="min-h-64 flex-1 resize-none font-mono text-xs leading-5"
+        className="min-h-64 flex-1 resize-none font-mono text-caption leading-5"
       />
 
       {stale ? (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-caption">
           <CircleAlert
             className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-500"
             aria-hidden="true"
@@ -174,7 +174,7 @@ export function WorkflowJsonView({
       {error ? (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive"
+          className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-caption text-destructive"
         >
           <CircleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1 break-words">

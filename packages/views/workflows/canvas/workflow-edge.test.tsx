@@ -17,15 +17,19 @@
  *  3. each stroke's arrowhead matches its stroke.
  */
 
-import { describe, expect, it } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Position, ReactFlowProvider } from "@xyflow/react";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enWorkflows from "../../locales/en/workflows.json";
 import type { EdgeKind, EditorEdge } from "../graph";
 import { workflowEdgeTypes } from "./edge-types";
-import { WorkflowEdge } from "./workflow-edge";
+import {
+  WorkflowEdge,
+  WorkflowEdgeActionsProvider,
+  WorkflowEdgeDeleteButton,
+} from "./workflow-edge";
 
 const TEST_RESOURCES = { en: { common: enCommon, workflows: enWorkflows } };
 
@@ -140,5 +144,31 @@ describe("WorkflowEdge", () => {
     for (const component of Object.values(workflowEdgeTypes)) {
       expect(component).toBe(WorkflowEdge);
     }
+  });
+
+  it("offers a delete button for the selected edge and removes that edge", () => {
+    const onDeleteEdge = vi.fn();
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <WorkflowEdgeActionsProvider readOnly={false} onDeleteEdge={onDeleteEdge}>
+          <WorkflowEdgeDeleteButton edgeId="edge-2" selected />
+        </WorkflowEdgeActionsProvider>
+      </I18nProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onDeleteEdge).toHaveBeenCalledWith("edge-2");
+  });
+
+  it("does not expose the edge delete button on a read-only canvas", () => {
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <WorkflowEdgeActionsProvider readOnly onDeleteEdge={vi.fn()}>
+          <WorkflowEdgeDeleteButton edgeId="edge-2" selected />
+        </WorkflowEdgeActionsProvider>
+      </I18nProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 });

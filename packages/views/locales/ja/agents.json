@@ -484,6 +484,22 @@
       "saved_toast": "ルーティング設定を保存しました",
       "save_failed_toast": "ルーティング設定の保存に失敗しました"
     },
+    "knot_config": {
+      "intro": "このエージェントのタスクを実行する登録済み Knot エージェントを選択します。ID は Knot API のリクエストパスに含まれるため、未設定ではタスクを実行できません。空欄の場合は daemon 全体のデフォルト（MULTICA_KNOT_AGENT_ID）を使用します。",
+      "agent_label": "Knot エージェント ID",
+      "agent_unset": "daemon のデフォルトを使用",
+      "agent_required_unset": "Knot エージェントを選択",
+      "agent_clear": "選択を解除（daemon のデフォルトを使用）",
+      "agent_placeholder": "ec4633074fe4413c83218e1f36b8e24d",
+      "agent_discovering": "登録済み Knot エージェントを検出中…",
+      "agent_manual_hint": "エージェントが見つかりません — ランタイムがオフラインか、knot-cli が未インストールの可能性があります。ID を手動で入力してください。`knot-cli list-agents` で一覧できます。",
+      "agent_invalid": "Knot エージェント ID は 32 文字の小文字 16 進数です。",
+      "agent_required": "Agent Builder を開始するには Knot エージェントを選択してください。",
+      "agent_default_hint": "エージェントが未選択です。タスクは daemon 全体のデフォルトを使用します。",
+      "save": "保存",
+      "saved_toast": "Knot エージェントを保存しました",
+      "save_failed_toast": "Knot エージェントの保存に失敗しました"
+    },
     "skills": {
       "assigned_title": "エージェントに割り当て済み",
       "assigned_hint": "ワークスペースのスキルはエージェントと一緒に移動します。削除せず一時的に無効化できます。",

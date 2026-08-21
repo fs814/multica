@@ -315,7 +315,7 @@ export function blankWorkflowNode(
     join_policy: "",
     join_sources: [],
     fan_out_max: 0,
-    input_mode: type === "input" ? "text" : undefined,
+    ...(type === "input" ? { input_mode: "text" } : {}),
     image_attachment_id: "",
     input_fields: [],
   };

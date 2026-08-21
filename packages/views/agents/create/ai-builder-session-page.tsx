@@ -31,6 +31,8 @@ export function AiBuilderSessionPage({ sessionId }: { sessionId: string }) {
   // message or a saved configuration — so the starting screen hands it over in
   // the URL. Absent on every later visit, by which point the list answers.
   const startedRuntimeId = navigation.searchParams.get("runtime") ?? "";
+  const startedKnotAgentId =
+    navigation.searchParams.get("knot_agent") ?? "";
 
   const builderSessions = useQuery(agentBuilderSessionListOptions(wsId));
   const sessions = builderSessions.data ?? [];
@@ -79,6 +81,7 @@ export function AiBuilderSessionPage({ sessionId }: { sessionId: string }) {
         session={session}
         sessionSettled={sessionSettled}
         fallbackRuntimeId={startedRuntimeId}
+        fallbackKnotAgentId={startedKnotAgentId}
         onDiscarded={leave}
         onRuntimeLabel={setRuntimeLabel}
       />

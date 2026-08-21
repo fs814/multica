@@ -85,7 +85,10 @@ func assertCheckoutIsComplete(t *testing.T, checkoutPath string) {
 		if err != nil {
 			t.Fatalf("read %s from checkout: %v", name, err)
 		}
-		if got, want := string(data), "contents of "+name+"\n"; got != want {
+		// Git may materialize text files with CRLF when the Windows user's
+		// global core.autocrlf is enabled. This test verifies that promised
+		// blobs are present, not the caller's checkout newline policy.
+		if got, want := strings.ReplaceAll(string(data), "\r\n", "\n"), "contents of "+name+"\n"; got != want {
 			t.Fatalf("%s = %q, want %q", name, got, want)
 		}
 	}

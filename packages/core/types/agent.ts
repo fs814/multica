@@ -126,6 +126,8 @@ export const RUNTIME_PROFILE_PROTOCOL_FAMILIES = [
   "grok",
   "qwen",
   "qwenpaw",
+  "knot",
+  "knot-http",
 ] as const;
 
 export type RuntimeProtocolFamily =
@@ -619,6 +621,9 @@ export interface AgentBuilderSession {
   session_id: string;
   builder_agent_id: string;
   runtime_id: string;
+  /** Per-session Knot identity. Missing when the runtime is not knot-http or
+   *  when an older backend relies on its daemon-wide default. */
+  knot_agent_id?: string;
 }
 
 /** Who may invoke the agent being created, as the creation form models it. */
@@ -657,6 +662,8 @@ export interface AgentBuilderSessionSummary {
    *  picker seeds from it so it can never disagree with what answers the next
    *  message (MUL-5163). */
   runtime_id: string;
+  /** Knot identity stored on the hidden carrier's runtime_config. */
+  knot_agent_id?: string;
   created_at: string;
   updated_at: string;
   /** Still in the builder wire format; decode with the builder protocol helpers
@@ -1175,6 +1182,12 @@ export interface RuntimeModelListRequest {
    */
   cached?: boolean;
   cached_at?: string;
+  /**
+   * Knot agents registered on the runtime's machine, sent only by the knot /
+   * knot-http families. Absent for every other provider and from older
+   * daemons.
+   */
+  knot_agents?: KnotAgent[];
 }
 
 // Result shape returned by resolveRuntimeModels — includes the
@@ -1192,6 +1205,22 @@ export interface RuntimeModelsResult {
   cached?: boolean;
   /** Capture time of the served snapshot, when the answer was cached. */
   cachedAt?: string;
+  /**
+   * Knot agents registered on the runtime's machine (`knot-cli list-agents`),
+   * present only for the knot / knot-http families. Discovered on the same
+   * round trip as the models, so the agent picker costs no extra request.
+   *
+   * Empty or absent means "offer manual entry instead of a dropdown": the
+   * runtime may be offline, knot-cli may not be installed, or the daemon may
+   * predate the field.
+   */
+  knotAgents?: KnotAgent[];
+}
+
+/** One selectable Knot agent: human name for display, 32-hex id for routing. */
+export interface KnotAgent {
+  id: string;
+  name: string;
 }
 
 export type RuntimeLocalSkillStatus =

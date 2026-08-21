@@ -212,6 +212,8 @@
     "agent": "Issue",
     "acceptance": "Acceptance",
     "condition": "Condition",
+    "fan_out": "Fan-out",
+    "join": "Join",
     "end": "End"
   },
   "panel": {
@@ -370,10 +372,12 @@
       "unknown": "Unrecognized policy \"{{policy}}\"",
       "rework_targets": "Send work back to",
       "rework_targets_aria": "Rework targets",
-      "rework_targets_hint": "These are the only steps the run may loop back to, which is what keeps the cycle bounded.",
-      "rework_targets_empty": "No other step to send work back to.",
+      "rework_targets_hint": "Choose one or more reachable upstream steps. These are the only steps the run may loop back to.",
+      "rework_targets_empty": "Connect this step after an eligible upstream work step; it will appear here.",
       "rework_targets_required": "Rework needs at least one target, or the run has no legal move.",
-      "rework_targets_required_acceptance": "An acceptance step needs at least one target, so a rejection can route somewhere."
+      "rework_targets_required_acceptance": "An acceptance step needs at least one target, so a rejection can route somewhere.",
+      "rework_targets_invalid": "These targets are not reachable upstream steps: {{targets}}. Clear them and choose an eligible target.",
+      "rework_targets_invalid_option": "{{name}} (not an eligible upstream step)"
     }
   },
   "graph": {
@@ -522,6 +526,7 @@
       "not_found": "Run not found",
       "unreadable": "This run's details could not be read, so its trace is not shown. Nothing has been changed.",
       "source": "Started {{source}}",
+      "source_event": "Source event",
       "cancel": "Cancel run",
       "cancelling": "Cancelling…",
       "toast_cancelled": "Run cancelled",

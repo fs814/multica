@@ -184,7 +184,7 @@ func (r *wecomMediaResolver) ingestOne(ctx context.Context, inst engine.Resolved
 	streamer, canStream := r.storage.(mediaStreamStorage)
 	if canStream {
 		// The memory-flat path: ciphertext streams from the socket into the
-		// decrypt, the plaintext lands in an unlinked temp file, and the
+		// decrypt, the plaintext lands in a private temp file, and the
 		// upload reads from there. Nothing holds a whole attachment.
 		ref, err := r.ingestStreaming(ctx, streamer, wm, index, m, key, link)
 		if err == nil || !errors.Is(err, errStreamingUnavailable) {
@@ -429,7 +429,7 @@ var errStreamingUnavailable = errors.New("wecom: streaming media ingest unavaila
 
 // ingestStreaming carries one attachment without ever holding it whole:
 // ciphertext streams from the response body into the decrypt, the plaintext
-// lands in an unlinked temp file, and the upload reads from that file with
+// lands in a private temp file, and the upload reads from that file with
 // the exact length it now knows.
 func (r *wecomMediaResolver) ingestStreaming(
 	ctx context.Context,
@@ -456,7 +456,7 @@ func (r *wecomMediaResolver) ingestStreaming(
 		}
 		return channel.MediaRef{}, err
 	}
-	defer plain.Close()
+	defer closeAndRemoveTempFile(plain)
 
 	// The type is sniffed from the head of the file rather than from the
 	// whole thing — http.DetectContentType only ever reads 512 bytes.

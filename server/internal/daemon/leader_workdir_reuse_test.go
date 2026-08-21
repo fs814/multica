@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -25,8 +26,6 @@ import (
 // file. runTask writes that provenance via execenv.Prepare; this test never
 // writes .gc_meta.json, so it fails against the pre-fix GC-meta-keyed gate.
 func TestRunTaskSquadLeaderReusesWorkdirBeforeGCMetaWritten(t *testing.T) {
-	t.Parallel()
-
 	d, argsFile, cleanup := newLeaderReuseTestDaemon(t)
 	defer cleanup()
 
@@ -65,8 +64,6 @@ func TestRunTaskSquadLeaderReusesWorkdirBeforeGCMetaWritten(t *testing.T) {
 }
 
 func TestRunTaskSquadLeaderDoesNotReuseExternalPriorWorkdir(t *testing.T) {
-	t.Parallel()
-
 	d, _, cleanup := newLeaderReuseTestDaemon(t)
 	defer cleanup()
 
@@ -253,15 +250,26 @@ func newLeaderReuseTestDaemon(t *testing.T) (*Daemon, string, func()) {
 	testDir := t.TempDir()
 	fakeBin := filepath.Join(testDir, "claude")
 	argsFile := filepath.Join(testDir, "claude-args.txt")
-	script := `#!/bin/sh
+	if runtime.GOOS == "windows" {
+		fakeBin = filepath.Join(testDir, "fake-claude.exe")
+		body, err := os.ReadFile(os.Args[0])
+		if err != nil {
+			t.Fatalf("read native test executable: %v", err)
+		}
+		if err := os.WriteFile(fakeBin, body, 0o755); err != nil {
+			t.Fatalf("write native fake agent: %v", err)
+		}
+	} else {
+		script := `#!/bin/sh
 printf '%s\n' "$@" >> "` + argsFile + `"
 printf '%s\n' '--invocation-end--' >> "` + argsFile + `"
 IFS= read -r _
 printf '%s\n' '{"type":"system","session_id":"session-leader-reuse"}'
 printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"session-leader-reuse","result":"done"}'
 `
-	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake agent: %v", err)
+		if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+			t.Fatalf("write fake agent: %v", err)
+		}
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

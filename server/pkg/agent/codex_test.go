@@ -4341,13 +4341,7 @@ func TestEnsureCodexMcpConfigWritesManagedBlock(t *testing.T) {
 		}
 	}
 
-	fi, err := os.Stat(tmp)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if mode := fi.Mode().Perm(); mode != 0o600 {
-		t.Fatalf("expected mode 0o600 for secret-bearing config, got %o", mode)
-	}
+	assertTestFileMode(t, tmp, 0o600)
 }
 
 func TestEnsureCodexMcpConfigTranslatesRemoteHTTPServer(t *testing.T) {
@@ -4508,13 +4502,7 @@ func TestEnsureCodexMcpConfigForces0600OnPreexistingFile(t *testing.T) {
 	if err := ensureCodexMcpConfig(tmp, raw, slog.Default()); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
-	fi, err := os.Stat(tmp)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if mode := fi.Mode().Perm(); mode != 0o600 {
-		t.Fatalf("expected 0o600 after overwrite of pre-existing 0o644 file, got %o", mode)
-	}
+	assertTestFileMode(t, tmp, 0o600)
 }
 
 func TestEnsureCodexMcpConfigStripsUserMcpServersWhenManaged(t *testing.T) {

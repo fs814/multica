@@ -212,6 +212,8 @@
     "agent": "Issue",
     "acceptance": "受け入れ",
     "condition": "条件",
+    "fan_out": "ファンアウト",
+    "join": "結合",
     "end": "終了"
   },
   "panel": {
@@ -370,10 +372,12 @@
       "unknown": "認識できないポリシー「{{policy}}」",
       "rework_targets": "差し戻す先",
       "rework_targets_aria": "差し戻し先",
-      "rework_targets_hint": "実行が戻れるのはこれらのステップだけです。だからこそループの回数が抑えられます。",
-      "rework_targets_empty": "差し戻せる他のステップがありません。",
+      "rework_targets_hint": "到達可能な上流ステップを 1 つ以上選択してください。実行が戻れるのはこれらのステップだけです。",
+      "rework_targets_empty": "このステップを対象となる上流の作業ステップの後に接続すると、ここに表示されます。",
       "rework_targets_required": "差し戻しには少なくとも 1 つの先が必要です。ないと実行に取れる手がなくなります。",
-      "rework_targets_required_acceptance": "受け入れステップには少なくとも 1 つの差し戻し先が必要です。差し戻された作業の行き先がなくなります。"
+      "rework_targets_required_acceptance": "受け入れステップには少なくとも 1 つの差し戻し先が必要です。差し戻された作業の行き先がなくなります。",
+      "rework_targets_invalid": "次の対象は到達可能な上流ステップではありません：{{targets}}。削除して有効な対象を選択してください。",
+      "rework_targets_invalid_option": "{{name}}（有効な上流ステップではありません）"
     }
   },
   "graph": {
@@ -517,6 +521,7 @@
       "not_found": "実行が見つかりません",
       "unreadable": "この実行の詳細を読み取れなかったため、トレースは表示していません。変更は行われていません。",
       "source": "起点: {{source}}",
+      "source_event": "ソースイベント",
       "cancel": "実行をキャンセル",
       "cancelling": "キャンセル中…",
       "toast_cancelled": "実行をキャンセルしました",

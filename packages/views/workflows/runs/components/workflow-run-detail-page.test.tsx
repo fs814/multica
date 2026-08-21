@@ -157,6 +157,7 @@ function run(patch: Partial<WorkflowRunDetail> = {}): WorkflowRunDetail {
     template_version_id: "wftv-1",
     status: "running",
     source: "manual",
+    source_event_id: null,
     accountable_user_id: "user-1",
     blocked_reason: null,
     failure_reason: null,

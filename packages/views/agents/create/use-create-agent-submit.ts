@@ -40,6 +40,7 @@ export function classifyAgentCreateError(
 export function useCreateAgentSubmit(options: {
   draft: AgentDraft;
   runtimeId: string | null;
+  runtimeConfig?: Record<string, unknown>;
   squadId: string | null;
   /** Attribution for the `agent_created` event, not a template create. */
   template?: string;
@@ -57,8 +58,15 @@ export function useCreateAgentSubmit(options: {
   const [nameError, setNameError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { draft, runtimeId, squadId, template, duplicateSource, onCreated } =
-    options;
+  const {
+    draft,
+    runtimeId,
+    runtimeConfig,
+    squadId,
+    template,
+    duplicateSource,
+    onCreated,
+  } = options;
 
   const create = async () => {
     if (!runtimeId || creating) return;
@@ -70,6 +78,7 @@ export function useCreateAgentSubmit(options: {
         buildCreateAgentRequest({
           draft,
           runtimeId,
+          runtimeConfig,
           template,
           duplicateSource,
         }),

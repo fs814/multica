@@ -179,6 +179,13 @@ func TestShouldCleanTaskDir_NoMetaOldOrphan(t *testing.T) {
 	d := newGCTestDaemon(t, http.NewServeMux())
 	d.cfg.GCOrphanTTL = 0 // treat all orphans as expired
 	taskDir := createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "task6", nil)
+	// Windows directory mtimes can land on or just ahead of the current clock
+	// tick. Age it explicitly so the test exercises orphan cleanup rather than
+	// depending on sub-tick timestamp ordering.
+	old := time.Now().Add(-time.Second)
+	if err := os.Chtimes(taskDir, old, old); err != nil {
+		t.Fatalf("age orphan directory: %v", err)
+	}
 
 	action := d.shouldCleanTaskDir(context.Background(), taskDir)
 	if action != gcActionOrphan {
@@ -1198,7 +1205,10 @@ func TestPruneWorktree_SerializesWithCreateWorktree(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateWorktree failed after GC lock released: %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	// A race build running beside the full server suite can spend several
+	// seconds in Git on Windows after the lock is released. This timeout is
+	// only a deadlock guard; serialization was already asserted above.
+	case <-time.After(15 * time.Second):
 		t.Fatal("timed out waiting for CreateWorktree after releasing GC lock")
 	}
 

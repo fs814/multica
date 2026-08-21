@@ -326,8 +326,8 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 	return out, nil
 }
 
-// resolveSubmittedStep applies the verdict: a pass advances to the next node, a
-// fail or blocked applies the node's failure policy.
+// resolveSubmittedStep applies the verdict. A Condition successor receives every
+// structured verdict; otherwise pass advances and fail/blocked applies policy.
 func (e *Engine) resolveSubmittedStep(
 	ctx context.Context,
 	q *db.Queries,
@@ -359,7 +359,7 @@ func (e *Engine) resolveSubmittedStep(
 		}); err != nil {
 			return db.WorkflowStepInstance{}, err
 		}
-		if err := e.advanceToNext(ctx, q, run, def, node, effects, actorType, actorID); err != nil {
+		if err := e.advanceFromStep(ctx, q, run, def, passed, node, effects, actorType, actorID); err != nil {
 			return db.WorkflowStepInstance{}, err
 		}
 		return passed, nil
@@ -409,10 +409,43 @@ func (e *Engine) resolveSubmittedStep(
 		return db.WorkflowStepInstance{}, err
 	}
 
-	if err := e.applyFailurePolicy(ctx, q, run, def, node, terminal, reason, detail, effects, actorType, actorID); err != nil {
+	if terminal.ParentStepID.Valid {
+		if err := e.progressJoinFromChild(ctx, q, run, def, terminal, node, effects, actorType, actorID); err != nil {
+			return db.WorkflowStepInstance{}, err
+		}
+	} else if e.nextIsCondition(def, node) {
+		if err := e.advanceToNext(ctx, q, run, def, node, effects, actorType, actorID); err != nil {
+			return db.WorkflowStepInstance{}, err
+		}
+	} else if err := e.applyFailurePolicy(ctx, q, run, def, node, terminal, reason, detail, effects, actorType, actorID); err != nil {
 		return db.WorkflowStepInstance{}, err
 	}
 	return terminal, nil
+}
+
+func (e *Engine) nextIsCondition(def *Definition, node *Node) bool {
+	if len(node.Next) != 1 {
+		return false
+	}
+	next, ok := def.NodeByKey(node.Next[0])
+	return ok && next.Type == NodeTypeCondition
+}
+
+func (e *Engine) advanceFromStep(
+	ctx context.Context,
+	q *db.Queries,
+	run db.WorkflowRun,
+	def *Definition,
+	step db.WorkflowStepInstance,
+	node *Node,
+	effects *txEffects,
+	actorType string,
+	actorID pgtype.UUID,
+) error {
+	if step.ParentStepID.Valid {
+		return e.progressJoinFromChild(ctx, q, run, def, step, node, effects, actorType, actorID)
+	}
+	return e.advanceToNext(ctx, q, run, def, node, effects, actorType, actorID)
 }
 
 // applyFailurePolicy implements the node's on_failure: fail the Run, block it, or
@@ -734,7 +767,11 @@ func (e *Engine) recordTaskFailure(ctx context.Context, step db.WorkflowStepInst
 			return err
 		}
 
-		if err := e.applyFailurePolicy(ctx, q, run, def, node, failed, reason, in.ErrorDetail, effects, "system", pgtype.UUID{}); err != nil {
+		if failed.ParentStepID.Valid {
+			if err := e.progressJoinFromChild(ctx, q, run, def, failed, node, effects, "system", pgtype.UUID{}); err != nil {
+				return err
+			}
+		} else if err := e.applyFailurePolicy(ctx, q, run, def, node, failed, reason, in.ErrorDetail, effects, "system", pgtype.UUID{}); err != nil {
 			return err
 		}
 		effects.runChanged(run)
@@ -859,13 +896,14 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 		run.Status = string(RunRunning)
 
 		if in.Accept {
-			if _, err := q.MarkWorkflowStepPassed(ctx, db.MarkWorkflowStepPassedParams{
+			passed, err := q.MarkWorkflowStepPassed(ctx, db.MarkWorkflowStepPassedParams{
 				ID:          step.ID,
 				WorkspaceID: run.WorkspaceID,
-			}); err != nil {
+			})
+			if err != nil {
 				return fmt.Errorf("pass acceptance step: %w", err)
 			}
-			if err := e.advanceToNext(ctx, q, run, def, node, effects, "member", in.ReviewerUserID); err != nil {
+			if err := e.advanceFromStep(ctx, q, run, def, passed, node, effects, "member", in.ReviewerUserID); err != nil {
 				return err
 			}
 			effects.runChanged(run)

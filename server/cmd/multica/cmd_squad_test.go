@@ -37,7 +37,7 @@ func TestSquadMemberSetRoleCommandIsRegistered(t *testing.T) {
 }
 
 func TestRunSquadMemberSetRolePatchesRole(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "workspace-123")
 

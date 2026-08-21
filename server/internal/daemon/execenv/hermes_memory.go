@@ -70,6 +70,12 @@ const hermesMemoryStoreRoot = "hermes-state"
 // and the overlay home — Hermes resolves it relative to HERMES_HOME.
 const hermesMemoriesEntry = "memories"
 
+var (
+	removeHermesMemoryStore = os.Remove
+	renameHermesMemoryStore = os.Rename
+	copyHermesMemoryItem    = copyHermesMemoryEntry
+)
+
 // HermesMemoryStorePath returns the persistent memory store for (daemonProfile,
 // agentID, sourceHome), or "" when memory must stay task-local — there is no
 // agent to key on, or the Multica profile dir cannot be resolved. The daemon
@@ -233,7 +239,7 @@ func migrateHermesTaskMemories(taskDir, storeDir string, logger *slog.Logger) er
 
 	for _, entry := range entries {
 		src := filepath.Join(taskDir, entry.Name())
-		if err := copyHermesMemoryEntry(src, filepath.Join(staging, entry.Name()), entry); err != nil {
+		if err := copyHermesMemoryItem(src, filepath.Join(staging, entry.Name()), entry); err != nil {
 			return fmt.Errorf("migrate task-local hermes memory %s into %s: %w", src, storeDir, err)
 		}
 	}
@@ -280,15 +286,27 @@ func newHermesMemoryStaging(storeDir string) (string, error) {
 // sharing violation must fail closed instead of passing for "someone else
 // published".
 func promoteHermesMemoryStaging(staging, storeDir string) (bool, error) {
-	if err := os.Remove(storeDir); err != nil && !os.IsNotExist(err) {
-		if hermesMemoryStorePopulated(storeDir) {
-			return false, nil // non-empty: another task published first
+	if err := removeHermesMemoryStore(storeDir); err != nil && !os.IsNotExist(err) {
+		for attempt := 0; attempt < 20; attempt++ {
+			if hermesMemoryStorePopulated(storeDir) {
+				return false, nil // non-empty: another task published first
+			}
+			// On Windows, Remove can already observe the winning rename as
+			// directory-not-empty while a concurrent ReadDir still sees the
+			// just-created directory as empty. Give the winner's entries the
+			// same short visibility window used after a failed rename below.
+			time.Sleep(5 * time.Millisecond)
 		}
 		return false, fmt.Errorf("clear empty hermes memory store %s before publishing: %w", storeDir, err)
 	}
-	if err := os.Rename(staging, storeDir); err != nil {
-		if hermesMemoryStorePopulated(storeDir) {
-			return false, nil // lost a narrow race between the remove and the rename
+	if err := renameHermesMemoryStore(staging, storeDir); err != nil {
+		for attempt := 0; attempt < 20; attempt++ {
+			if hermesMemoryStorePopulated(storeDir) {
+				return false, nil // lost a narrow race between the remove and the rename
+			}
+			// Windows can report ACCESS_DENIED while a competing rename has
+			// completed but its directory entries are not yet observable.
+			time.Sleep(5 * time.Millisecond)
 		}
 		return false, fmt.Errorf("publish hermes memory store %s: %w", storeDir, err)
 	}

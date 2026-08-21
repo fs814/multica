@@ -374,6 +374,12 @@ func hasDaemonTaskContextMarker() bool {
 	return daemonTaskContextMarkerPath() != ""
 }
 
+// daemonTaskContextMarkerIgnorePath is a narrow test seam used to ignore the
+// marker belonging to the checkout that is running the test binary. Tests
+// that create markers below temporary working directories still exercise the
+// production lookup.
+var daemonTaskContextMarkerIgnorePath string
+
 // daemonTaskContextMarkerPath walks up from the current working directory and
 // returns the path of the first readable daemon-task marker whose managed_by
 // matches, or "" when none is found.
@@ -384,6 +390,14 @@ func daemonTaskContextMarkerPath() string {
 	}
 	for {
 		markerPath := filepath.Join(dir, execenv.TaskContextMarkerRelPath)
+		if markerPath == daemonTaskContextMarkerIgnorePath {
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				return ""
+			}
+			dir = parent
+			continue
+		}
 		// Only a marker we can read AND whose managed_by matches counts as a
 		// daemon-task signal. Any other outcome — missing file, unreadable
 		// path, or a foreign file at this name — is treated as "no signal

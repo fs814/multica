@@ -25,6 +25,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	agentpkg "github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -2978,6 +2979,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		if !validateIssueEnum(w, "status", *req.Status, validIssueStatuses) {
 			return
 		}
+		if *req.Status != prevIssue.Status && !h.guardWorkflowOwnedIssueStatus(w, r, prevIssue, *req.Status) {
+			return
+		}
 		params.Status = pgtype.Text{String: *req.Status, Valid: true}
 	}
 	if req.Priority != nil {
@@ -3232,6 +3236,49 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) guardWorkflowOwnedIssueStatus(w http.ResponseWriter, r *http.Request, issue db.Issue, target string) bool {
+	runs, err := h.Queries.ListActiveWorkflowRunsForIssue(r.Context(), db.ListActiveWorkflowRunsForIssueParams{IssueID: issue.ID, WorkspaceID: issue.WorkspaceID})
+	if err != nil {
+		slog.Warn("list active workflow runs for issue update failed", "error", err, "issue_id", uuidToString(issue.ID))
+		writeError(w, http.StatusInternalServerError, "failed to validate workflow-owned issue status")
+		return false
+	}
+	if len(runs) == 0 {
+		return true
+	}
+	if target != "cancelled" {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":           "workflow_run_active",
+			"message":         "an active workflow run owns this issue status; cancel the issue to cancel the run",
+			"workflow_run_id": uuidToString(runs[0].ID),
+		})
+		return false
+	}
+	if h.WorkflowEngine == nil {
+		writeError(w, http.StatusServiceUnavailable, "workflow engine is unavailable")
+		return false
+	}
+	userUUID, ok := parseUUIDOrBadRequest(w, requestUserID(r), "user id")
+	if !ok {
+		return false
+	}
+	for _, run := range runs {
+		taskIDs, _ := h.Queries.ListActiveAgentTaskIDsForWorkflowRun(r.Context(), db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: run.ID, WorkspaceID: run.WorkspaceID})
+		if _, err := h.WorkflowEngine.CancelRun(r.Context(), run.WorkspaceID, run.ID, userUUID); err != nil && !workflow.IsIdempotencyConflict(err) {
+			h.writeWorkflowEngineError(w, r, err, "CancelRunForIssue")
+			return false
+		}
+		if h.TaskService != nil {
+			for _, taskID := range taskIDs {
+				if _, err := h.TaskService.CancelTask(r.Context(), taskID); err != nil {
+					slog.Warn("cancel workflow task from issue cancellation failed", "error", err, "task_id", uuidToString(taskID))
+				}
+			}
+		}
+	}
+	return true
 }
 
 // validateAssigneePair verifies the (assignee_type, assignee_id) pair refers
@@ -3577,6 +3624,25 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated := 0
+	if req.Updates.Status != nil {
+		// Preflight the whole batch before mutating any issue. Workflow-owned
+		// status transitions are commands on the Run, not ordinary issue field
+		// writes; checking inside the mutation loop could partially apply a batch
+		// before discovering an active Run on a later issue.
+		for _, issueID := range req.IssueIDs {
+			issueUUID, parseErr := util.ParseUUID(issueID)
+			if parseErr != nil {
+				continue
+			}
+			issue, getErr := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{ID: issueUUID, WorkspaceID: wsUUID})
+			if getErr != nil {
+				continue
+			}
+			if !h.guardWorkflowOwnedIssueStatus(w, r, issue, *req.Updates.Status) {
+				return
+			}
+		}
+	}
 	// Children that transitioned into a terminal status this batch, collected so
 	// the parent/stage notification is evaluated once against the final state
 	// after the loop (MUL-4155) rather than per-child mid-batch.
