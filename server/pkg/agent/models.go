@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -93,6 +94,26 @@ type Catalog struct {
 	// enter the server's day-scale model-catalog cache, which would pin one
 	// transient failure as the answer for 24h (MUL-5549).
 	Fallback bool
+	// KnotAgents are the Knot agents registered on this machine
+	// (`knot-cli list-agents`), for the knot and knot-http families only. Empty
+	// for every other provider.
+	//
+	// It rides the model catalog rather than a channel of its own because it is
+	// discovered from the same binary on the same round-trip and belongs in the
+	// same 60s cache — a second async request/store/poll stack for one small
+	// list would be pure duplication. The UI needs it because a knot-http agent
+	// requires an agent id AND a model, so unlike openclaw (which surfaces its
+	// agents THROUGH the model list) the two cannot share agent.model.
+	KnotAgents []KnotAgentEntry
+}
+
+// KnotAgentEntry is one selectable Knot agent. Name is the human label from
+// `knot-cli list-agents` (e.g. "全能选手-macbook"); ID is the 32-hex id the API
+// actually routes on. Both are needed: the id alone is unreadable in a picker,
+// and the name alone is not addressable.
+type KnotAgentEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // discovered adapts a plain `([]Model, error)` discovery function to Catalog
@@ -148,6 +169,16 @@ func ListModels(ctx context.Context, providerType, executablePath string) (Catal
 	}
 	switch providerType {
 	case "claude":
+		if isTClaudeExecutable(executablePath) {
+			return cachedDiscovery(discoveryCacheKey("tclaude", executablePath), func() (Catalog, error) {
+				models, err := discoverTClaudeModels(ctx, executablePath)
+				if err != nil {
+					return Catalog{}, err
+				}
+				annotateClaudeThinking(ctx, models, executablePath)
+				return Catalog{Models: models}, nil
+			})
+		}
 		models := claudeStaticModels()
 		annotateClaudeThinking(ctx, models, executablePath)
 		// Claude's catalog is static by design, not by failure: there is no
@@ -241,6 +272,25 @@ func ListModels(ctx context.Context, providerType, executablePath string) (Catal
 		// UI picker stays usable offline / unauthenticated.
 		return cachedDiscovery(discoveryCacheKey(providerType, executablePath), func() (Catalog, error) {
 			return discoverGrokModels(ctx, executablePath)
+		})
+	case "knot", "knot-http":
+		// `knot-cli model list` enumerates the account's models and their
+		// reasoning-effort levels in one call, so discovery owns the thinking
+		// annotation too (no separate probe like annotateClaudeThinking).
+		//
+		// knot-http shares it: the catalog is account-scoped rather than agent-
+		// or transport-scoped, and the HTTP endpoint exposes no catalog route of
+		// its own, so the CLI is the only enumerator for both families.
+		//
+		// The same round-trip also enumerates the registered Knot AGENTS, so the
+		// settings UI can offer a picker instead of a hand-typed 32-hex id.
+		return cachedDiscovery(discoveryCacheKey(providerType, executablePath), func() (Catalog, error) {
+			catalog, err := discovered(discoverKnotModels(ctx, executablePath))
+			if err != nil {
+				return catalog, err
+			}
+			catalog.KnotAgents = discoverKnotAgents(ctx, executablePath)
+			return catalog, nil
 		})
 	default:
 		return Catalog{}, fmt.Errorf("unknown agent type: %q", providerType)
@@ -421,6 +471,78 @@ func claudeStaticModels() []Model {
 		{ID: "claude-opus-4-6", Label: "Claude Opus 4.6", Provider: "anthropic"},
 		{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5", Provider: "anthropic"},
 	}
+}
+
+const tclaudeModelProbe = "__multica_model_probe__"
+
+// isTClaudeExecutable distinguishes a custom TClaude profile from the
+// first-party Claude CLI. Both speak the Claude protocol, but TClaude exposes
+// a different, installation-specific model catalog.
+func isTClaudeExecutable(executablePath string) bool {
+	cleaned := strings.ReplaceAll(strings.TrimSpace(executablePath), `\`, "/")
+	base := strings.ToLower(filepath.Base(cleaned))
+	for _, suffix := range []string{".exe", ".cmd", ".bat", ".ps1"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	return base == "tclaude"
+}
+
+// discoverTClaudeModels asks TClaude to validate an impossible model name.
+// TClaude rejects it before inference and prints its authoritative
+// "Available models" list. A non-zero exit is expected; successfully parsing
+// the diagnostic is the discovery success condition.
+func discoverTClaudeModels(ctx context.Context, executablePath string) ([]Model, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(probeCtx, executablePath,
+		"--model", tclaudeModelProbe,
+		"--print", "model discovery probe",
+	)
+	hideAgentWindow(cmd)
+	cmd.WaitDelay = 2 * time.Second
+	out, runErr := cmd.CombinedOutput()
+	models, parseErr := parseTClaudeModels(string(out))
+	if parseErr == nil {
+		return models, nil
+	}
+	if runErr != nil {
+		return nil, fmt.Errorf("discover TClaude models: %w: %s", runErr, strings.TrimSpace(string(out)))
+	}
+	return nil, parseErr
+}
+
+func parseTClaudeModels(output string) ([]Model, error) {
+	const marker = "Available models:"
+	start := strings.Index(output, marker)
+	if start < 0 {
+		return nil, fmt.Errorf("discover TClaude models: response did not contain %q", marker)
+	}
+	line := output[start+len(marker):]
+	if end := strings.IndexAny(line, "\r\n"); end >= 0 {
+		line = line[:end]
+	}
+
+	parts := strings.Split(line, ",")
+	models := make([]Model, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		models = append(models, Model{
+			ID:       id,
+			Label:    id,
+			Provider: "tclaude",
+			Default:  id == "claude-sonnet-4-6",
+		})
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("discover TClaude models: advertised list was empty")
+	}
+	return models, nil
 }
 
 // codexStaticModels is the fallback for Codex versions older than 0.122.0

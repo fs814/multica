@@ -40,6 +40,8 @@ export function BuilderSetup({
   members,
   currentUserId,
   selectedRuntime,
+  knotAgentPicker,
+  knotAgentReady,
   starting,
   error,
   onStart,
@@ -53,6 +55,8 @@ export function BuilderSetup({
   members: MemberWithUser[];
   currentUserId: string | null;
   selectedRuntime: RuntimeDevice | null;
+  knotAgentPicker?: ReactNode;
+  knotAgentReady: boolean;
   starting: boolean;
   error: string | null;
   onStart: () => void;
@@ -101,6 +105,7 @@ export function BuilderSetup({
             onChange={(model) => onChange(applyDraftModelChange(draft, model))}
             disabled={!selectedRuntime}
           />
+          {knotAgentPicker}
         </div>
         {error && (
           <div role="alert" className="mt-4 text-body text-destructive">
@@ -111,7 +116,11 @@ export function BuilderSetup({
           {hasOnline ? (
             <Button
               onClick={onStart}
-              disabled={starting || selectedRuntime?.status !== "online"}
+              disabled={
+                starting ||
+                selectedRuntime?.status !== "online" ||
+                !knotAgentReady
+              }
             >
               {starting && <Loader2 className="size-4 animate-spin" />}
               {t(($) => $.creation_studio.builder.start)}

@@ -70,6 +70,23 @@ type ModelListRequest struct {
 	// the synthetic cache-hit response.
 	Cached   bool       `json:"cached,omitempty"`
 	CachedAt *time.Time `json:"cached_at,omitempty"`
+	// KnotAgents are the Knot agents registered on the runtime's machine, for
+	// the knot / knot-http families only. It rides this response because it is
+	// discovered on the same daemon round trip as the models and belongs in the
+	// same cache; `omitempty` keeps the payload byte-identical for every other
+	// provider, so older clients see no change.
+	KnotAgents []KnotAgentEntry `json:"knot_agents,omitempty"`
+}
+
+// KnotAgentEntry mirrors agent.KnotAgentEntry for the wire: the human label from
+// `knot-cli list-agents` plus the 32-hex id the Knot API routes on. The UI shows
+// the name and persists the id, so dropping either makes the picker unusable.
+//
+// Unlike a token, an agent id is not a secret — it must NOT be masked, or the
+// user could never see which agent is currently selected.
+type KnotAgentEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // ModelEntry mirrors agent.Model for the wire. `Default` tags the
@@ -149,7 +166,10 @@ type ModelListStore interface {
 	// PopPending handles "queue empty after probe" by returning nil.
 	HasPending(ctx context.Context, runtimeID string) (bool, error)
 	PopPending(ctx context.Context, runtimeID string) (*ModelListRequest, error)
-	Complete(ctx context.Context, id string, models []ModelEntry, supported bool) error
+	// Complete records a successful discovery round. knotAgents is the
+	// knot/knot-http agent list discovered alongside the models on the same
+	// round trip; nil for every other provider.
+	Complete(ctx context.Context, id string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error
 	Fail(ctx context.Context, id string, errMsg string) error
 }
 
@@ -267,7 +287,7 @@ func (s *InMemoryModelListStore) PopPending(_ context.Context, runtimeID string)
 	return oldest, nil
 }
 
-func (s *InMemoryModelListStore) Complete(_ context.Context, id string, models []ModelEntry, supported bool) error {
+func (s *InMemoryModelListStore) Complete(_ context.Context, id string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -275,6 +295,7 @@ func (s *InMemoryModelListStore) Complete(_ context.Context, id string, models [
 		req.Status = ModelListCompleted
 		req.Models = models
 		req.Supported = supported
+		req.KnotAgents = knotAgents
 		req.UpdatedAt = time.Now()
 	}
 	return nil
@@ -342,15 +363,16 @@ func (h *Handler) InitiateListModels(w http.ResponseWriter, r *http.Request) {
 			// Synthetic ID: no store record backs a cache hit. Clients only poll
 			// GET /models/{id} while status is pending/running, which this
 			// response never is.
-			ID:        randomID(),
-			RuntimeID: resolvedRuntimeID,
-			Status:    ModelListCompleted,
-			Models:    cached.Models,
-			Supported: cached.Supported,
-			CreatedAt: storedAt,
-			UpdatedAt: storedAt,
-			Cached:    true,
-			CachedAt:  &storedAt,
+			ID:         randomID(),
+			RuntimeID:  resolvedRuntimeID,
+			Status:     ModelListCompleted,
+			Models:     cached.Models,
+			KnotAgents: cached.KnotAgents,
+			Supported:  cached.Supported,
+			CreatedAt:  storedAt,
+			UpdatedAt:  storedAt,
+			Cached:     true,
+			CachedAt:   &storedAt,
 		})
 		return
 	}
@@ -479,6 +501,10 @@ func (h *Handler) ReportModelListResult(w http.ResponseWriter, r *http.Request) 
 		Models    []ModelEntry `json:"models"`
 		Supported *bool        `json:"supported"`
 		Error     string       `json:"error"`
+		// KnotAgents is the knot/knot-http agent list from the same discovery
+		// round. Absent for every other provider and from older daemons, which
+		// simply means the picker offers manual entry instead of a dropdown.
+		KnotAgents []KnotAgentEntry `json:"knot_agents"`
 		// Fallback marks a completed report whose models are a static
 		// stand-in the provider substituted after discovery failed, not the
 		// runtime's real catalog. Older daemons omit it; absent means "this
@@ -497,7 +523,7 @@ func (h *Handler) ReportModelListResult(w http.ResponseWriter, r *http.Request) 
 		if body.Supported != nil {
 			supported = *body.Supported
 		}
-		if err := h.ModelListStore.Complete(r.Context(), requestID, body.Models, supported); err != nil {
+		if err := h.ModelListStore.Complete(r.Context(), requestID, body.Models, supported, body.KnotAgents); err != nil {
 			// Surface the store failure as 5xx so the daemon can retry instead
 			// of swallowing the report (leaves the request stuck in running
 			// until the server-side timeout, which is exactly the "looks OK
@@ -524,7 +550,7 @@ func (h *Handler) ReportModelListResult(w http.ResponseWriter, r *http.Request) 
 		if h.ModelCatalogCache != nil {
 			switch modelCatalogCacheDecision(body.Models, supported, body.Fallback) {
 			case modelCatalogCacheStore:
-				if err := h.ModelCatalogCache.Put(r.Context(), runtimeID, body.Models, supported); err != nil {
+				if err := h.ModelCatalogCache.Put(r.Context(), runtimeID, body.Models, supported, body.KnotAgents); err != nil {
 					slog.Warn("model catalog cache write failed", "error", err, "runtime_id", runtimeID)
 				}
 			case modelCatalogCacheDrop:

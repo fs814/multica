@@ -125,6 +125,19 @@ describe("agent draft execution overrides", () => {
     });
   });
 
+  it("carries a selected Knot agent into runtime_config", () => {
+    const runtimeConfig = {
+      knot: { agent_id: "7a5d51d0b14f449683fdb839c5e3e448" },
+    };
+    const request = buildCreateAgentRequest({
+      draft: draft(),
+      runtimeId: "runtime-1",
+      runtimeConfig,
+    });
+
+    expect(request.runtime_config).toEqual(runtimeConfig);
+  });
+
   it("omits empty overrides instead of sending an empty string", () => {
     const request = buildCreateAgentRequest({
       draft: { ...draft(), model: "" },

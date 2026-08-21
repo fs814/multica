@@ -63,6 +63,9 @@ export async function resolveRuntimeModels(
     supported: current.supported !== false,
     cached: current.cached === true,
     cachedAt: current.cached_at,
+    // Only the knot families send this; everyone else gets an empty list, which
+    // the picker reads as "offer manual entry".
+    knotAgents: current.knot_agents ?? [],
   };
 }
 

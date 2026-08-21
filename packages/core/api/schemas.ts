@@ -1524,12 +1524,14 @@ export const AgentBuilderSessionSchema = z.object({
   session_id: z.string(),
   builder_agent_id: z.string(),
   runtime_id: z.string(),
+  knot_agent_id: z.string().catch(""),
 }).loose();
 
 export const EMPTY_AGENT_BUILDER_SESSION: AgentBuilderSession = {
   session_id: "",
   builder_agent_id: "",
   runtime_id: "",
+  knot_agent_id: "",
 };
 
 /**
@@ -1564,6 +1566,7 @@ export const AgentBuilderSessionSummarySchema = z.object({
   session_id: z.string(),
   title: z.string().catch(""),
   runtime_id: z.string().catch(""),
+  knot_agent_id: z.string().catch(""),
   created_at: z.string().catch(""),
   updated_at: z.string().catch(""),
   last_message_content: z.string().catch(""),
@@ -2195,6 +2198,16 @@ const RuntimeModelSchema = z.object({
   service_tiers: z.array(RuntimeModelServiceTierSchema).optional(),
 }).loose();
 
+// One selectable Knot agent from `knot-cli list-agents`. Not a secret (unlike
+// the API token), so it is never masked — the UI must be able to show which
+// agent an agent is currently pinned to.
+export const KnotAgentSchema = z
+  .object({
+    id: z.string().default(""),
+    name: z.string().default(""),
+  })
+  .loose();
+
 export const RuntimeModelListRequestSchema = z.object({
   id: z.string().default(""),
   runtime_id: z.string().default(""),
@@ -2206,6 +2219,10 @@ export const RuntimeModelListRequestSchema = z.object({
   updated_at: z.string().default(""),
   cached: z.boolean().optional(),
   cached_at: z.string().optional(),
+  // Registered Knot agents, sent only by knot / knot-http runtimes. Absent for
+  // every other provider and from older daemons, which the UI reads as "offer
+  // manual entry instead of a dropdown".
+  knot_agents: z.array(KnotAgentSchema).optional(),
 }).loose();
 
 // Fallback for an unparseable model-discovery response. `failed` is the only

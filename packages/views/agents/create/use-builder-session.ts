@@ -103,6 +103,7 @@ export function useBuilderSession(options: {
   const start = async (
     runtimeId: string,
     model: string,
+    knotAgentId?: string,
   ): Promise<string | null> => {
     setStarting(true);
     setError(null);
@@ -110,6 +111,7 @@ export function useBuilderSession(options: {
       const session = await api.createAgentBuilderSession({
         runtime_id: runtimeId,
         model: model.trim() || undefined,
+        knot_agent_id: knotAgentId?.trim() || undefined,
       });
       if (!session.session_id) {
         throw new Error(t(($) => $.creation_studio.builder.start_failed));

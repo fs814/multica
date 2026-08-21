@@ -1,0 +1,39 @@
+正在检查智能体Id为 agent-redacted 缺少的 插件 并下载
+正在检查智能体Id为 agent-redacted 缺少的 skill 并下载
+智能体Id为 agent-redacted 的 插件 下载检查完成
+智能体Id为 agent-redacted 的 skill 下载检查完成
+{"type":"HEARTBEAT","timestamp":1786967512,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":1}
+{"type":"RUN_STARTED","timestamp":1786967512,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":2}
+{"type":"TOOL_CALL_START","timestamp":1786967512,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"plan-call-redacted","name":"task_planning","ch_name":"任务规划中","display_name":"任务规划中","render_type":"None","default_show":false,"need_result":false,"loading_display_type":"point"},"offset":3}
+{"type":"TOOL_CALL_END","timestamp":1786967513,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"plan-call-redacted"},"offset":4}
+{"type":"TOOL_CALL_RESULT","timestamp":1786967513,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"plan-call-redacted","display_name":"任务规划完成"},"offset":5}
+{"type":"CUSTOM","timestamp":1786967513,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","type":"remove-tool","tool_call_id":"plan-call-redacted"},"offset":6}
+{"type":"STEP_STARTED","timestamp":1786967513,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","step_name":"call_llm"},"offset":7}
+{"type":"THINKING_TEXT_MESSAGE_START","timestamp":1786967514,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":8}
+{"type":"THINKING_TEXT_MESSAGE_CONTENT","timestamp":1786967514,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","content":"The"},"offset":9}
+{"type":"THINKING_TEXT_MESSAGE_CONTENT","timestamp":1786967514,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","content":" user wants a file."},"offset":10}
+{"type":"THINKING_TEXT_MESSAGE_END","timestamp":1786967515,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":11}
+{"type":"STEP_FINISHED","timestamp":1786967515,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","step_name":"call_llm","token_usage":{"completion_tokens":20,"prompt_tokens":1000,"total_tokens":1020,"completion_tokens_details":{"accepted_prediction_tokens":null,"audio_tokens":null,"reasoning_tokens":0,"rejected_prediction_tokens":null},"prompt_tokens_details":{"audio_tokens":null,"cached_tokens":100}}},"offset":12}
+{"type":"TOOL_CALL_START","timestamp":1786967516,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","name":"write_to_file","ch_name":"写入文件","display_name":"写入文件中","render_type":"CodeApply","default_show":false,"need_result":true},"offset":13}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967516,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","document":{"apply_mode":"apply_only"},"patchs":[{"op":"add","path":"/apply_content","value":"hi"}]},"offset":14}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967517,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/file_type","value":"text"}]},"offset":15}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967517,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/file_path","value":"C:\\redacted"}]},"offset":16}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967517,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/file_path","value":"\\work"}]},"offset":17}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967517,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/file_path","value":"dir"}]},"offset":18}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967518,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/file_path","value":"\\hello.txt"}]},"offset":19}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967518,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/explanation","value":"Creating"}]},"offset":20}
+{"type":"TOOL_CALL_ARGS","timestamp":1786967518,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","patchs":[{"op":"add","path":"/explanation","value":" the file."}]},"offset":21}
+{"type":"TOOL_CALL_END","timestamp":1786967518,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted"},"offset":22}
+{"type":"TOOL_CALL_RESULT","timestamp":1786967518,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","tool_call_id":"write-call-redacted","result":{"commit_id":["",""]},"display_name":"写入文件"},"content":"File written successfully.","offset":23}
+{"type":"HEARTBEAT","timestamp":1786967519,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":24}
+{"type":"STEP_STARTED","timestamp":1786967520,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","step_name":"call_llm"},"offset":25}
+{"type":"TEXT_MESSAGE_START","timestamp":1786967521,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":26}
+{"type":"TEXT_MESSAGE_CONTENT","timestamp":1786967521,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","content":"Created "},"offset":27}
+{"type":"TEXT_MESSAGE_CONTENT","timestamp":1786967521,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","content":"hello.txt"},"offset":28}
+{"type":"TEXT_MESSAGE_CONTENT","timestamp":1786967522,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","content":" with the text hi."},"offset":29}
+{"type":"TEXT_MESSAGE_END","timestamp":1786967522,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":30}
+{"type":"STEP_FINISHED","timestamp":1786967524,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted","step_name":"call_llm","token_usage":{"completion_tokens":32,"prompt_tokens":2000,"total_tokens":2032,"completion_tokens_details":{"accepted_prediction_tokens":null,"audio_tokens":null,"reasoning_tokens":0,"rejected_prediction_tokens":null},"prompt_tokens_details":{"audio_tokens":null,"cached_tokens":200}}},"offset":31}
+{"type":"RUN_FINISHED","timestamp":1786967524,"rawEvent":{"message_id":"message-redacted","conversation_id":"conversation-redacted"},"offset":32}
+
+requestID: message-redacted
+sessionID: conversation-redacted

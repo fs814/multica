@@ -48,11 +48,16 @@ export function AiCreateAgentPage() {
   );
 
   const open = useCallback(
-    (sessionId: string, runtimeId: string | null) =>
+    (
+      sessionId: string,
+      runtimeId: string | null,
+      knotAgentId: string | null,
+    ) =>
       navigation.replace(
         createPathWithParams(paths.newAgentAiSession(sessionId), {
           squad: squadId,
           runtime: runtimeId,
+          knotAgent: knotAgentId,
         }),
       ),
     [navigation, paths, squadId],
@@ -82,8 +87,10 @@ export function AiCreateAgentPage() {
         sessions={sessions}
         // Resuming carries no runtime seed: a listed conversation reports its
         // own, which is the truthful answer after a runtime switch.
-        onResume={(sessionId) => open(sessionId, null)}
-        onStarted={(sessionId, runtimeId) => open(sessionId, runtimeId)}
+        onResume={(sessionId) => open(sessionId, null, null)}
+        onStarted={(sessionId, runtimeId, knotAgentId) =>
+          open(sessionId, runtimeId, knotAgentId)
+        }
         onRuntimeLabel={handleRuntimeLabel}
       />
     </AgentCreateShell>

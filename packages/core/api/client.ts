@@ -1262,6 +1262,7 @@ export class ApiClient {
   async createAgentBuilderSession(data: {
     runtime_id: string;
     model?: string;
+    knot_agent_id?: string;
   }): Promise<AgentBuilderSession> {
     const raw = await this.fetch<unknown>("/api/agent-builder/sessions", {
       method: "POST",

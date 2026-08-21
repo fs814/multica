@@ -2049,6 +2049,7 @@ func (d *Daemon) probeBuiltinRuntime(ctx context.Context, name string, entry Age
 			version = d.agentVersion(name)
 		}
 		d.logger.Debug("agent version detected", "name", name, "version", version, "path", resolved.Path)
+		d.warnOnMisconfiguredKnotAgent(ctx, name, resolved.Path)
 		return version, "", builtinProbeOK
 	}
 	d.logger.Warn("skip registering runtime", "name", name, "attempts", attempts, "error", lastErr)
@@ -3796,7 +3797,7 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 		}
 		wire = append(wire, entry)
 	}
-	d.reportModelListResult(ctx, rt, requestID, map[string]any{
+	payload := map[string]any{
 		"status":    "completed",
 		"models":    wire,
 		"supported": agent.ModelSelectionSupported(rt.Provider),
@@ -3804,7 +3805,22 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 		// must not persist them as this runtime's real catalog (MUL-5549).
 		// Older servers ignore it and keep the previous behaviour.
 		"fallback": catalog.Fallback,
-	})
+	}
+	// The knot families discover their selectable Knot agents on the same round
+	// trip as the models. Sent only when non-empty so every other provider's
+	// payload stays byte-identical, and an older server just ignores the key.
+	if len(catalog.KnotAgents) > 0 {
+		type knotAgentWire struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		agents := make([]knotAgentWire, 0, len(catalog.KnotAgents))
+		for _, a := range catalog.KnotAgents {
+			agents = append(agents, knotAgentWire{ID: a.ID, Name: a.Name})
+		}
+		payload["knot_agents"] = agents
+	}
+	d.reportModelListResult(ctx, rt, requestID, payload)
 }
 
 func (d *Daemon) handleLocalSkillList(ctx context.Context, rt Runtime, requestID string) {
@@ -5139,6 +5155,7 @@ var runtimeDisplayNameOverrides = map[string]string{
 	"qoderclicn": "Qoder CN",
 	"qwen":       "Qwen Code",
 	"qwenpaw":    "QwenPaw",
+	"knot-http":  "Knot (HTTP)",
 }
 
 func init() {
@@ -5185,6 +5202,39 @@ func providerNeedsInlineSystemPrompt(provider string) bool {
 	default:
 		return false
 	}
+}
+
+// warnOnMisconfiguredKnotAgent logs a warning when MULTICA_KNOT_AGENT_ID names
+// an agent `knot-cli list-agents` does not report.
+//
+// This is the only place the mistake can surface. knot-cli treats an unknown
+// -a as "use the default agent" rather than an error, so a typo'd id produces a
+// perfectly successful run served by an agent nobody selected — no failure, no
+// diagnostic, and results attributed to the wrong agent. It is deliberately a
+// warning and not a probe failure: the runtime itself is healthy, and refusing
+// to register it would take a working CLI offline over a config typo.
+func (d *Daemon) warnOnMisconfiguredKnotAgent(ctx context.Context, name, execPath string) {
+	// Both knot families resolve their agent identity from the same env key and
+	// share the silent-fallback footgun: knot-cli substitutes a default agent
+	// for an unknown id rather than failing.
+	if name != "knot" && name != "knot-http" {
+		return
+	}
+	agentID := strings.TrimSpace(os.Getenv(agent.KnotAgentIDEnv))
+	if agentID == "" {
+		return
+	}
+	ok, configured, known := agent.VerifyKnotAgentID(ctx, execPath, map[string]string{
+		agent.KnotAgentIDEnv: agentID,
+	})
+	if ok {
+		return
+	}
+	d.logger.Warn("configured knot agent id is not registered with knot-cli; runs will silently fall back to its default agent",
+		"env", agent.KnotAgentIDEnv,
+		"configured", configured,
+		"known_agents", strings.Join(agent.KnownKnotAgentNames(known), ", "),
+	)
 }
 
 // gateResumeToReusedWorkdir clears the task's prior session unless the task
@@ -6129,6 +6179,56 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			return TaskResult{}, fmt.Errorf("prepare reasonix state home: %w", err)
 		}
 		agentEnv["REASONIX_STATE_HOME"] = reasonixStateHome
+	}
+	if supportsKnotRuntimeConfig(provider) {
+		// The knot backends select their agent identity (`knot-cli -a`, or the
+		// agent id in knot-http's URL path) from this key. It must be injected
+		// here rather than left to the agent's custom_env, because
+		// isBlockedEnvKey drops the entire MULTICA_* namespace from custom_env —
+		// a user-set value would silently never arrive. Empty means send no -a
+		// and let knot-cli pick its own default.
+		if agentID := strings.TrimSpace(os.Getenv(agent.KnotAgentIDEnv)); agentID != "" {
+			agentEnv[agent.KnotAgentIDEnv] = agentID
+		}
+		// A per-agent agent id picked in the settings UI lands in
+		// runtime_config, and overrides the daemon-wide default injected above.
+		// It is written into the SAME env key the backend already reads, so the
+		// resolution order ends up:
+		//
+		//   KNOT_AGENT_ID (custom_env) > runtime_config > MULTICA_KNOT_AGENT_ID
+		//
+		// runtime_config outranks the daemon-wide value because it is the more
+		// specific choice; custom_env stays on top so anyone already using it
+		// keeps working. Note this cannot help an Agent Builder carrier agent:
+		// CreateAgentBuilder hardcodes runtime_config and custom_env to '{}',
+		// so those runs depend on the daemon-wide default.
+		if task.Agent != nil {
+			if perAgent := decodeKnotRuntimeConfig(task.Agent.RuntimeConfig, d.logger); perAgent != "" {
+				agentEnv[agent.KnotAgentIDEnv] = perAgent
+			}
+		}
+	}
+	if provider == "knot-http" {
+		// knot-http authenticates with its own API token instead of the CLI's
+		// ambient login, so these must cross the same blocklist as the agent id
+		// above. Each is a daemon-wide DEFAULT: the per-agent overrides
+		// (KNOT_API_TOKEN, KNOT_API_USER) carry no MULTICA_ prefix precisely so
+		// they survive custom_env, and the backend prefers them.
+		for _, key := range []string{agent.KnotHTTPTokenEnv, agent.KnotHTTPUserEnv, agent.KnotHTTPBaseURLEnv} {
+			if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+				agentEnv[key] = v
+			}
+		}
+		// The per-agent client-uuid selector (which registered machine runs the
+		// agent's tools) rides in runtime_config, like the agent id above. It is
+		// written into a MULTICA_-prefixed key so a user's un-prefixed
+		// KNOT_CLIENT_UUID in custom_env still outranks it in the backend. Only
+		// knot-http honors it — the CLI transport has no agent_client_uuid.
+		if task.Agent != nil {
+			if clientUUID := decodeKnotClientUUID(task.Agent.RuntimeConfig, d.logger); clientUUID != "" {
+				agentEnv[agent.KnotClientUUIDEnv] = clientUUID
+			}
+		}
 	}
 	if err := configureCodexTaskShellEnvironment(provider, env.CodexHome, os.Environ(), agentEnv, agentCustomEnv, d.logger); err != nil {
 		return TaskResult{}, err

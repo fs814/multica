@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { looksLikeKnotAgentId } from "@multica/core/agents";
 import { useWorkspacePaths } from "@multica/core/paths";
+import { runtimeModelsOptions } from "@multica/core/runtimes";
 import type {
   AgentBuilderSessionSummary,
   RuntimeDevice,
 } from "@multica/core/types";
 import { BuilderSetup } from "./builder-conversation";
+import { KnotAgentPickerField } from "../components/knot-agent-picker-field";
 import { UnfinishedDraftsBanner } from "./unfinished-drafts";
 import { useBuilderSession } from "./use-builder-session";
 import { useCreateAgentForm } from "./use-create-agent-form";
@@ -30,12 +34,26 @@ export function BuilderSetupPanel({
   sessions: AgentBuilderSessionSummary[];
   onResume: (sessionId: string) => void;
   /** Hands the new conversation's id and runtime back so the route can open it. */
-  onStarted: (sessionId: string, runtimeId: string) => void;
+  onStarted: (
+    sessionId: string,
+    runtimeId: string,
+    knotAgentId: string,
+  ) => void;
   onRuntimeLabel: (runtime: RuntimeDevice | null) => void;
 }) {
   const paths = useWorkspacePaths();
   const form = useCreateAgentForm();
   const { draft, setDraft, selectedRuntime } = form;
+  const [knotAgentId, setKnotAgentId] = useState("");
+  const usesKnotHTTP = selectedRuntime?.provider === "knot-http";
+  const knotCatalogQuery = useQuery(
+    runtimeModelsOptions(
+      usesKnotHTTP && selectedRuntime?.status === "online"
+        ? selectedRuntime.id
+        : null,
+    ),
+  );
+  const knotAgents = knotCatalogQuery.data?.knotAgents ?? [];
 
   const builder = useBuilderSession({
     sessionId: "",
@@ -48,10 +66,22 @@ export function BuilderSetupPanel({
     onRuntimeLabel(selectedRuntime);
   }, [onRuntimeLabel, selectedRuntime]);
 
+  useEffect(() => {
+    setKnotAgentId("");
+  }, [selectedRuntime?.id]);
+
   const startConversation = async () => {
     if (selectedRuntime?.status !== "online") return;
-    const startedId = await builder.start(selectedRuntime.id, draft.model);
-    if (startedId) onStarted(startedId, selectedRuntime.id);
+    const selectedKnotAgentId = usesKnotHTTP ? knotAgentId.trim() : "";
+    if (usesKnotHTTP && !looksLikeKnotAgentId(selectedKnotAgentId)) return;
+    const startedId = await builder.start(
+      selectedRuntime.id,
+      draft.model,
+      selectedKnotAgentId,
+    );
+    if (startedId) {
+      onStarted(startedId, selectedRuntime.id, selectedKnotAgentId);
+    }
   };
 
   return (
@@ -66,6 +96,21 @@ export function BuilderSetupPanel({
       members={form.members}
       currentUserId={form.currentUserId}
       selectedRuntime={selectedRuntime}
+      knotAgentPicker={
+        usesKnotHTTP ? (
+          <KnotAgentPickerField
+            value={knotAgentId}
+            onChange={setKnotAgentId}
+            agents={knotAgents}
+            loading={knotCatalogQuery.isLoading}
+            disabled={builder.starting}
+            required
+          />
+        ) : null
+      }
+      knotAgentReady={
+        !usesKnotHTTP || looksLikeKnotAgentId(knotAgentId.trim())
+      }
       starting={builder.starting}
       error={builder.error}
       onStart={() => void startConversation()}

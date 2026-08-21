@@ -1274,6 +1274,7 @@ SELECT cs.id,
        cs.created_at,
        cs.updated_at,
        a.runtime_id,
+       a.runtime_config,
        COALESCE(lm.content, '') AS last_message_content,
        COALESCE(lm.role, '') AS last_message_role,
        lm.created_at AS last_message_at,
@@ -1308,6 +1309,7 @@ type ListAgentBuilderSessionsByCreatorRow struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 	RuntimeID          pgtype.UUID        `json:"runtime_id"`
+	RuntimeConfig      []byte             `json:"runtime_config"`
 	LastMessageContent string             `json:"last_message_content"`
 	LastMessageRole    string             `json:"last_message_role"`
 	LastMessageAt      pgtype.Timestamptz `json:"last_message_at"`
@@ -1361,6 +1363,7 @@ func (q *Queries) ListAgentBuilderSessionsByCreator(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.RuntimeID,
+			&i.RuntimeConfig,
 			&i.LastMessageContent,
 			&i.LastMessageRole,
 			&i.LastMessageAt,

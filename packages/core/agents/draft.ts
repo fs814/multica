@@ -207,17 +207,19 @@ export function buildDuplicateDraft(
 export function buildCreateAgentRequest(options: {
   draft: AgentDraft;
   runtimeId: string;
+  runtimeConfig?: Record<string, unknown>;
   /** Template attribution for the `agent_created` event, not a template create. */
   template?: string;
   duplicateSource?: Agent | null;
 }): CreateAgentRequest {
-  const { draft, runtimeId, template, duplicateSource } = options;
+  const { draft, runtimeId, runtimeConfig, template, duplicateSource } = options;
   const request: CreateAgentRequest = {
     name: draft.name.trim(),
     description: draft.description.trim(),
     instructions: draft.instructions.trim() || undefined,
     avatar_url: draft.avatarUrl ?? undefined,
     runtime_id: runtimeId,
+    runtime_config: runtimeConfig,
     model: draft.model.trim() || undefined,
     thinking_level: draft.thinkingLevel.trim() || undefined,
     service_tier: draft.serviceTier.trim() || undefined,

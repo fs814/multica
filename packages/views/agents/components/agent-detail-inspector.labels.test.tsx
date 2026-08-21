@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
-import type { Agent } from "@multica/core/types";
+import type { Agent, AgentRuntime } from "@multica/core/types";
 import { renderWithI18n } from "../../test/i18n";
 import { AgentDetailInspector } from "./agent-detail-inspector";
 
@@ -36,6 +36,12 @@ vi.mock("./inspector/service-tier-setting-field", () => ({
   ServiceTierSettingField: () => <div data-testid="service-tier-field" />,
 }));
 
+vi.mock("./tabs/knot-config-tab", () => ({
+  KnotConfigTab: ({ compact }: { compact?: boolean }) => (
+    <div data-testid="knot-agent-id-field" data-compact={String(!!compact)} />
+  ),
+}));
+
 const agent = {
   id: "agent-1",
   workspace_id: "workspace-1",
@@ -43,6 +49,12 @@ const agent = {
   description: "Test agent",
   runtime_id: "runtime-1",
 } as Agent;
+
+const knotHTTPRuntime = {
+  id: "runtime-1",
+  provider: "knot-http",
+  status: "online",
+} as AgentRuntime;
 
 describe("AgentDetailInspector labels", () => {
   afterEach(cleanup);
@@ -68,5 +80,26 @@ describe("AgentDetailInspector labels", () => {
 
     expect(screen.queryByTestId("resource-label-picker")).toBeNull();
     expect(screen.queryByText("Labels")).toBeNull();
+  });
+
+  it("shows the Knot agent id inside General execution config", () => {
+    renderWithI18n(
+      <AgentDetailInspector
+        agent={agent}
+        runtime={knotHTTPRuntime}
+        runtimes={[knotHTTPRuntime]}
+        members={[]}
+        currentUserId="user-1"
+        canEdit
+        onUpdate={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.getByText("Execution")).toBeInTheDocument();
+    expect(screen.getByText("Knot agent ID")).toBeInTheDocument();
+    expect(screen.getByTestId("knot-agent-id-field")).toHaveAttribute(
+      "data-compact",
+      "true",
+    );
   });
 });

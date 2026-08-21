@@ -25,6 +25,7 @@ import {
   mergeBuilderDraft,
   parseBuilderDraft,
   stripBuilderDraft,
+  withKnotAgentId,
 } from "@multica/core/agents";
 import {
   runtimeDisplayLabel,
@@ -56,6 +57,7 @@ export function BuilderWorkspace({
   session,
   sessionSettled,
   fallbackRuntimeId,
+  fallbackKnotAgentId,
   onDiscarded,
   onRuntimeLabel,
 }: {
@@ -69,6 +71,8 @@ export function BuilderWorkspace({
    *  the list once it has a message, so for the first turn this is the only
    *  truthful answer to "where does it run". */
   fallbackRuntimeId: string;
+  /** Knot identity selected immediately before this session was created. */
+  fallbackKnotAgentId: string;
   /** The conversation no longer exists; the page decides where to go. */
   onDiscarded: () => void;
   /** Reports the runtime this conversation settled on, for the shell's chip. */
@@ -92,6 +96,7 @@ export function BuilderWorkspace({
   );
   const form = useCreateAgentForm({ runtimeSeed });
   const { draft, setDraft, selectedRuntime } = form;
+  const knotAgentId = session?.knot_agent_id || fallbackKnotAgentId;
 
   const draftSync = useBuilderDraftSync({
     sessionId,
@@ -162,6 +167,10 @@ export function BuilderWorkspace({
   const submit = useCreateAgentSubmit({
     draft,
     runtimeId: selectedRuntime?.id ?? null,
+    runtimeConfig:
+      selectedRuntime?.provider === "knot-http" && knotAgentId
+        ? withKnotAgentId({}, knotAgentId)
+        : undefined,
     squadId,
     template: "agent_builder",
     // The agent is already committed here, so builder cleanup must never turn

@@ -34,6 +34,7 @@ import {
 import { RuntimePicker } from "./inspector/runtime-picker";
 import { ThinkingSettingField } from "./inspector/thinking-prop-row";
 import { ServiceTierSettingField } from "./inspector/service-tier-setting-field";
+import { KnotConfigTab } from "./tabs/knot-config-tab";
 
 interface InspectorProps {
   agent: Agent;
@@ -261,6 +262,21 @@ export function AgentDetailInspector({
               }
             />
           </SettingsRow>
+          {runtime?.provider === "knot-http" && (
+            <SettingsRow
+              label={t(($) => $.tab_body.knot_config.agent_label)}
+              size="select-wide"
+              align="start"
+            >
+              <KnotConfigTab
+                agent={agent}
+                runtimeId={runtime.id}
+                runtimeOnline={!!isOnline}
+                onSave={(updates) => update(updates)}
+                compact
+              />
+            </SettingsRow>
+          )}
           <SettingsRow
             label={t(($) => $.inspector.prop_model)}
             size="select-wide"

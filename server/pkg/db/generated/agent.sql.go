@@ -1674,22 +1674,23 @@ INSERT INTO agent (
     visibility, permission_mode, max_concurrent_tasks, owner_id, instructions,
     custom_env, custom_args, model, kind, system_key
 ) VALUES (
-    $1, $2, '', $3, '{}'::jsonb, $4,
-    'private', 'private', 1, $5, $6,
-    '{}'::jsonb, '[]'::jsonb, $7, 'system', $8
+    $1, $2, '', $3, $4, $5,
+    'private', 'private', 1, $6, $7,
+    '{}'::jsonb, '[]'::jsonb, $8, 'system', $9
 )
 RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier
 `
 
 type CreateAgentBuilderParams struct {
-	WorkspaceID  pgtype.UUID `json:"workspace_id"`
-	Name         string      `json:"name"`
-	RuntimeMode  string      `json:"runtime_mode"`
-	RuntimeID    pgtype.UUID `json:"runtime_id"`
-	OwnerID      pgtype.UUID `json:"owner_id"`
-	Instructions string      `json:"instructions"`
-	Model        pgtype.Text `json:"model"`
-	SystemKey    pgtype.Text `json:"system_key"`
+	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	Name          string      `json:"name"`
+	RuntimeMode   string      `json:"runtime_mode"`
+	RuntimeConfig []byte      `json:"runtime_config"`
+	RuntimeID     pgtype.UUID `json:"runtime_id"`
+	OwnerID       pgtype.UUID `json:"owner_id"`
+	Instructions  string      `json:"instructions"`
+	Model         pgtype.Text `json:"model"`
+	SystemKey     pgtype.Text `json:"system_key"`
 }
 
 // One hidden builder agent per creation session. Keeping the execution carrier
@@ -1701,6 +1702,7 @@ func (q *Queries) CreateAgentBuilder(ctx context.Context, arg CreateAgentBuilder
 		arg.WorkspaceID,
 		arg.Name,
 		arg.RuntimeMode,
+		arg.RuntimeConfig,
 		arg.RuntimeID,
 		arg.OwnerID,
 		arg.Instructions,

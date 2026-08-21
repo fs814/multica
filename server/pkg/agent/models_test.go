@@ -466,6 +466,59 @@ func thinkingValues(thinking *ModelThinking) []string {
 	return values
 }
 
+func TestIsTClaudeExecutable(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{path: "tclaude", want: true},
+		{path: `C:\Users\me\scoop\shims\tclaude.cmd`, want: true},
+		{path: "/usr/local/bin/tclaude", want: true},
+		{path: "claude", want: false},
+		{path: `C:\tools\claude.exe`, want: false},
+	} {
+		if got := isTClaudeExecutable(tc.path); got != tc.want {
+			t.Errorf("isTClaudeExecutable(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+func TestParseTClaudeModels(t *testing.T) {
+	t.Parallel()
+	models, err := parseTClaudeModels(`[tclaude] model "__multica_model_probe__" is not available.
+Available models: claude-sonnet-4-6, claude-sonnet-4-6[1m], claude-sonnet-5, claude-opus-5, claude-haiku-4-5, opusplan
+`)
+	if err != nil {
+		t.Fatalf("parseTClaudeModels: %v", err)
+	}
+	wantIDs := []string{"claude-sonnet-4-6", "claude-sonnet-4-6[1m]", "claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5", "opusplan"}
+	gotIDs := make([]string, 0, len(models))
+	defaults := 0
+	for _, model := range models {
+		gotIDs = append(gotIDs, model.ID)
+		if model.Provider != "tclaude" || model.Label != model.ID {
+			t.Errorf("unexpected model metadata: %+v", model)
+		}
+		if model.Default {
+			defaults++
+		}
+	}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("model IDs = %v, want %v", gotIDs, wantIDs)
+	}
+	if defaults != 1 || !models[0].Default {
+		t.Fatalf("expected claude-sonnet-4-6 to be sole default: %+v", models)
+	}
+}
+
+func TestParseTClaudeModelsRejectsMalformedOutput(t *testing.T) {
+	t.Parallel()
+	if _, err := parseTClaudeModels("unrelated failure"); err == nil {
+		t.Fatal("expected malformed output to fail")
+	}
+}
+
 func TestClaudeStaticModelsExposesFable5(t *testing.T) {
 	models := claudeStaticModels()
 	ids := map[string]Model{}

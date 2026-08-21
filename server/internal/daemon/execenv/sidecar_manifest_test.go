@@ -159,6 +159,8 @@ var allFileBasedProviders = []string{
 	"antigravity",
 	"qwen",
 	"qwenpaw",
+	"knot",
+	"knot-http",
 }
 
 // TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir is the headline

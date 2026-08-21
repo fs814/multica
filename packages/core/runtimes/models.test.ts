@@ -70,6 +70,9 @@ describe("resolveRuntimeModels", () => {
       supported: true,
       cached: true,
       cachedAt: "2026-07-29T00:00:00Z",
+      // Non-knot runtimes report no agents. The empty list is deliberate rather
+      // than absent: the picker reads it as "offer manual entry".
+      knotAgents: [],
     });
     expect(getListModelsResult).not.toHaveBeenCalled();
   });
@@ -83,6 +86,23 @@ describe("resolveRuntimeModels", () => {
 
     expect(result.cached).toBe(false);
     expect(result.cachedAt).toBeUndefined();
+  });
+
+  // knot / knot-http discover their selectable Knot agents on the same round
+  // trip as the models, so the list must survive this mapping. Without it the
+  // settings picker silently degrades to manual id entry even though the daemon
+  // reported a perfectly good list.
+  it("passes through the knot agent list", async () => {
+    const knotAgents = [
+      { id: "ec4633074fe4413c83218e1f36b8e24d", name: "全能选手-macbook" },
+    ];
+    initiateListModels.mockResolvedValue(
+      request({ status: "completed", models: catalog, knot_agents: knotAgents }),
+    );
+
+    const result = await resolveRuntimeModels("rt-1");
+
+    expect(result.knotAgents).toEqual(knotAgents);
   });
 
   it("still polls a pending response until the daemon reports back", async () => {

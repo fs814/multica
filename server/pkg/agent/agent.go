@@ -224,7 +224,7 @@ type Result struct {
 
 // Config configures a Backend instance.
 type Config struct {
-	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, openclaw, hermes, pi, cursor, kimi, reasonix, kiro-cli, agy, qodercli, qoderclicn, traecli, grok, qwen, qwenpaw)
+	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, openclaw, hermes, pi, cursor, kimi, reasonix, kiro-cli, agy, qodercli, qoderclicn, traecli, grok, qwen, qwenpaw, knot-cli)
 	CLIVersion     string            // detected version paired with ExecutablePath; observation only, never used to choose behavior
 	Env            map[string]string // extra environment variables
 	Logger         *slog.Logger
@@ -245,7 +245,7 @@ type Config struct {
 }
 
 // New creates a Backend for the given agent type.
-// Supported types: "claude", "codebuddy", "codex", "copilot", "opencode", "deveco", "openclaw", "hermes", "pi", "cursor", "kimi", "reasonix", "kiro", "antigravity", "qoder", "qoderclicn", "traecli", "grok", "qwen", "qwenpaw".
+// Supported types: "claude", "codebuddy", "codex", "copilot", "opencode", "deveco", "openclaw", "hermes", "pi", "cursor", "kimi", "reasonix", "kiro", "antigravity", "qoder", "qoderclicn", "traecli", "grok", "qwen", "qwenpaw", "knot".
 //
 // SupportedTypes is the canonical whitelist of agent types eligible to back a
 // custom runtime profile. It MUST stay in lockstep with the
@@ -253,7 +253,8 @@ type Config struct {
 // migration 134 to add qoder, migration 136 to add traecli, migration 175 to
 // add deveco, migration 179 to add grok, migration 202 to add qwen,
 // migration 242 to add qoderclicn, migration 253 to add qwenpaw,
-// migration 254 to add reasonix): a
+// migration 254 to add reasonix, migration 282 to add knot,
+// migration 283 to add knot-http): a
 // custom runtime profile may only
 // be based on a backend Multica officially supports.
 // qoder and qoderclicn share the same ACP backend; keeping both provider keys
@@ -262,7 +263,11 @@ type Config struct {
 // header and provider branding but was previously missing from this whitelist,
 // so the family picker rejected it (#4945). grok is the xAI Grok Build CLI
 // ACP backend (`grok agent --always-approve stdio`). qwen is Qwen Code's
-// native `qwen -p <prompt> --output-format stream-json` backend.
+// native `qwen -p <prompt> --output-format stream-json` backend. knot is the
+// Knot background-agent CLI (binary `knot-cli`), whose AG-UI style event stream
+// is parsed by knot.go. knot-http reaches the SAME Knot agents over their HTTP
+// AG-UI endpoint instead of the CLI (see knot_http.go): a different wire
+// protocol and auth model that shares knot.go's event parser.
 var SupportedTypes = []string{
 	"claude",
 	"codebuddy",
@@ -284,6 +289,8 @@ var SupportedTypes = []string{
 	"grok",
 	"qwen",
 	"qwenpaw",
+	"knot",
+	"knot-http",
 }
 
 // IsSupportedType reports whether agentType is in the SupportedTypes whitelist.
@@ -369,8 +376,12 @@ func New(agentType string, cfg Config) (Backend, error) {
 		return &qwenBackend{cfg: cfg}, nil
 	case "qwenpaw":
 		return &qwenpawBackend{cfg: cfg}, nil
+	case "knot":
+		return &knotBackend{cfg: cfg}, nil
+	case "knot-http":
+		return &knotHTTPBackend{cfg: cfg}, nil
 	default:
-		return nil, fmt.Errorf("unknown agent type: %q (supported: claude, codebuddy, codex, copilot, opencode, deveco, openclaw, hermes, pi, cursor, kimi, reasonix, kiro, antigravity, qoder, qoderclicn, traecli, grok, qwen, qwenpaw)", agentType)
+		return nil, fmt.Errorf("unknown agent type: %q (supported: claude, codebuddy, codex, copilot, opencode, deveco, openclaw, hermes, pi, cursor, kimi, reasonix, kiro, antigravity, qoder, qoderclicn, traecli, grok, qwen, qwenpaw, knot, knot-http)", agentType)
 	}
 }
 
@@ -406,6 +417,8 @@ var launchHeaders = map[string]string{
 	"grok":        "grok agent stdio",
 	"qwen":        "qwen -p (stream-json)",
 	"qwenpaw":     "qwenpaw acp",
+	"knot":        "knot-cli chat (stream-json)",
+	"knot-http":   "POST /agents/agui/{id} (AG-UI SSE)",
 }
 
 // LaunchHeader returns the user-visible launch skeleton for agentType, or an

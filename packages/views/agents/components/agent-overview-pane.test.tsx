@@ -39,6 +39,9 @@ vi.mock("./tabs/env-tab", () => ({
 vi.mock("./tabs/custom-args-tab", () => ({
   CustomArgsTab: () => <div>custom-args-tab</div>,
 }));
+vi.mock("./tabs/knot-config-tab", () => ({
+  KnotConfigTab: () => <div>knot-config-tab</div>,
+}));
 vi.mock("./tabs/mcp-config-tab", () => ({
   McpConfigTab: () => <div>mcp-config-tab</div>,
 }));
@@ -242,6 +245,22 @@ describe("AgentOverviewPane Settings navigation", () => {
     renderPane([makeRuntime("claude")]);
     openSettings();
     expect(screen.getByRole("tab", { name: /^Access$/i })).toBeInTheDocument();
+  });
+
+  it("shows Routing for the Knot CLI runtime", () => {
+    renderPane([makeRuntime("knot")]);
+    openSettings();
+    const routingTab = screen.getByRole("tab", { name: /^Routing$/i });
+    expect(routingTab).toBeInTheDocument();
+
+    fireEvent.click(routingTab);
+    expect(screen.getByText("knot-config-tab")).toBeInTheDocument();
+  });
+
+  it("keeps Knot HTTP configuration in General instead of a second Routing tab", () => {
+    renderPane([makeRuntime("knot-http")]);
+    openSettings();
+    expect(screen.queryByRole("tab", { name: /^Routing$/i })).toBeNull();
   });
 });
 

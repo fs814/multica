@@ -26,7 +26,7 @@ func TestInMemoryModelCatalogCache_RoundTrip(t *testing.T) {
 	if got, err := cache.Get(ctx, "rt-1"); err != nil || got != nil {
 		t.Fatalf("cold cache should miss: got=%+v err=%v", got, err)
 	}
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true, nil); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestInMemoryModelCatalogCache_RoundTrip(t *testing.T) {
 func TestInMemoryModelCatalogCache_ReturnsIndependentCopies(t *testing.T) {
 	ctx := context.Background()
 	cache := NewInMemoryModelCatalogCache()
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true, nil); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -99,7 +99,7 @@ func TestInMemoryModelCatalogCache_IsolatesNestedFields(t *testing.T) {
 		},
 		ServiceTiers: []ModelServiceTier{{ID: "fast", Name: "Fast"}},
 	}}
-	if err := cache.Put(ctx, "rt-1", source, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", source, true, nil); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -145,21 +145,21 @@ func TestInMemoryModelCatalogCache_SkipsUncacheableResults(t *testing.T) {
 	ctx := context.Background()
 	cache := NewInMemoryModelCatalogCache()
 
-	if err := cache.Put(ctx, "rt-empty", nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-empty", nil, true, nil); err != nil {
 		t.Fatalf("put empty: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "rt-empty"); got != nil {
 		t.Fatalf("empty catalog must not be cached: %+v", got)
 	}
 
-	if err := cache.Put(ctx, "rt-unsupported", sampleCatalog(), false); err != nil {
+	if err := cache.Put(ctx, "rt-unsupported", sampleCatalog(), false, nil); err != nil {
 		t.Fatalf("put unsupported: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "rt-unsupported"); got != nil {
 		t.Fatalf("unsupported runtime must not be cached: %+v", got)
 	}
 
-	if err := cache.Put(ctx, "", sampleCatalog(), true); err != nil {
+	if err := cache.Put(ctx, "", sampleCatalog(), true, nil); err != nil {
 		t.Fatalf("put empty runtime id: %v", err)
 	}
 	if got, _ := cache.Get(ctx, ""); got != nil {
@@ -174,7 +174,7 @@ func TestInMemoryModelCatalogCache_ExpiresAndInvalidates(t *testing.T) {
 	cache := NewInMemoryModelCatalogCache()
 	cache.retainFor = 20 * time.Millisecond
 
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true, nil); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	time.Sleep(40 * time.Millisecond)
@@ -183,7 +183,7 @@ func TestInMemoryModelCatalogCache_ExpiresAndInvalidates(t *testing.T) {
 	}
 
 	cache.retainFor = modelCatalogServeWindow
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), true, nil); err != nil {
 		t.Fatalf("re-put: %v", err)
 	}
 	if err := cache.Invalidate(ctx, "rt-1"); err != nil {
@@ -280,8 +280,10 @@ type failingModelCatalogCache struct{}
 func (failingModelCatalogCache) Get(context.Context, string) (*ModelCatalogSnapshot, error) {
 	return nil, errors.New("redis down")
 }
-func (failingModelCatalogCache) Put(context.Context, string, []ModelEntry, bool) error { return nil }
-func (failingModelCatalogCache) Invalidate(context.Context, string) error              { return nil }
+func (failingModelCatalogCache) Put(context.Context, string, []ModelEntry, bool, []KnotAgentEntry) error {
+	return nil
+}
+func (failingModelCatalogCache) Invalidate(context.Context, string) error { return nil }
 
 // TestCachedModelCatalog_DegradesToMiss proves the cache can never fail a
 // request: a nil cache, a backend error, or a snapshot that is no longer
@@ -462,5 +464,64 @@ func TestCachedModelListResponse_WireShape(t *testing.T) {
 	}
 	if _, ok := liveFields["cached_at"]; ok {
 		t.Error("live responses must omit cached_at")
+	}
+}
+
+// TestInMemoryModelCatalogCache_RoundTripsKnotAgents pins that the knot agent
+// list survives the cache, not just the live discovery path.
+//
+// It is a distinct test because the failure mode is invisible in normal use: the
+// picker would populate on a cold open and then go empty once the catalog was
+// cached, which reads as a flaky UI rather than a dropped field. The clone check
+// matters for the same reason cloneModelEntries exists — a caller mutating the
+// returned slice must not corrupt the shared cache.
+func TestInMemoryModelCatalogCache_RoundTripsKnotAgents(t *testing.T) {
+	ctx := context.Background()
+	cache := NewInMemoryModelCatalogCache()
+
+	agents := []KnotAgentEntry{
+		{ID: "384328a66c52440b93ae811a6ce3a08f", Name: "全能选手"},
+		{ID: "ec4633074fe4413c83218e1f36b8e24d", Name: "全能选手-macbook"},
+	}
+	if err := cache.Put(ctx, "rt-knot", sampleCatalog(), true, agents); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	got, err := cache.Get(ctx, "rt-knot")
+	if err != nil || got == nil {
+		t.Fatalf("expected a cached snapshot: got=%+v err=%v", got, err)
+	}
+	if len(got.KnotAgents) != 2 {
+		t.Fatalf("KnotAgents = %+v, want 2 entries", got.KnotAgents)
+	}
+	if got.KnotAgents[1].Name != "全能选手-macbook" || got.KnotAgents[1].ID != "ec4633074fe4413c83218e1f36b8e24d" {
+		t.Fatalf("KnotAgents[1] = %+v, want the macbook agent with both fields", got.KnotAgents[1])
+	}
+
+	// Mutating the returned slice must not reach the cache.
+	got.KnotAgents[0].Name = "clobbered"
+	again, err := cache.Get(ctx, "rt-knot")
+	if err != nil || again == nil {
+		t.Fatalf("second get failed: %+v err=%v", again, err)
+	}
+	if again.KnotAgents[0].Name != "全能选手" {
+		t.Fatalf("cache was corrupted by a caller mutation: %+v", again.KnotAgents[0])
+	}
+}
+
+// TestInMemoryModelCatalogCache_OmitsKnotAgentsForOtherProviders keeps the
+// payload byte-identical for the ~20 providers that have no knot agents: a nil
+// list must stay nil so `omitempty` drops the key entirely.
+func TestInMemoryModelCatalogCache_OmitsKnotAgentsForOtherProviders(t *testing.T) {
+	ctx := context.Background()
+	cache := NewInMemoryModelCatalogCache()
+	if err := cache.Put(ctx, "rt-claude", sampleCatalog(), true, nil); err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	got, err := cache.Get(ctx, "rt-claude")
+	if err != nil || got == nil {
+		t.Fatalf("expected a cached snapshot: got=%+v err=%v", got, err)
+	}
+	if got.KnotAgents != nil {
+		t.Fatalf("KnotAgents = %+v, want nil so the wire key is omitted", got.KnotAgents)
 	}
 }
