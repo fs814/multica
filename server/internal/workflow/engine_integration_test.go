@@ -906,6 +906,87 @@ func TestFailVerdictTriggersReworkWithContext(t *testing.T) {
 	}
 }
 
+// TestAutomaticReworkHonorsRunRoundLimit proves MaxReworkRounds is a run-wide
+// budget, distinct from the per-node attempt ceiling. One failed validation may
+// rewind the graph; the next failure blocks the Run instead of opening a third
+// analysis attempt.
+func TestAutomaticReworkHonorsRunRoundLimit(t *testing.T) {
+	env := setupTestEnv(t)
+	def := &Definition{
+		SchemaVersion: SchemaVersion,
+		EntryNode:     "analyze",
+		Nodes: []Node{
+			{
+				Key: "analyze", Type: NodeTypeAgent, Next: []string{"validate"},
+				Routing:          &Routing{Strategy: RoutingCapability, Capability: "analysis"},
+				SubmissionSchema: "analysis",
+			},
+			{
+				Key: "validate", Type: NodeTypeAgent, Next: []string{"end"},
+				Routing:          &Routing{Strategy: RoutingCapability, Capability: "test"},
+				SubmissionSchema: "test_report",
+				OnFailure:        FailurePolicyRework,
+				ReworkTargets:    []string{"analyze"},
+			},
+			{Key: "end", Type: NodeTypeEnd},
+		},
+		Limits: Limits{MaxAttemptsPerNode: 5, MaxReworkRounds: 1},
+	}
+	env.publishTemplate(t, def)
+	ctx := context.Background()
+	run := env.startRun(t, "run-rework-round-limit")
+
+	analyze1 := env.stepByNode(t, run.ID, "analyze")
+	if _, err := env.engine.SubmitResult(ctx, SubmitResultInput{
+		WorkspaceID: env.workspaceID, StepID: analyze1.ID,
+		RawOutput: passPayload("first analysis"), ActorType: "agent",
+	}); err != nil {
+		t.Fatalf("submit analyze attempt 1: %v", err)
+	}
+
+	failValidation := func(step db.WorkflowStepInstance, summary string) {
+		t.Helper()
+		raw := fmt.Sprintf(`%s
+{"verdict":"fail","artifact":{"type":"test_report","summary":%q},"rationale":"validation failed","root_cause":"wrong branch"}
+%s`, submissionOpen, summary, submissionClose)
+		if _, err := env.engine.SubmitResult(ctx, SubmitResultInput{
+			WorkspaceID: env.workspaceID, StepID: step.ID,
+			RawOutput: raw, ActorType: "agent",
+		}); err != nil {
+			t.Fatalf("submit %s: %v", summary, err)
+		}
+	}
+
+	failValidation(env.stepByNode(t, run.ID, "validate"), "first validation failure")
+	analyze2 := env.stepByNode(t, run.ID, "analyze")
+	if analyze2.Attempt != 2 {
+		t.Fatalf("first rework attempt = %d, want 2", analyze2.Attempt)
+	}
+	if _, err := env.engine.SubmitResult(ctx, SubmitResultInput{
+		WorkspaceID: env.workspaceID, StepID: analyze2.ID,
+		RawOutput: passPayload("reworked analysis"), ActorType: "agent",
+	}); err != nil {
+		t.Fatalf("submit analyze attempt 2: %v", err)
+	}
+
+	validate2 := env.stepByNode(t, run.ID, "validate")
+	if validate2.Attempt != 2 {
+		t.Fatalf("validation replay attempt = %d, want 2", validate2.Attempt)
+	}
+	failValidation(validate2, "second validation failure")
+
+	blocked := env.reloadRun(t, run.ID)
+	if blocked.Status != string(RunBlocked) {
+		t.Fatalf("run status = %q, want blocked after exhausting one rework round", blocked.Status)
+	}
+	if !blocked.BlockedReason.Valid || blocked.BlockedReason.String != ReasonReworkLimitExceeded {
+		t.Errorf("blocked reason = %+v, want %q", blocked.BlockedReason, ReasonReworkLimitExceeded)
+	}
+	if latest := env.stepByNode(t, run.ID, "analyze"); latest.Attempt != 2 {
+		t.Errorf("analyze attempt = %d, want no third attempt after budget exhaustion", latest.Attempt)
+	}
+}
+
 // TestAcceptanceGateSeparatesTaskCompletionFromBusinessDone is the plan's
 // headline distinction: the Agent finished, yet the Run waits for a human.
 func TestAcceptanceGateSeparatesTaskCompletionFromBusinessDone(t *testing.T) {
@@ -1029,6 +1110,68 @@ func TestRejectionCreatesTargetedReworkAttempt(t *testing.T) {
 	// The Run resumed rather than staying parked.
 	if got := env.reloadRun(t, run.ID).Status; got != string(RunRunning) {
 		t.Errorf("run status = %q, want running after rework started", got)
+	}
+}
+
+// TestAcceptanceRejectionHonorsRunRoundLimit covers the second rework entry
+// point. Repeated human rejection must consume the same run-wide budget as an
+// automatic failure-policy rewind.
+func TestAcceptanceRejectionHonorsRunRoundLimit(t *testing.T) {
+	env := setupTestEnv(t)
+	def := acceptanceDefinition()
+	def.Limits = Limits{MaxAttemptsPerNode: 5, MaxReworkRounds: 1}
+	env.publishTemplate(t, def)
+	ctx := context.Background()
+	run := env.startRun(t, "run-acceptance-rework-round-limit")
+
+	rejectLatest := func(reason string) {
+		t.Helper()
+		acceptanceStep := env.stepByNode(t, run.ID, "acceptance")
+		pending, err := env.q.GetPendingWorkflowAcceptanceForStep(ctx, db.GetPendingWorkflowAcceptanceForStepParams{
+			StepID: acceptanceStep.ID, WorkspaceID: env.workspaceID,
+		})
+		if err != nil {
+			t.Fatalf("get pending acceptance: %v", err)
+		}
+		if _, err := env.engine.DecideAcceptance(ctx, DecideAcceptanceInput{
+			WorkspaceID: env.workspaceID, AcceptanceID: pending.ID,
+			Accept: false, Reason: reason, ReworkTarget: "implement",
+			ReviewerUserID: env.userID,
+		}); err != nil {
+			t.Fatalf("reject acceptance: %v", err)
+		}
+	}
+
+	implement1 := env.stepByNode(t, run.ID, "implement")
+	if _, err := env.engine.SubmitResult(ctx, SubmitResultInput{
+		WorkspaceID: env.workspaceID, StepID: implement1.ID,
+		RawOutput: passPayload("first attempt"), ActorType: "agent",
+	}); err != nil {
+		t.Fatalf("submit implement attempt 1: %v", err)
+	}
+	rejectLatest("first review rejection")
+
+	implement2 := env.stepByNode(t, run.ID, "implement")
+	if implement2.Attempt != 2 {
+		t.Fatalf("first rejection opened attempt %d, want 2", implement2.Attempt)
+	}
+	if _, err := env.engine.SubmitResult(ctx, SubmitResultInput{
+		WorkspaceID: env.workspaceID, StepID: implement2.ID,
+		RawOutput: passPayload("second attempt"), ActorType: "agent",
+	}); err != nil {
+		t.Fatalf("submit implement attempt 2: %v", err)
+	}
+	rejectLatest("second review rejection")
+
+	blocked := env.reloadRun(t, run.ID)
+	if blocked.Status != string(RunBlocked) {
+		t.Fatalf("run status = %q, want blocked after exhausting one rework round", blocked.Status)
+	}
+	if !blocked.BlockedReason.Valid || blocked.BlockedReason.String != ReasonReworkLimitExceeded {
+		t.Errorf("blocked reason = %+v, want %q", blocked.BlockedReason, ReasonReworkLimitExceeded)
+	}
+	if latest := env.stepByNode(t, run.ID, "implement"); latest.Attempt != 2 {
+		t.Errorf("implement attempt = %d, want no third attempt after budget exhaustion", latest.Attempt)
 	}
 }
 

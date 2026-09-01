@@ -499,6 +499,15 @@ func (e *Engine) applyFailurePolicy(
 			return err
 		}
 		limits := e.limitsFor(run, def)
+		exhausted, err := e.reworkRoundLimitReached(ctx, q, run, limits)
+		if err != nil {
+			return err
+		}
+		if exhausted {
+			return e.blockRun(ctx, q, run, step, ReasonReworkLimitExceeded,
+				fmt.Sprintf("run exhausted its %d rework rounds", limits.MaxReworkRounds),
+				actorType, actorID)
+		}
 		if nextAttempt > int32(targetNode.EffectiveMaxAttempts(limits)) {
 			// Rework budget spent: block rather than loop, so a human decides.
 			return e.blockRun(ctx, q, run, step, ReasonReworkLimitExceeded,
@@ -581,6 +590,26 @@ func (e *Engine) nextAttemptFor(ctx context.Context, q *db.Queries, run db.Workf
 		return 0, fmt.Errorf("get latest attempt for %q: %w", nodeKey, err)
 	}
 	return latest.Attempt + 1, nil
+}
+
+// reworkRoundLimitReached enforces the run-wide rewind budget. The caller holds
+// the Run row lock (via lockStepAndRun), so counting the durable rework-root
+// Steps and creating the next one in the same transaction is serialized across
+// concurrent submissions and reviewers.
+func (e *Engine) reworkRoundLimitReached(
+	ctx context.Context,
+	q *db.Queries,
+	run db.WorkflowRun,
+	limits Limits,
+) (bool, error) {
+	used, err := q.CountWorkflowReworkRounds(ctx, db.CountWorkflowReworkRoundsParams{
+		RunID:       run.ID,
+		WorkspaceID: run.WorkspaceID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("count rework rounds: %w", err)
+	}
+	return limits.MaxReworkRounds > 0 && used >= int64(limits.MaxReworkRounds), nil
 }
 
 // lockStepAndRun loads a Step, its Run, and the pinned definition, taking row
@@ -920,6 +949,17 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 			return fmt.Errorf("fail rejected acceptance step: %w", err)
 		}
 
+		limits := e.limitsFor(run, def)
+		exhausted, err := e.reworkRoundLimitReached(ctx, q, run, limits)
+		if err != nil {
+			return err
+		}
+		if exhausted {
+			return e.blockRun(ctx, q, run, step, ReasonReworkLimitExceeded,
+				fmt.Sprintf("run exhausted its %d rework rounds", limits.MaxReworkRounds),
+				"member", in.ReviewerUserID)
+		}
+
 		targetNode, ok := def.NodeByKey(in.ReworkTarget)
 		if !ok {
 			return newEngineError(ErrCodeInvariantViolation, "rework target absent from the pinned version")
@@ -928,7 +968,6 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 		if err != nil {
 			return err
 		}
-		limits := e.limitsFor(run, def)
 		if attempt > int32(targetNode.EffectiveMaxAttempts(limits)) {
 			return e.blockRun(ctx, q, run, step, ReasonReworkLimitExceeded,
 				fmt.Sprintf("node %q exhausted its %d attempts", in.ReworkTarget, targetNode.EffectiveMaxAttempts(limits)),

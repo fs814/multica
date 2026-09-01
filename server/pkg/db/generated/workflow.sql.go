@@ -305,6 +305,32 @@ func (q *Queries) CompleteWorkflowRun(ctx context.Context, arg CompleteWorkflowR
 	return i, err
 }
 
+const countWorkflowReworkRounds = `-- name: CountWorkflowReworkRounds :one
+SELECT count(*)::bigint
+FROM workflow_step_instance
+WHERE run_id = $1
+  AND workspace_id = $2
+  AND parent_step_id IS NULL
+  AND input ? 'rework'
+`
+
+type CountWorkflowReworkRoundsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Only the node directly activated by a rewind carries a top-level `rework`
+// input. Nodes replayed later on the normal forward path do not, so this counts
+// feedback-loop rounds rather than every repeated downstream attempt. The
+// durable Step input also makes the count correct for Runs started before the
+// max_rework_rounds enforcement code was deployed.
+func (q *Queries) CountWorkflowReworkRounds(ctx context.Context, arg CountWorkflowReworkRoundsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowReworkRounds, arg.RunID, arg.WorkspaceID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countWorkflowRuns = `-- name: CountWorkflowRuns :one
 SELECT count(*)::bigint FROM workflow_run
 WHERE workspace_id = $1

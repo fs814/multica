@@ -360,6 +360,19 @@ SELECT * FROM workflow_step_instance
 WHERE run_id = $1 AND workspace_id = $2
 ORDER BY trace_position ASC;
 
+-- name: CountWorkflowReworkRounds :one
+-- Only the node directly activated by a rewind carries a top-level `rework`
+-- input. Nodes replayed later on the normal forward path do not, so this counts
+-- feedback-loop rounds rather than every repeated downstream attempt. The
+-- durable Step input also makes the count correct for Runs started before the
+-- max_rework_rounds enforcement code was deployed.
+SELECT count(*)::bigint
+FROM workflow_step_instance
+WHERE run_id = $1
+  AND workspace_id = $2
+  AND parent_step_id IS NULL
+  AND input ? 'rework';
+
 -- name: ListActiveWorkflowStepInstances :many
 -- 'Running Run with no active/ready Step' is a reconciler repair case, so the
 -- engine needs a cheap non-terminal step count per Run.
