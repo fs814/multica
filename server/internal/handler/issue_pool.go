@@ -636,6 +636,7 @@ WITH evaluated AS (
 			WHEN cardinality($6::uuid[]) > 0 AND EXISTS (SELECT 1 FROM issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY($6::uuid[])) THEN 'excluded_label'
 			WHEN NOT (i.properties @> $7::jsonb) THEN 'property_mismatch'
 			WHEN EXISTS (SELECT 1 FROM agent_task_queue task WHERE task.issue_id = i.id AND task.status IN ('queued','dispatched','running','waiting_local_directory','deferred')) THEN 'active_task'
+			WHEN EXISTS (SELECT 1 FROM workflow_run run WHERE run.issue_id = i.id AND run.status IN ('pending','running','waiting_acceptance','blocked')) THEN 'active_workflow'
 			WHEN EXISTS (SELECT 1 FROM issue_dependency dep JOIN issue blocker ON blocker.id = dep.depends_on_issue_id WHERE dep.issue_id = i.id AND dep.type = 'blocked_by' AND issue_effective_status(blocker.workspace_id, blocker.status) NOT IN ('done','cancelled')) THEN 'blocking_dependency'
 			WHEN EXISTS (SELECT 1 FROM issue_pool_item item WHERE item.issue_id = i.id AND item.status IN ('claimed','approved','dispatching','running','waiting_acceptance','blocked')) THEN 'active_claim'
 			ELSE NULL
@@ -973,6 +974,7 @@ const issuePoolEligibilityPredicate = `
 	AND (cardinality($6::uuid[]) = 0 OR NOT EXISTS (SELECT 1 FROM issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY($6::uuid[])))
 	AND i.properties @> $7::jsonb
 	AND NOT EXISTS (SELECT 1 FROM agent_task_queue task WHERE task.issue_id = i.id AND task.status IN ('queued','dispatched','running','waiting_local_directory','deferred'))
+	AND NOT EXISTS (SELECT 1 FROM workflow_run run WHERE run.issue_id = i.id AND run.status IN ('pending','running','waiting_acceptance','blocked'))
 	AND NOT EXISTS (SELECT 1 FROM issue_dependency dep JOIN issue blocker ON blocker.id = dep.depends_on_issue_id WHERE dep.issue_id = i.id AND dep.type = 'blocked_by' AND issue_effective_status(blocker.workspace_id, blocker.status) NOT IN ('done','cancelled'))
 	AND NOT EXISTS (SELECT 1 FROM issue_pool_item item WHERE item.issue_id = i.id AND item.status IN ('claimed','approved','dispatching','running','waiting_acceptance','blocked'))`
 

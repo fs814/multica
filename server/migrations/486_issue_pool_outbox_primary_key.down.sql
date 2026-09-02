@@ -1,0 +1,2 @@
+ALTER TABLE issue_pool_notification_outbox
+    DROP CONSTRAINT IF EXISTS issue_pool_notification_outbox_pkey;

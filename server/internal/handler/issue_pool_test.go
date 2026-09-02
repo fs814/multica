@@ -11,15 +11,24 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 func newIssuePoolAutopilot(t *testing.T, projectID any) string {
+	return newIssuePoolAutopilotWithDefinition(t, projectID, func(string) *workflow.Definition {
+		return &workflow.Definition{SchemaVersion: workflow.SchemaVersion, EntryNode: "end", Nodes: []workflow.Node{{Key: "end", Type: workflow.NodeTypeEnd}}}
+	})
+}
+
+func newIssuePoolAutopilotWithDefinition(t *testing.T, projectID any, definition func(agentID string) *workflow.Definition) string {
 	t.Helper()
 	ctx := context.Background()
 	workspaceID, userID := parseUUID(testWorkspaceID), parseUUID(testUserID)
+	var agentID string
+	dbfx.QueryRow(t, `SELECT id::text FROM agent WHERE workspace_id=$1 ORDER BY created_at LIMIT 1`, testWorkspaceID).Scan(&agentID)
 	template, err := testHandler.Queries.CreateWorkflowTemplate(ctx, db.CreateWorkflowTemplateParams{
 		WorkspaceID: workspaceID, Key: fmt.Sprintf("issue-pool-%d", time.Now().UnixNano()),
 		Name: "Issue pool test", CreatedByType: "member", CreatedByID: userID,
@@ -27,7 +36,10 @@ func newIssuePoolAutopilot(t *testing.T, projectID any) string {
 	if err != nil {
 		t.Fatalf("create issue-pool workflow template: %v", err)
 	}
-	raw, _ := workflow.MarshalDefinition(&workflow.Definition{SchemaVersion: workflow.SchemaVersion, EntryNode: "end", Nodes: []workflow.Node{{Key: "end", Type: workflow.NodeTypeEnd}}})
+	raw, err := workflow.MarshalDefinition(definition(agentID))
+	if err != nil {
+		t.Fatalf("marshal issue-pool workflow definition: %v", err)
+	}
 	version, err := testHandler.Queries.CreateWorkflowTemplateVersion(ctx, db.CreateWorkflowTemplateVersionParams{
 		WorkspaceID: workspaceID, TemplateID: template.ID, Definition: raw, SchemaVersion: workflow.SchemaVersion,
 	})
@@ -49,8 +61,6 @@ func newIssuePoolAutopilot(t *testing.T, projectID any) string {
 		testPool.Exec(context.Background(), `DELETE FROM workflow_template_version WHERE template_id=$1`, template.ID)
 		testPool.Exec(context.Background(), `DELETE FROM workflow_template WHERE id=$1`, template.ID)
 	})
-	var agentID string
-	dbfx.QueryRow(t, `SELECT id::text FROM agent WHERE workspace_id=$1 ORDER BY created_at LIMIT 1`, testWorkspaceID).Scan(&agentID)
 	return dbfx.Insert(t, "autopilot", testutil.Cols{
 		"workspace_id":                 testWorkspaceID,
 		"title":                        "Historical issue pool",
@@ -146,6 +156,22 @@ func TestIssuePoolPreviewDeterministicExplainableAndProjectScoped(t *testing.T) 
 	var agentID string
 	dbfx.QueryRow(t, `SELECT id::text FROM agent WHERE workspace_id=$1 ORDER BY created_at LIMIT 1`, testWorkspaceID).Scan(&agentID)
 	dbfx.Task(t, agentID, testutil.Cols{"issue_id": activeIssue, "status": "queued", "runtime_id": testRuntimeID})
+	activeWorkflowIssue := dbfx.Issue(t, "Issue with active Workflow", testutil.Cols{
+		"project_id": projectA, "status": "backlog", "priority": "urgent",
+		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+	})
+	ap, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	activeRun := dbfx.Insert(t, "workflow_run", testutil.Cols{
+		"workspace_id": testWorkspaceID, "issue_id": activeWorkflowIssue,
+		"template_id": uuidToString(ap.WorkflowTemplateID), "template_version_id": uuidToString(ap.WorkflowTemplateVersionID),
+		"status": "running", "source": "manual", "idempotency_key": "active-workflow-" + activeWorkflowIssue,
+		"accountable_user_id": testUserID, "input": testutil.Raw("'{}'::jsonb"),
+		"context": testutil.Raw("'{}'::jsonb"), "policy": testutil.Raw("'{}'::jsonb"),
+	})
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM workflow_run WHERE id=$1`, activeRun) })
 	dbfx.Issue(t, "Other project must not be scanned", testutil.Cols{
 		"project_id": projectB, "status": "backlog", "priority": "urgent",
 		"last_activity_at": testutil.Raw("'2019-01-01T00:00:00Z'::timestamptz"),
@@ -162,14 +188,17 @@ func TestIssuePoolPreviewDeterministicExplainableAndProjectScoped(t *testing.T) 
 	first := previewIssuePool(t, autopilotID, http.StatusOK)
 	second := previewIssuePool(t, autopilotID, http.StatusOK)
 
-	if first.ScannedCount != 4 || first.EligibleCount != 2 || first.SelectedCount != 2 {
-		t.Fatalf("preview counts = scanned:%d eligible:%d selected:%d, want 4/2/2", first.ScannedCount, first.EligibleCount, first.SelectedCount)
+	if first.ScannedCount != 5 || first.EligibleCount != 2 || first.SelectedCount != 2 {
+		t.Fatalf("preview counts = scanned:%d eligible:%d selected:%d, want 5/2/2", first.ScannedCount, first.EligibleCount, first.SelectedCount)
 	}
 	if got := first.ExcludedByRule["human_assignee"]; got != 1 {
 		t.Fatalf("human_assignee exclusions = %d, want 1", got)
 	}
 	if got := first.ExcludedByRule["active_task"]; got != 1 {
 		t.Fatalf("active_task exclusions = %d, want 1", got)
+	}
+	if got := first.ExcludedByRule["active_workflow"]; got != 1 {
+		t.Fatalf("active_workflow exclusions = %d, want 1", got)
 	}
 	if first.Candidates[0].IssueID != high || first.Candidates[1].IssueID != low {
 		t.Fatalf("stable score order = [%s %s], want [%s %s]", first.Candidates[0].IssueID, first.Candidates[1].IssueID, high, low)
@@ -399,7 +428,7 @@ func TestIssuePoolApprovalRunsOriginalIssueAndRecoversLostLink(t *testing.T) {
 	// Simulate the precise crash window: StartRun committed, but the item link
 	// was not observed. Replaying the item finds the idempotent Run and backfills
 	// the same id without creating a second run.
-	dbfx.Exec(t, `UPDATE issue_pool_item SET workflow_run_id=NULL,status='dispatching' WHERE id=$1`, cycle.Items[0].ID)
+	dbfx.Exec(t, `UPDATE issue_pool_item SET workflow_run_id=NULL,status='dispatching',updated_at=now()-interval '2 minutes' WHERE id=$1`, cycle.Items[0].ID)
 	ap, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
 	if err != nil {
 		t.Fatal(err)
@@ -485,6 +514,225 @@ func TestDispatchIssuePoolAutopilotRunIsIdempotent(t *testing.T) {
 	}
 	if got := dbfx.Count(t, `SELECT count(*) FROM issue_pool_notification_outbox WHERE autopilot_id=$1 AND event_type='candidate_review'`, autopilotID); firstNotices == 0 || got != firstNotices {
 		t.Fatalf("review notices for replayed run = %d then %d", firstNotices, got)
+	}
+}
+
+func TestIssuePoolConcurrentDispatchCreatesExactlyOneWorkflowRunAndTask(t *testing.T) {
+	autopilotID := newIssuePoolAutopilotWithDefinition(t, nil, func(agentID string) *workflow.Definition {
+		return &workflow.Definition{
+			SchemaVersion: workflow.SchemaVersion, EntryNode: "implement",
+			Nodes: []workflow.Node{
+				{Key: "implement", Type: workflow.NodeTypeAgent, Next: []string{"end"}, Routing: &workflow.Routing{Strategy: workflow.RoutingExplicit, AgentID: agentID}, SubmissionSchema: "code_change"},
+				{Key: "end", Type: workflow.NodeTypeEnd},
+			},
+		}
+	})
+	cleanIssuePoolRows(t, autopilotID)
+	dbfx.Issue(t, "Concurrent dispatch candidate", testutil.Cols{
+		"status": "backlog", "description": "dispatch exactly once",
+		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+	})
+	putIssuePoolPolicy(t, autopilotID, map[string]any{
+		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
+		"require_description": false, "require_acceptance_criteria": false,
+	})
+	previous := testHandler.WorkflowEngine
+	testHandler.WorkflowEngine = nil
+	t.Cleanup(func() { testHandler.WorkflowEngine = previous })
+	cycle := createIssuePoolCycle(t, autopilotID, "concurrent-dispatch", http.StatusCreated)
+	reviewIssuePoolItems(t, autopilotID, cycle.ID, []map[string]any{{"item_id": cycle.Items[0].ID, "decision": "approve"}}, http.StatusOK)
+	testHandler.WorkflowEngine = &workflow.Engine{
+		Queries: testHandler.Queries, TxStarter: testPool, Router: service.NewWorkflowRouter(testHandler.Queries), Schemas: workflow.DefaultSchemaRegistry,
+	}
+	ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			testHandler.dispatchApprovedIssuePoolItems(context.Background(), ap, parseUUID(cycle.ID), parseUUID(testUserID))
+		}()
+	}
+	wg.Wait()
+	key := "issue-pool:" + cycle.Items[0].ID
+	if got := dbfx.Count(t, `SELECT count(*) FROM workflow_run WHERE idempotency_key=$1`, key); got != 1 {
+		t.Fatalf("concurrent dispatch WorkflowRuns = %d, want 1", got)
+	}
+	if got := dbfx.Count(t, `SELECT count(*) FROM agent_task_queue task JOIN workflow_step_instance step ON step.task_id=task.id JOIN workflow_run run ON run.id=step.run_id WHERE run.idempotency_key=$1`, key); got != 1 {
+		t.Fatalf("concurrent dispatch tasks = %d, want 1", got)
+	}
+	var attempts int
+	dbfx.QueryRow(t, `SELECT dispatch_attempts FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&attempts)
+	if attempts != 1 {
+		t.Fatalf("dispatch attempts = %d, want 1 claimed worker", attempts)
+	}
+}
+
+func TestIssuePoolWorkflowAcceptanceAndBoundedReworkRemainCanonical(t *testing.T) {
+	definition := func(agentID string) *workflow.Definition {
+		return &workflow.Definition{
+			SchemaVersion: workflow.SchemaVersion, EntryNode: "implement",
+			Nodes: []workflow.Node{
+				{Key: "implement", Type: workflow.NodeTypeAgent, Next: []string{"acceptance"}, Routing: &workflow.Routing{Strategy: workflow.RoutingExplicit, AgentID: agentID}, SubmissionSchema: "code_change"},
+				{Key: "acceptance", Type: workflow.NodeTypeAcceptance, Next: []string{"end"}, AcceptanceCriteria: []string{"result verified"}, ReworkTargets: []string{"implement"}},
+				{Key: "end", Type: workflow.NodeTypeEnd},
+			},
+			Limits: workflow.Limits{MaxAttemptsPerNode: 3, MaxReworkRounds: 1},
+		}
+	}
+	previous := testHandler.WorkflowEngine
+	engine := &workflow.Engine{Queries: testHandler.Queries, TxStarter: testPool, Router: service.NewWorkflowRouter(testHandler.Queries), Schemas: workflow.DefaultSchemaRegistry}
+	testHandler.WorkflowEngine = engine
+	t.Cleanup(func() { testHandler.WorkflowEngine = previous })
+
+	start := func(t *testing.T, key string) (string, IssuePoolCycleResponse) {
+		autopilotID := newIssuePoolAutopilotWithDefinition(t, nil, definition)
+		cleanIssuePoolRows(t, autopilotID)
+		dbfx.Issue(t, "Acceptance "+key, testutil.Cols{
+			"status": "backlog", "description": "workflow acceptance input",
+			"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		})
+		putIssuePoolPolicy(t, autopilotID, map[string]any{
+			"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
+			"require_description": false, "require_acceptance_criteria": false,
+		})
+		cycle := createIssuePoolCycle(t, autopilotID, key, http.StatusCreated)
+		cycle = reviewIssuePoolItems(t, autopilotID, cycle.ID, []map[string]any{{"item_id": cycle.Items[0].ID, "decision": "approve"}}, http.StatusOK)
+		if cycle.Items[0].WorkflowRunID == nil {
+			t.Fatal("approved item has no canonical WorkflowRun")
+		}
+		return autopilotID, cycle
+	}
+	latestStep := func(t *testing.T, runID, node string) db.WorkflowStepInstance {
+		steps, err := testHandler.Queries.ListWorkflowStepInstances(context.Background(), db.ListWorkflowStepInstancesParams{RunID: parseUUID(runID), WorkspaceID: parseUUID(testWorkspaceID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var latest db.WorkflowStepInstance
+		for _, step := range steps {
+			if step.NodeKey == node && step.Attempt >= latest.Attempt {
+				latest = step
+			}
+		}
+		return latest
+	}
+	submit := func(t *testing.T, runID, summary string) {
+		step := latestStep(t, runID, "implement")
+		dbfx.Exec(t, `UPDATE agent_task_queue SET status='completed',completed_at=now() WHERE id=$1`, step.TaskID)
+		raw := fmt.Sprintf(`{"verdict":"pass","artifact":{"type":"code_change","summary":%q},"rationale":"done","confidence":0.9}`, summary)
+		if _, err := engine.SubmitResult(context.Background(), workflow.SubmitResultInput{
+			WorkspaceID: parseUUID(testWorkspaceID), StepID: step.ID, RawOutput: raw, Payload: []byte(raw), ActorType: "agent", ActorID: step.AgentID,
+		}); err != nil {
+			t.Fatalf("submit Workflow result: %v", err)
+		}
+	}
+	decide := func(t *testing.T, runID string, accept bool, reason string) {
+		step := latestStep(t, runID, "acceptance")
+		pending, err := testHandler.Queries.GetPendingWorkflowAcceptanceForStep(context.Background(), db.GetPendingWorkflowAcceptanceForStepParams{StepID: step.ID, WorkspaceID: parseUUID(testWorkspaceID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		input := workflow.DecideAcceptanceInput{WorkspaceID: parseUUID(testWorkspaceID), AcceptanceID: pending.ID, Accept: accept, ReviewerUserID: parseUUID(testUserID)}
+		if !accept {
+			input.Reason, input.ReworkTarget = reason, "implement"
+		}
+		if _, err := engine.DecideAcceptance(context.Background(), input); err != nil {
+			t.Fatalf("decide acceptance: %v", err)
+		}
+	}
+
+	t.Run("accept completes only after human decision", func(t *testing.T) {
+		autopilotID, cycle := start(t, "accept")
+		runID := *cycle.Items[0].WorkflowRunID
+		submit(t, runID, "accepted result")
+		ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+		testHandler.reconcileIssuePoolCycle(context.Background(), ap, parseUUID(cycle.ID))
+		var itemStatus, cycleStatus string
+		dbfx.QueryRow(t, `SELECT status FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&itemStatus)
+		dbfx.QueryRow(t, `SELECT status FROM issue_pool_cycle WHERE id=$1`, cycle.ID).Scan(&cycleStatus)
+		if itemStatus != "waiting_acceptance" || cycleStatus != "waiting_acceptance" {
+			t.Fatalf("before acceptance item/cycle = %s/%s", itemStatus, cycleStatus)
+		}
+		decide(t, runID, true, "")
+		testHandler.reconcileIssuePoolCycle(context.Background(), ap, parseUUID(cycle.ID))
+		dbfx.QueryRow(t, `SELECT status FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&itemStatus)
+		if itemStatus != "completed" {
+			t.Fatalf("accepted item status = %s", itemStatus)
+		}
+	})
+
+	t.Run("rejection reworks same run and blocks at limit", func(t *testing.T) {
+		autopilotID, cycle := start(t, "bounded-rework")
+		runID := *cycle.Items[0].WorkflowRunID
+		submit(t, runID, "attempt one")
+		decide(t, runID, false, "retry once")
+		submit(t, runID, "attempt two")
+		decide(t, runID, false, "budget exhausted")
+		ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+		testHandler.reconcileIssuePoolCycle(context.Background(), ap, parseUUID(cycle.ID))
+		var itemStatus, cycleStatus string
+		dbfx.QueryRow(t, `SELECT status FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&itemStatus)
+		dbfx.QueryRow(t, `SELECT status FROM issue_pool_cycle WHERE id=$1`, cycle.ID).Scan(&cycleStatus)
+		if itemStatus != "blocked" || cycleStatus != "blocked" {
+			t.Fatalf("exhausted rework item/cycle = %s/%s", itemStatus, cycleStatus)
+		}
+		if got := dbfx.Count(t, `SELECT count(*) FROM workflow_run WHERE id=$1`, runID); got != 1 {
+			t.Fatalf("bounded rework WorkflowRuns = %d, want same one", got)
+		}
+	})
+}
+
+func TestIssuePoolOutboxCrashReplayPersistsOneInboxItem(t *testing.T) {
+	autopilotID := newIssuePoolAutopilot(t, nil)
+	cleanIssuePoolRows(t, autopilotID)
+	dbfx.Issue(t, "Outbox replay candidate", testutil.Cols{"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
+	putIssuePoolPolicy(t, autopilotID, map[string]any{"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1, "require_description": false, "require_acceptance_criteria": false})
+	cycle := createIssuePoolCycle(t, autopilotID, "outbox-crash", http.StatusCreated)
+	var notificationID string
+	dbfx.QueryRow(t, `INSERT INTO issue_pool_notification_outbox(workspace_id,autopilot_id,cycle_id,item_id,recipient_id,event_type,payload)
+		VALUES($1,$2,$3,$4,$5,'candidate_review','{}') RETURNING id::text`, testWorkspaceID, autopilotID, cycle.ID, cycle.Items[0].ID, testUserID).Scan(&notificationID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM inbox_item WHERE details->>'notification_id'=$1`, notificationID)
+	})
+	n := issuePoolOutboxNotice{id: parseUUID(notificationID), workspace: parseUUID(testWorkspaceID), recipient: parseUUID(testUserID), event: "candidate_review", payload: []byte(`{}`)}
+	if err := testHandler.persistIssuePoolInbox(context.Background(), n); err != nil {
+		t.Fatal(err)
+	}
+	// Crash now: the durable inbox commit exists but delivered_at was never set.
+	if got := dbfx.Count(t, `SELECT count(*) FROM inbox_item WHERE details->>'notification_id'=$1`, notificationID); got != 1 {
+		t.Fatalf("inbox rows before replay = %d, want 1", got)
+	}
+	testHandler.reconcileIssuePools(context.Background())
+	if got := dbfx.Count(t, `SELECT count(*) FROM inbox_item WHERE details->>'notification_id'=$1`, notificationID); got != 1 {
+		t.Fatalf("inbox rows after crash replay = %d, want 1", got)
+	}
+	var delivered bool
+	dbfx.QueryRow(t, `SELECT delivered_at IS NOT NULL FROM issue_pool_notification_outbox WHERE id=$1`, notificationID).Scan(&delivered)
+	if !delivered {
+		t.Fatal("replayed outbox was not marked delivered")
+	}
+}
+
+func TestIssuePoolInfrastructureFailureProjectsAutopilotRunFailed(t *testing.T) {
+	autopilotID := newIssuePoolAutopilot(t, nil)
+	cleanIssuePoolRows(t, autopilotID)
+	dbfx.Issue(t, "Failed pool candidate", testutil.Cols{"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
+	putIssuePoolPolicy(t, autopilotID, map[string]any{"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1, "require_description": false, "require_acceptance_criteria": false})
+	runID := dbfx.Insert(t, "autopilot_run", testutil.Cols{"autopilot_id": autopilotID, "source": "manual", "status": "running"})
+	ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	run, _ := testHandler.Queries.GetAutopilotRun(context.Background(), parseUUID(runID))
+	if err := testHandler.DispatchIssuePool(context.Background(), ap, &run, parseUUID(testUserID)); err != nil {
+		t.Fatal(err)
+	}
+	var cycleID, itemID string
+	dbfx.QueryRow(t, `SELECT cycle.id::text,item.id::text FROM issue_pool_cycle cycle JOIN issue_pool_item item ON item.cycle_id=cycle.id WHERE cycle.autopilot_run_id=$1`, runID).Scan(&cycleID, &itemID)
+	dbfx.Exec(t, `UPDATE issue_pool_item SET status='failed',failure_code='infrastructure_unavailable',completed_at=now(),reviewer_id=$2,reviewed_at=now() WHERE id=$1`, itemID, testUserID)
+	testHandler.reconcileIssuePoolCycle(context.Background(), ap, parseUUID(cycleID))
+	var cycleStatus, runStatus, failure string
+	dbfx.QueryRow(t, `SELECT status FROM issue_pool_cycle WHERE id=$1`, cycleID).Scan(&cycleStatus)
+	dbfx.QueryRow(t, `SELECT status,COALESCE(failure_reason,'') FROM autopilot_run WHERE id=$1`, runID).Scan(&runStatus, &failure)
+	if cycleStatus != "failed" || runStatus != "failed" || failure != "issue_pool_failed" {
+		t.Fatalf("failure projection cycle/run/reason = %s/%s/%s", cycleStatus, runStatus, failure)
 	}
 }
 

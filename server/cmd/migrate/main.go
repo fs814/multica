@@ -79,6 +79,42 @@ var preMigrationHooks = map[string]preMigrationHook{
 	"475_issue_pool_outbox_pending_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_pending"),
 	"476_issue_pool_item_reconcile_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_reconcile"),
 	"477_issue_pool_item_active_issue_v2_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v2"),
+	"470_issue_pool_workflow_execution":                     reconcileLegacyIssuePoolExecutionHook,
+	"479_inbox_issue_pool_notification_dedupe_index":        cleanupInvalidConcurrentIndexHook("idx_inbox_issue_pool_notification_dedupe"),
+	"480_issue_pool_item_active_issue_v3_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v3"),
+}
+
+// reconcileLegacyIssuePoolExecutionHook unblocks deployments that applied the
+// superseded 459-469 direct-task prototype. Migration 470 replaces its status
+// check, so legacy-only active states must be quarantined before 470 can run.
+// Audit evidence stays on the item; 478 maps it into the final failure fields.
+func reconcileLegacyIssuePoolExecutionHook(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		DO $$
+		BEGIN
+			IF to_regclass(current_schema() || '.issue_pool_item') IS NULL OR NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema=current_schema() AND table_name='issue_pool_item' AND column_name='task_id'
+			) THEN
+				RETURN;
+			END IF;
+			UPDATE issue_pool_item
+			SET issue_snapshot = COALESCE(issue_snapshot, '{}'::jsonb) || jsonb_build_object(
+				'legacy_execution', jsonb_strip_nulls(jsonb_build_object(
+					'code', 'legacy_execution_unmappable',
+					'prior_status', status,
+					'task_id', task_id,
+					'failure_reason', failure_reason
+				))),
+				status = 'blocked',
+				updated_at = now()
+			WHERE status IN ('queued', 'running', 'awaiting_acceptance');
+		END $$;
+	`)
+	if err != nil {
+		return fmt.Errorf("quarantine legacy issue-pool execution: %w", err)
+	}
+	return nil
 }
 
 // cleanupInvalidConcurrentIndexHook removes an INVALID index left by an
