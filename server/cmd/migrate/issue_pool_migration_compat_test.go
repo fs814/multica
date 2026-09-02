@@ -109,6 +109,67 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 	}
 }
 
+func TestIssuePoolOutboxPrimaryKeyRecoversInvalidConcurrentIndex(t *testing.T) {
+	pool, schema := newIssuePoolMigrationPool(t)
+	ctx := context.Background()
+	opts := func(files []string) runOptions {
+		return runOptions{
+			Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
+			AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+		}
+	}
+
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 1, 484))); err != nil {
+		t.Fatalf("migrate through 484: %v", err)
+	}
+	// 473 normally keeps IDs unique while the replacement index is built. Drop
+	// that safety index only in this fixture so duplicate rows can make the
+	// concurrent 485 build fail and leave its same-named INVALID relation, the
+	// exact crash artifact the pre-hook must recover.
+	if _, err := pool.Exec(ctx, `
+		DROP INDEX idx_issue_pool_outbox_id;
+		WITH duplicate_id AS (SELECT gen_random_uuid() AS id)
+		INSERT INTO issue_pool_notification_outbox (
+			id,workspace_id,autopilot_id,cycle_id,recipient_id,event_type,payload
+		)
+		SELECT duplicate_id.id,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),
+			gen_random_uuid(),'cycle_terminal','{}'::jsonb
+		FROM duplicate_id CROSS JOIN generate_series(1,2)
+	`); err != nil {
+		t.Fatalf("seed duplicate outbox IDs: %v", err)
+	}
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 485, 485))); err == nil {
+		t.Fatal("migration 485 unexpectedly succeeded with duplicate IDs")
+	}
+	var invalid bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+		WHERE c.relnamespace=current_schema()::regnamespace
+		  AND c.relname='issue_pool_notification_outbox_pkey_candidate'
+		  AND NOT i.indisvalid
+	)`).Scan(&invalid); err != nil || !invalid {
+		t.Fatalf("invalid candidate after interrupted build=%v err=%v", invalid, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM issue_pool_notification_outbox a
+		USING issue_pool_notification_outbox b WHERE a.id=b.id AND a.ctid>b.ctid`); err != nil {
+		t.Fatalf("repair duplicate fixture row: %v", err)
+	}
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 485, 488))); err != nil {
+		t.Fatalf("rerun 485-488 after invalid index: %v", err)
+	}
+
+	var primaryKey, candidateGone bool
+	if err := pool.QueryRow(ctx, `SELECT
+		EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='issue_pool_notification_outbox'::regclass AND contype='p'),
+		to_regclass(current_schema()||'.issue_pool_notification_outbox_pkey_candidate') IS NULL`).
+		Scan(&primaryKey, &candidateGone); err != nil {
+		t.Fatalf("inspect recovered outbox primary key: %v", err)
+	}
+	if !primaryKey || !candidateGone {
+		t.Fatalf("recovered outbox primary_key=%v candidate_gone=%v", primaryKey, candidateGone)
+	}
+}
+
 func installLegacyIssuePool469Fixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	statements := []string{

@@ -82,6 +82,7 @@ var preMigrationHooks = map[string]preMigrationHook{
 	"470_issue_pool_workflow_execution":                     reconcileLegacyIssuePoolExecutionHook,
 	"479_inbox_issue_pool_notification_dedupe_index":        cleanupInvalidConcurrentIndexHook("idx_inbox_issue_pool_notification_dedupe"),
 	"480_issue_pool_item_active_issue_v3_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v3"),
+	"485_issue_pool_outbox_pkey_candidate":                  cleanupInvalidConcurrentIndexHook("issue_pool_notification_outbox_pkey_candidate"),
 }
 
 // reconcileLegacyIssuePoolExecutionHook unblocks deployments that applied the
