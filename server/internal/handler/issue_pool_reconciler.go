@@ -55,6 +55,12 @@ func (h *Handler) dispatchApprovedIssuePoolItems(ctx context.Context, ap db.Auto
 }
 
 func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, row issuePoolDispatchRow) {
+	claimed, err := h.DB.Exec(ctx, `UPDATE issue_pool_item
+		SET status='dispatching',dispatch_attempts=dispatch_attempts+1,updated_at=now()
+		WHERE id=$1 AND (status='approved' OR (status='dispatching' AND updated_at < now()-interval '1 minute'))`, row.ItemID)
+	if err != nil || claimed.RowsAffected() != 1 {
+		return
+	}
 	input, updatedAt, projectID, err := h.resolveIssuePoolWorkflowInput(ctx, row)
 	if err != nil {
 		h.deferIssuePoolItem(ctx, row.ItemID, "input_incompatible", err)
@@ -65,9 +71,8 @@ func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, ro
 		"resolved_input": json.RawMessage(input), "policy_snapshot": json.RawMessage(row.PolicySnapshot),
 	})
 	requestHash := fmt.Sprintf("%x", sha256.Sum256(hashBytes))
-	if _, err := h.DB.Exec(ctx, `UPDATE issue_pool_item SET status='dispatching', resolved_input=$2::jsonb,
-		request_hash=$3, dispatch_attempts=dispatch_attempts+1, updated_at=now()
-		WHERE id=$1 AND status='approved'`, row.ItemID, string(input), requestHash); err != nil {
+	if _, err := h.DB.Exec(ctx, `UPDATE issue_pool_item SET resolved_input=$2::jsonb,
+		request_hash=$3,updated_at=now() WHERE id=$1 AND status='dispatching'`, row.ItemID, string(input), requestHash); err != nil {
 		return
 	}
 	started, err := h.WorkflowEngine.StartRun(ctx, workflow.StartRunInput{
@@ -240,7 +245,9 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 	} else if active > 0 {
 		status = "running"
 	} else if terminal == total {
-		if failed > 0 || deferred > 0 {
+		if total > 0 && failed == total {
+			status = "failed"
+		} else if failed > 0 || deferred > 0 {
 			status = "partial"
 		} else if cancelled > 0 && completed == 0 {
 			status = "cancelled"
@@ -248,17 +255,24 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 			status = "completed"
 		}
 	}
+	result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
 	var autopilotRunID pgtype.UUID
-	_ = h.DB.QueryRow(ctx, `UPDATE issue_pool_cycle SET status=$2,approved_count=$3,rejected_count=$4,
-		dispatched_count=$5,awaiting_acceptance_count=$6,completed_count=$7,blocked_count=$8,
-		failed_count=$9,deferred_count=$10,updated_at=now(),
-		completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
-		WHERE id=$1 RETURNING autopilot_run_id`, cycleID, status, approved, rejected, dispatched, waiting, completed, blocked, failed, deferred).Scan(&autopilotRunID)
-	if autopilotRunID.Valid && (status == "completed" || status == "partial" || status == "cancelled") {
-		result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
-		_, _ = h.DB.Exec(ctx, `UPDATE autopilot_run SET status='completed',completed_at=COALESCE(completed_at,now()),result=$2::jsonb
-			WHERE id=$1 AND status='running'`, autopilotRunID, string(result))
-	}
+	_ = h.DB.QueryRow(ctx, `WITH updated_cycle AS (
+		UPDATE issue_pool_cycle SET status=$2,approved_count=$3,rejected_count=$4,
+			dispatched_count=$5,awaiting_acceptance_count=$6,completed_count=$7,blocked_count=$8,
+			failed_count=$9,deferred_count=$10,updated_at=now(),
+			completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
+			WHERE id=$1 RETURNING autopilot_run_id
+	), projected_run AS (
+		UPDATE autopilot_run SET
+			status=CASE WHEN $2='failed' THEN 'failed' ELSE 'completed' END,
+			completed_at=COALESCE(completed_at,now()),
+			failure_reason=CASE WHEN $2='failed' THEN COALESCE(failure_reason,'issue_pool_failed') ELSE failure_reason END,
+			result=$11::jsonb
+		WHERE id=(SELECT autopilot_run_id FROM updated_cycle) AND status='running'
+		  AND $2 IN ('completed','partial','cancelled','failed')
+		RETURNING id
+	) SELECT autopilot_run_id FROM updated_cycle`, cycleID, status, approved, rejected, dispatched, waiting, completed, blocked, failed, deferred, string(result)).Scan(&autopilotRunID)
 	// Durable, replay-safe notification intents. The unique outbox key suppresses
 	// duplicates across every reconciler replay and crash-recovery pass.
 	_, _ = h.DB.Exec(ctx, `WITH events AS (
@@ -323,36 +337,90 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 		}
 		rows.Close()
 	}
-	// The outbox's unique key makes replay safe. Realtime publication is
-	// best-effort; an undelivered row remains available to the next sweep.
+	// Claim notification intents with bounded exponential backoff. Delivery
+	// persists the user-visible inbox row before any realtime broadcast.
 	outboxRows, err := h.DB.Query(ctx, `WITH claimed AS (
 		SELECT id FROM issue_pool_notification_outbox WHERE delivered_at IS NULL AND available_at<=now()
 		ORDER BY created_at LIMIT 100 FOR UPDATE SKIP LOCKED)
 		UPDATE issue_pool_notification_outbox outbox SET attempts=attempts+1,
-		available_at=now()+interval '1 minute',updated_at=now() FROM claimed
+		available_at=now()+make_interval(secs => LEAST(3600,30*power(2,LEAST(attempts,6))::int)),updated_at=now() FROM claimed
 		WHERE outbox.id=claimed.id RETURNING outbox.id,outbox.workspace_id,outbox.recipient_id,outbox.event_type,outbox.payload`)
 	if err != nil {
 		return
 	}
-	type notice struct {
-		id, workspace, recipient pgtype.UUID
-		event                    string
-		payload                  []byte
-	}
-	var notices []notice
+	var notices []issuePoolOutboxNotice
 	for outboxRows.Next() {
-		var n notice
+		var n issuePoolOutboxNotice
 		if outboxRows.Scan(&n.id, &n.workspace, &n.recipient, &n.event, &n.payload) == nil {
 			notices = append(notices, n)
 		}
 	}
 	outboxRows.Close()
 	for _, n := range notices {
+		if err := h.persistIssuePoolInbox(ctx, n); err != nil {
+			_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_notification_outbox
+				SET last_error=left($2,2000),updated_at=now() WHERE id=$1 AND delivered_at IS NULL`, n.id, err.Error())
+			continue
+		}
 		var payload map[string]any
 		_ = json.Unmarshal(n.payload, &payload)
 		payload["notification_id"] = uuidToString(n.id)
 		payload["recipient_id"] = uuidToString(n.recipient)
 		h.publish("issue_pool."+n.event, uuidToString(n.workspace), "system", "", payload)
-		_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_notification_outbox SET delivered_at=now(),updated_at=now() WHERE id=$1 AND delivered_at IS NULL`, n.id)
+		_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_notification_outbox
+			SET delivered_at=now(),last_error=NULL,updated_at=now() WHERE id=$1 AND delivered_at IS NULL`, n.id)
 	}
+}
+
+type issuePoolOutboxNotice struct {
+	id, workspace, recipient pgtype.UUID
+	event                    string
+	payload                  []byte
+}
+
+// persistIssuePoolInbox is independently replay-safe. The partial unique
+// index on details.notification_id arbitrates concurrent workers and the
+// crash window after this commit but before the outbox is marked delivered.
+func (h *Handler) persistIssuePoolInbox(ctx context.Context, n issuePoolOutboxNotice) error {
+	tx, err := h.TxStarter.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin issue-pool inbox delivery: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `
+		INSERT INTO inbox_item (
+			workspace_id,recipient_type,recipient_id,type,severity,issue_id,title,body,actor_type,details
+		)
+		SELECT outbox.workspace_id,'member',outbox.recipient_id,'issue_pool',
+			CASE outbox.event_type
+				WHEN 'candidate_review' THEN 'action_required'
+				WHEN 'waiting_acceptance' THEN 'action_required'
+				WHEN 'item_blocked' THEN 'attention'
+				WHEN 'item_failed' THEN 'attention'
+				ELSE 'info'
+			END,
+			item.issue_id,
+			CASE outbox.event_type
+				WHEN 'candidate_review' THEN 'Issue pool review requested'
+				WHEN 'waiting_acceptance' THEN 'Workflow acceptance required'
+				WHEN 'item_blocked' THEN 'Issue pool workflow blocked'
+				WHEN 'item_failed' THEN 'Issue pool workflow failed'
+				ELSE 'Issue pool cycle completed'
+			END,
+			NULL,'system',
+			outbox.payload || jsonb_build_object(
+				'notification_id',outbox.id,'autopilot_id',outbox.autopilot_id,
+				'cycle_id',outbox.cycle_id,'event_type',outbox.event_type
+			)
+		FROM issue_pool_notification_outbox outbox
+		LEFT JOIN issue_pool_item item ON item.id=outbox.item_id
+		WHERE outbox.id=$1
+		ON CONFLICT DO NOTHING`, n.id)
+	if err != nil {
+		return fmt.Errorf("persist issue-pool inbox delivery: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit issue-pool inbox delivery: %w", err)
+	}
+	return nil
 }

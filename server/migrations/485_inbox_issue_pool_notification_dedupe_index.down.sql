@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_inbox_issue_pool_notification_dedupe;

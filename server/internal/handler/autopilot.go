@@ -747,6 +747,10 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "assignee_type must be agent or squad")
 		return
 	}
+	if req.ExecutionMode == "issue_pool" && assigneeType != "agent" {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires an agent assignee")
+		return
+	}
 	projectID, ok := h.parseAutopilotProjectID(w, r, req.ProjectID, wsUUID)
 	if !ok {
 		return
@@ -1023,6 +1027,10 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		if idSent {
 			params.AssigneeID = nextID
 		}
+	}
+	if nextExecutionMode == "issue_pool" && nextType != "agent" {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires an agent assignee")
+		return
 	}
 
 	// Subscribers are validated up-front (before any write) so a bad payload
