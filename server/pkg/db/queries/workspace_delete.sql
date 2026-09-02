@@ -381,6 +381,19 @@ deleted_issue_view_preferences AS (
 DELETE FROM quick_action WHERE quick_action.workspace_id = $1;
 
 -- name: DeleteWorkspaceAutopilotRuns :exec
+WITH
+deleted_issue_pool_outbox AS (
+    DELETE FROM issue_pool_notification_outbox WHERE workspace_id = $1
+),
+deleted_issue_pool_items AS (
+    DELETE FROM issue_pool_item WHERE workspace_id = $1
+),
+deleted_issue_pool_cycles AS (
+    DELETE FROM issue_pool_cycle WHERE workspace_id = $1
+),
+deleted_issue_pool_policies AS (
+    DELETE FROM issue_pool_policy WHERE workspace_id = $1
+)
 DELETE FROM autopilot_run
 WHERE autopilot_id IN (
     SELECT id FROM autopilot WHERE autopilot.workspace_id = $1

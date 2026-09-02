@@ -32,12 +32,20 @@ type TxStarter interface {
 	Begin(ctx context.Context) (pgx.Tx, error)
 }
 
+// IssuePoolDispatcher is implemented by the issue-pool coordinator without
+// making the service package depend on HTTP handlers. A pool Autopilot creates
+// a durable review cycle; it never uses the legacy one-Autopilot/one-Run path.
+type IssuePoolDispatcher interface {
+	DispatchIssuePool(context.Context, db.Autopilot, *db.AutopilotRun, pgtype.UUID) error
+}
+
 type AutopilotService struct {
 	Queries        *db.Queries
 	TxStarter      TxStarter
 	Bus            *events.Bus
 	TaskSvc        *TaskService
 	WorkflowEngine *workflow.Engine
+	IssuePool      IssuePoolDispatcher
 }
 
 // DefaultAutopilotTriggerTimezone is the timezone used to render Autopilot
@@ -385,6 +393,20 @@ func (s *AutopilotService) DispatchAutopilotForPlan(
 		TriggerID: triggerID,
 		PlannedAt: plannedTS,
 	})
+	if err == nil && autopilot.ExecutionMode == "issue_pool" {
+		// Pool runs are intentionally long-lived and have neither issue_id nor
+		// task_id on autopilot_run. Resume the SAME run: the coordinator's
+		// autopilot_run_id/idempotency fences either reuse its cycle or create the
+		// missing one after a crash between run receipt and cycle commit.
+		if existing.Status == "completed" || existing.Status == "failed" || existing.Status == "skipped" {
+			return &existing, nil
+		}
+		resumed, _, resumeErr := s.dispatchAutopilotRun(ctx, autopilot, triggerID, source, &existing, pgtype.UUID{})
+		if resumeErr != nil {
+			return resumed, fmt.Errorf("dispatch for plan: resume issue pool run: %w", resumeErr)
+		}
+		return resumed, nil
+	}
 	switch {
 	case err == nil && isAutopilotRunComplete(existing):
 		// A prior attempt produced a complete run. Hand it back so the
@@ -510,6 +532,19 @@ func (s *AutopilotService) dispatchAutopilotRun(
 	run *db.AutopilotRun,
 	actorUserID pgtype.UUID,
 ) (*db.AutopilotRun, dispatch.ReasonCode, error) {
+	if autopilot.ExecutionMode == "issue_pool" {
+		if s.IssuePool == nil {
+			err := fmt.Errorf("issue pool coordinator is unavailable")
+			s.failRun(ctx, run.ID, err.Error())
+			return run, dispatch.ReasonInternalError, err
+		}
+		if err := s.IssuePool.DispatchIssuePool(ctx, autopilot, run, actorUserID); err != nil {
+			s.failRun(ctx, run.ID, err.Error())
+			return run, dispatchFailReasonCode(err), fmt.Errorf("dispatch issue_pool: %w", err)
+		}
+		s.Queries.UpdateAutopilotLastRunAt(ctx, autopilot.ID)
+		return run, "", nil
+	}
 	if autopilot.WorkflowTemplateID.Valid {
 		if err := s.dispatchWorkflow(ctx, autopilot, run, actorUserID); err != nil {
 			s.failRun(ctx, run.ID, err.Error())

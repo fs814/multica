@@ -1026,6 +1026,85 @@ func (q *Queries) FailWorkflowRun(ctx context.Context, arg FailWorkflowRunParams
 	return i, err
 }
 
+const getIssueForWorkflowStart = `-- name: GetIssueForWorkflowStart :one
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, i.stage, i.properties, issue_effective_status(i.workspace_id, i.status)::text AS effective_status
+FROM issue i
+WHERE i.id = $1 AND i.workspace_id = $2
+FOR UPDATE OF i
+`
+
+type GetIssueForWorkflowStartParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+type GetIssueForWorkflowStartRow struct {
+	ID                 pgtype.UUID        `json:"id"`
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	Title              string             `json:"title"`
+	Description        pgtype.Text        `json:"description"`
+	Status             string             `json:"status"`
+	Priority           string             `json:"priority"`
+	AssigneeType       pgtype.Text        `json:"assignee_type"`
+	AssigneeID         pgtype.UUID        `json:"assignee_id"`
+	CreatorType        string             `json:"creator_type"`
+	CreatorID          pgtype.UUID        `json:"creator_id"`
+	ParentIssueID      pgtype.UUID        `json:"parent_issue_id"`
+	AcceptanceCriteria []byte             `json:"acceptance_criteria"`
+	ContextRefs        []byte             `json:"context_refs"`
+	Position           float64            `json:"position"`
+	DueDate            pgtype.Date        `json:"due_date"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+	Number             int32              `json:"number"`
+	ProjectID          pgtype.UUID        `json:"project_id"`
+	OriginType         pgtype.Text        `json:"origin_type"`
+	OriginID           pgtype.UUID        `json:"origin_id"`
+	FirstExecutedAt    pgtype.Timestamptz `json:"first_executed_at"`
+	StartDate          pgtype.Date        `json:"start_date"`
+	Metadata           []byte             `json:"metadata"`
+	Stage              pgtype.Int4        `json:"stage"`
+	Properties         []byte             `json:"properties"`
+	EffectiveStatus    string             `json:"effective_status"`
+}
+
+// Locking the Issue serializes competing starts. The effective status closes
+// custom-status aliases that map to terminal built-in states.
+func (q *Queries) GetIssueForWorkflowStart(ctx context.Context, arg GetIssueForWorkflowStartParams) (GetIssueForWorkflowStartRow, error) {
+	row := q.db.QueryRow(ctx, getIssueForWorkflowStart, arg.ID, arg.WorkspaceID)
+	var i GetIssueForWorkflowStartRow
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.Status,
+		&i.Priority,
+		&i.AssigneeType,
+		&i.AssigneeID,
+		&i.CreatorType,
+		&i.CreatorID,
+		&i.ParentIssueID,
+		&i.AcceptanceCriteria,
+		&i.ContextRefs,
+		&i.Position,
+		&i.DueDate,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Number,
+		&i.ProjectID,
+		&i.OriginType,
+		&i.OriginID,
+		&i.FirstExecutedAt,
+		&i.StartDate,
+		&i.Metadata,
+		&i.Stage,
+		&i.Properties,
+		&i.EffectiveStatus,
+	)
+	return i, err
+}
+
 const getLatestWorkflowStepAttempt = `-- name: GetLatestWorkflowStepAttempt :one
 SELECT id, workspace_id, run_id, node_key, node_type, attempt, status, parent_step_id, expansion_key, agent_id, task_id, routing_reason, input, output, failure_reason, failure_detail, activation_timeout_at, ready_at, started_at, completed_at, created_at, updated_at, trace_position FROM workflow_step_instance
 WHERE run_id = $1 AND node_key = $2
@@ -1551,6 +1630,21 @@ func (q *Queries) GetWorkflowTemplateVersion(ctx context.Context, arg GetWorkflo
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const hasActiveAgentTaskForWorkflowIssue = `-- name: HasActiveAgentTaskForWorkflowIssue :one
+SELECT EXISTS (
+    SELECT 1 FROM agent_task_queue
+    WHERE issue_id = $1
+      AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
+) AS has_active_task
+`
+
+func (q *Queries) HasActiveAgentTaskForWorkflowIssue(ctx context.Context, issueID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasActiveAgentTaskForWorkflowIssue, issueID)
+	var has_active_task bool
+	err := row.Scan(&has_active_task)
+	return has_active_task, err
 }
 
 const listActiveAgentTaskIDsForWorkflowRun = `-- name: ListActiveAgentTaskIDsForWorkflowRun :many

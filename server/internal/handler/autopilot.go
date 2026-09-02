@@ -713,8 +713,8 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "execution_mode is required")
 		return
 	}
-	if req.ExecutionMode != "create_issue" && req.ExecutionMode != "run_only" {
-		writeError(w, http.StatusBadRequest, "execution_mode must be create_issue or run_only")
+	if req.ExecutionMode != "create_issue" && req.ExecutionMode != "run_only" && req.ExecutionMode != "issue_pool" {
+		writeError(w, http.StatusBadRequest, "execution_mode must be create_issue, run_only, or issue_pool")
 		return
 	}
 	if req.IssueTitleTemplate != nil {
@@ -754,6 +754,10 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	workflowTemplateID, workflowVersionID, err := h.resolveAutopilotWorkflowBinding(r.Context(), wsUUID, req.WorkflowTemplateID, req.WorkflowTemplateVersionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.ExecutionMode == "issue_pool" && (!workflowTemplateID.Valid || !workflowVersionID.Valid) {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires a fixed published workflow template version")
 		return
 	}
 
@@ -965,6 +969,18 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		}
 		params.WorkflowTemplateID = templateID
 		params.WorkflowTemplateVersionID = versionID
+	}
+	nextExecutionMode := prev.ExecutionMode
+	if req.ExecutionMode != nil {
+		nextExecutionMode = *req.ExecutionMode
+		if nextExecutionMode != "create_issue" && nextExecutionMode != "run_only" && nextExecutionMode != "issue_pool" {
+			writeError(w, http.StatusBadRequest, "execution_mode must be create_issue, run_only, or issue_pool")
+			return
+		}
+	}
+	if nextExecutionMode == "issue_pool" && (!params.WorkflowTemplateID.Valid || !params.WorkflowTemplateVersionID.Valid) {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires a fixed published workflow template version")
+		return
 	}
 	// assignee_type and assignee_id are validated as a pair: switching
 	// between agent and squad without supplying a new id would leave the
