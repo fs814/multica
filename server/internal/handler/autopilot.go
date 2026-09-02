@@ -2165,6 +2165,11 @@ func (h *Handler) ListAutopilotRuns(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list runs")
 		return
 	}
+	total, err := h.Queries.CountAutopilotRuns(r.Context(), autopilot.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count runs")
+		return
+	}
 
 	resp := make([]AutopilotRunResponse, len(runs))
 	for i, run := range runs {
@@ -2174,7 +2179,7 @@ func (h *Handler) ListAutopilotRuns(w http.ResponseWriter, r *http.Request) {
 		// full payload from GetAutopilotRun.
 		resp[i] = runToResponseSlim(run)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": resp, "total": len(resp)})
+	writeJSON(w, http.StatusOK, map[string]any{"runs": resp, "total": total})
 }
 
 // GetAutopilotRun returns a single run including its full trigger_payload.

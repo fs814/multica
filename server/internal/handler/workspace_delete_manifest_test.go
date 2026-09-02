@@ -35,6 +35,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"issue_pool_cycle":                workspaceDelete,
 	"issue_pool_item":                 workspaceDelete,
 	"issue_pool_notification_outbox":  workspaceDelete,
+	"issue_pool_notification":         workspaceDelete,
 	"issue_pool_policy":               workspaceDelete,
 	"autopilot_subscriber":            workspaceDelete,
 	"autopilot_trigger":               workspaceDelete,

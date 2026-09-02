@@ -149,6 +149,9 @@ func (h *Handler) DispatchIssuePool(ctx context.Context, ap db.Autopilot, run *d
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit issue pool cycle: %w", err)
 	}
+	h.Metrics.RecordIssuePoolTransition("scanned", int(scanned))
+	h.Metrics.RecordIssuePoolTransition("eligible", int(eligible))
+	h.Metrics.RecordIssuePoolTransition("claimed", int(claimed))
 	return nil
 }
 

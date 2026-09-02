@@ -15,12 +15,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestIssuePoolMigrationUpgradePaths runs the real 449-477 SQL through the
+// TestIssuePoolMigrationUpgradePaths runs the real 449-480 SQL through the
 // three deployment shapes called out by TES-66. Each subtest has a private
 // schema and ledger, so it never rewrites the developer or CI application
 // schema.
 func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
-	for _, path := range []string{"fresh_issue_pool", "d_drive_baseline", "phase_one_449_458"} {
+	for _, path := range []string{"fresh_issue_pool", "d_drive_baseline", "applied_449_469"} {
 		t.Run(path, func(t *testing.T) {
 			pool, schema := newIssuePoolMigrationPool(t)
 			ctx := context.Background()
@@ -34,23 +34,35 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 					t.Fatalf("seed D baseline row: %v", err)
 				}
 			}
-			phaseOne := issuePoolMigrationFiles(t, 449, 458)
-			execution := issuePoolMigrationFiles(t, 470, 477)
+			legacy := issuePoolMigrationFiles(t, 449, 469)
+			execution := issuePoolMigrationFiles(t, 470, 480)
 			opts := func(files []string) runOptions {
 				return runOptions{
 					Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
 					AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
 				}
 			}
-			if path == "phase_one_449_458" {
-				if err := runMigrations(ctx, pool, opts(phaseOne)); err != nil {
-					t.Fatalf("phase-one migrate: %v", err)
+			if path == "applied_449_469" {
+				if err := runMigrations(ctx, pool, opts(legacy)); err != nil {
+					t.Fatalf("legacy migrate: %v", err)
 				}
-				if _, err := pool.Exec(ctx, `INSERT INTO issue_pool_policy(autopilot_id,workspace_id,created_by_id) VALUES(gen_random_uuid(),gen_random_uuid(),gen_random_uuid())`); err != nil {
-					t.Fatalf("seed phase-one policy: %v", err)
+				if _, err := pool.Exec(ctx, `WITH ap AS (
+					INSERT INTO autopilot(execution_mode) VALUES ('issue_pool') RETURNING id
+				), policy AS (
+					INSERT INTO issue_pool_policy(autopilot_id,workspace_id,created_by_id)
+					SELECT id,gen_random_uuid(),gen_random_uuid() FROM ap RETURNING *
+				), cycle AS (
+					INSERT INTO issue_pool_cycle(policy_id,autopilot_id,workspace_id,idempotency_key,status,policy_snapshot,created_by_id)
+					SELECT id,autopilot_id,workspace_id,'legacy-direct','running','{}'::jsonb,created_by_id FROM policy RETURNING *
+				)
+				INSERT INTO issue_pool_item(cycle_id,policy_id,autopilot_id,workspace_id,issue_id,status,score,
+					score_breakdown,selection_reasons,issue_snapshot,reviewer_id,reviewed_at,task_id)
+				SELECT id,policy_id,autopilot_id,workspace_id,gen_random_uuid(),'running',1,'{}'::jsonb,'[]'::jsonb,
+					'{}'::jsonb,created_by_id,now(),gen_random_uuid() FROM cycle`); err != nil {
+					t.Fatalf("seed applied 449-469 direct-task row: %v", err)
 				}
 			} else {
-				execution = append(phaseOne, execution...)
+				execution = append(legacy, execution...)
 			}
 			if err := runMigrations(ctx, pool, opts(execution)); err != nil {
 				t.Fatalf("execution migrate: %v", err)
@@ -63,7 +75,7 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT
 				EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='issue_pool_policy' AND column_name='workflow_input_mapping'),
 				to_regclass(current_schema()||'.issue_pool_notification_outbox') IS NOT NULL,
-				to_regclass(current_schema()||'.idx_issue_pool_item_active_issue_v2') IS NOT NULL`).Scan(&mappingOK, &outboxOK, &activeIndexOK); err != nil {
+				to_regclass(current_schema()||'.idx_issue_pool_item_active_issue_v3') IS NOT NULL`).Scan(&mappingOK, &outboxOK, &activeIndexOK); err != nil {
 				t.Fatalf("inspect upgraded schema: %v", err)
 			}
 			if _, err := pool.Exec(ctx, `INSERT INTO autopilot(execution_mode) VALUES ('issue_pool')`); err == nil {
@@ -71,6 +83,17 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 			}
 			if !modeOK || !mappingOK || !outboxOK || !activeIndexOK {
 				t.Fatalf("upgrade invariants mode=%v mapping=%v outbox=%v active_index=%v", modeOK, mappingOK, outboxOK, activeIndexOK)
+			}
+			if path == "applied_449_469" {
+				var status, failureCode string
+				var workflowRunID *string
+				if err := pool.QueryRow(ctx, `SELECT status,failure_code,workflow_run_id::text
+					FROM issue_pool_item WHERE task_id IS NOT NULL`).Scan(&status, &failureCode, &workflowRunID); err != nil {
+					t.Fatalf("inspect legacy direct-task conversion: %v", err)
+				}
+				if status != "deferred" || failureCode != "legacy_direct_task" || workflowRunID != nil {
+					t.Fatalf("legacy direct-task row = status %q code %q workflow_run %v", status, failureCode, workflowRunID)
+				}
 			}
 		})
 	}

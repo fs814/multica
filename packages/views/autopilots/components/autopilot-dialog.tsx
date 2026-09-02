@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -113,11 +114,12 @@ export type AutopilotDialogProps =
 // Static schema-level data (not user-visible)
 // ---------------------------------------------------------------------------
 
-const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only"];
+const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only", "issue_pool"];
 
 const OUTPUT_MODE_ICONS: Record<AutopilotExecutionMode, typeof FilePlus2> = {
   create_issue: FilePlus2,
   run_only: Play,
+  issue_pool: FilePlus2,
 };
 
 // ---------------------------------------------------------------------------
@@ -259,6 +261,9 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const handleAssigneeChange = (next: AssigneeSelection) => {
     setAssigneeType(next.type);
     setAssigneeId(next.id);
+    if (next.type === "squad" && executionMode === "issue_pool") {
+      setExecutionMode("run_only");
+    }
   };
 
   const createAutopilot = useCreateAutopilot();
@@ -289,8 +294,14 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   // The FIRST empty required field in reading order — the user fills one, the
   // next surfaces. Only these two are answered here: a rejected schedule is
   // re-checked against the server below, which toasts its actual reason.
-  const missingField: "title" | "assignee" | null =
-    title.trim().length === 0 ? "title" : assigneeId.length === 0 ? "assignee" : null;
+  const missingField: "title" | "assignee" | "workflow" | null =
+    title.trim().length === 0
+      ? "title"
+      : assigneeId.length === 0
+        ? "assignee"
+        : executionMode === "issue_pool" && !workflowTemplateId
+          ? "workflow"
+          : null;
 
   // Inline errors appear only after a submit attempt: a form that opens already
   // shouting at the user for fields they have not reached yet is worse than the
@@ -299,6 +310,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   const [showErrors, setShowErrors] = useState(false);
   const titleEditorRef = useRef<TitleEditorRef>(null);
   const assigneeTriggerRef = useRef<HTMLButtonElement>(null);
+  const workflowSelectRef = useRef<HTMLSelectElement>(null);
   const assigneeErrorId = useId();
 
   const handleSubmit = async () => {
@@ -308,7 +320,8 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
       // focusing scrolls the config column to it on its own.
       setShowErrors(true);
       if (missingField === "title") titleEditorRef.current?.focus();
-      else assigneeTriggerRef.current?.focus();
+      else if (missingField === "assignee") assigneeTriggerRef.current?.focus();
+      else workflowSelectRef.current?.focus();
       return;
     }
     setSubmitting(true);
@@ -321,7 +334,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
         const autopilot = await createAutopilot.mutateAsync({
           title: title.trim(),
           description: description.trim() || undefined,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "run_only" ? null : projectId,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -376,7 +389,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           id: props.autopilotId,
           title: title.trim(),
           description: description.trim() || null,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "run_only" ? null : projectId,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -629,18 +642,21 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               errorId={assigneeErrorId}
             />
 
-            <OutputModeSection mode={executionMode} onChange={setExecutionMode} />
+            <OutputModeSection mode={executionMode} onChange={setExecutionMode} assigneeType={assigneeType} />
 
             <WorkflowTemplateSection
               templates={workflowTemplates.filter((template) => template.status === "published")}
               value={workflowTemplateId}
+              selectRef={workflowSelectRef}
+              required={executionMode === "issue_pool"}
+              invalid={showErrors && executionMode === "issue_pool" && !workflowTemplateId}
               onChange={(value) => {
                 setWorkflowTemplateId(value);
                 setWorkflowTemplateVersionId(null);
               }}
             />
 
-            {executionMode === "create_issue" && (
+            {executionMode !== "run_only" && (
               <ProjectSection
                 projectId={projectId}
                 selectedProject={selectedProject}
@@ -648,7 +664,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               />
             )}
 
-            {executionMode === "create_issue" && (
+            {executionMode !== "run_only" && (
               <SubscribersSection
                 selectedUserIds={subscriberUserIds}
                 onChange={setSubscriberUserIds}
@@ -854,9 +870,11 @@ function AgentSection({
 function OutputModeSection({
   mode,
   onChange,
+  assigneeType,
 }: {
   mode: AutopilotExecutionMode;
   onChange: (mode: AutopilotExecutionMode) => void;
+  assigneeType: AutopilotAssigneeType;
 }) {
   const { t } = useT("autopilots");
   return (
@@ -865,17 +883,20 @@ function OutputModeSection({
       <div className="space-y-1.5">
         {OUTPUT_MODE_KEYS.map((key) => {
           const selected = key === mode;
+          const disabled = key === "issue_pool" && assigneeType !== "agent";
           const Icon = OUTPUT_MODE_ICONS[key];
           return (
             <button
               key={key}
               type="button"
               onClick={() => onChange(key)}
+              disabled={disabled}
               className={cn(
                 "w-full flex items-start gap-2.5 rounded-md border px-3 py-2 text-left cursor-pointer transition-colors",
                 selected
                   ? "border-primary bg-primary/5"
                   : "bg-background hover:bg-accent/40",
+                disabled && "cursor-not-allowed opacity-50",
               )}
             >
               <span
@@ -912,19 +933,26 @@ function WorkflowTemplateSection({
   templates,
   value,
   onChange,
+  selectRef,
+  required,
+  invalid,
 }: {
   templates: Array<{ id: string; name: string; current_version: number | null }>;
   value: string | null;
   onChange: (value: string | null) => void;
+  selectRef: RefObject<HTMLSelectElement | null>;
+  required: boolean;
+  invalid: boolean;
 }) {
   const { t } = useT("autopilots");
   return (
     <div>
       <SectionLabel>{t(($) => $.dialog.section_workflow_template)}</SectionLabel>
       <select
+        ref={selectRef}
         value={value ?? ""}
         onChange={(event) => onChange(event.target.value || null)}
-        className="h-9 w-full rounded-md border border-input bg-background px-3 text-body"
+        className={cn("h-9 w-full rounded-md border border-input bg-background px-3 text-body", invalid && "border-destructive")}
         aria-label={t(($) => $.dialog.section_workflow_template)}
       >
         <option value="">{t(($) => $.dialog.no_workflow_template)}</option>
@@ -938,8 +966,9 @@ function WorkflowTemplateSection({
         ))}
       </select>
       <p className="mt-1 text-caption text-muted-foreground">
-        {t(($) => $.dialog.workflow_template_hint)}
+        {t(($) => required ? $.dialog.workflow_template_issue_pool_hint : $.dialog.workflow_template_hint)}
       </p>
+      {invalid && <p role="alert" className="mt-1 text-caption text-destructive">{t(($) => $.dialog.error_workflow_template_required)}</p>}
     </div>
   );
 }

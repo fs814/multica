@@ -1,6 +1,6 @@
 export type AutopilotStatus = "active" | "paused" | "archived";
 
-export type AutopilotExecutionMode = "create_issue" | "run_only";
+export type AutopilotExecutionMode = "create_issue" | "run_only" | "issue_pool";
 
 // `assignee_type` selects which polymorphic actor backs the autopilot:
 // "agent" → assignee_id references agent(id); "squad" → assignee_id references
@@ -216,8 +216,110 @@ export interface GetAutopilotResponse {
 }
 
 export interface ListAutopilotRunsResponse {
-  runs: AutopilotRun[];
+	runs: AutopilotRun[];
+	total: number;
+}
+
+export interface IssuePoolCandidate {
+  issue_id: string;
+  number: number;
+  title: string;
+  status: string;
+  priority: string;
+  project_id: string | null;
+  last_activity_at: string;
+  score: number;
+  score_breakdown: Record<string, number>;
+  selection_reasons: string[];
+}
+
+export interface IssuePoolPolicy {
+  id: string;
+  autopilot_id: string;
+  workspace_id: string;
+  project_id: string | null;
+  eligible_statuses: string[];
+  priorities: string[];
+  required_label_ids: string[];
+  excluded_label_ids: string[];
+  property_match: Record<string, unknown>;
+  inactive_for_days: number;
+  batch_limit: number;
+  max_in_flight: number;
+  review_mode: "manual";
+  allow_human_assignee: boolean;
+  require_description: boolean;
+  require_acceptance_criteria: boolean;
+  priority_weights: Record<string, number>;
+  workflow_input_mapping: Record<string, string>;
+  created_by_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PutIssuePoolPolicy = Omit<
+  IssuePoolPolicy,
+  "id" | "autopilot_id" | "workspace_id" | "project_id" | "created_by_id" | "created_at" | "updated_at"
+>;
+
+export interface IssuePoolPreview {
+  policy_id: string;
+  reference_time: string;
+  scanned_count: number;
+  eligible_count: number;
+  selected_count: number;
+  candidates: IssuePoolCandidate[];
+  excluded_by_rule: Record<string, number>;
+}
+
+export interface IssuePoolItem {
+  id: string;
+  issue_id: string;
+  status: string;
+  score: number;
+  score_breakdown: Record<string, number>;
+  selection_reasons: string[];
+  issue_snapshot: Record<string, unknown>;
+  reviewer_id: string | null;
+  review_reason: string | null;
+  workflow_run_id: string | null;
+  dispatch_attempts: number;
+  failure_code: string | null;
+  failure_detail?: Record<string, unknown>;
+  claimed_at: string;
+  reviewed_at: string | null;
+  dispatched_at: string | null;
+  waiting_acceptance_at: string | null;
+  completed_at: string | null;
+}
+
+export interface IssuePoolCycle {
+  id: string;
+  autopilot_run_id: string | null;
+  workflow_template_id: string | null;
+  workflow_template_version_id: string | null;
+  status: string;
+  scanned_count: number;
+  eligible_count: number;
+  claimed_count: number;
+  approved_count: number;
+  rejected_count: number;
+  dispatched_count: number;
+  waiting_acceptance_count: number;
+  completed_count: number;
+  blocked_count: number;
+  failed_count: number;
+  deferred_count: number;
+  created_at: string;
+  completed_at: string | null;
+  items: IssuePoolItem[];
+}
+
+export interface ListIssuePoolCyclesResponse {
+  cycles: IssuePoolCycle[];
   total: number;
+  page: number;
+  page_size: number;
 }
 
 // Webhook delivery enum is server-canonical. The frontend MUST `default`

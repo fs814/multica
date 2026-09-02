@@ -67,7 +67,7 @@ func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, ro
 	requestHash := fmt.Sprintf("%x", sha256.Sum256(hashBytes))
 	if _, err := h.DB.Exec(ctx, `UPDATE issue_pool_item SET status='dispatching', resolved_input=$2::jsonb,
 		request_hash=$3, dispatch_attempts=dispatch_attempts+1, updated_at=now()
-		WHERE id=$1 AND status IN ('approved','dispatching')`, row.ItemID, string(input), requestHash); err != nil {
+		WHERE id=$1 AND status='approved'`, row.ItemID, string(input), requestHash); err != nil {
 		return
 	}
 	started, err := h.WorkflowEngine.StartRun(ctx, workflow.StartRunInput{
@@ -91,9 +91,20 @@ func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, ro
 	if status == "pending" {
 		status = "running"
 	}
-	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
+	result, _ := h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
 		dispatched_at=COALESCE(dispatched_at,now()),waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN now() ELSE waiting_acceptance_at END,
-		failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, row.ItemID, started.Run.ID, status)
+		failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND dispatched_at IS NULL`, row.ItemID, started.Run.ID, status)
+	if result.RowsAffected() > 0 {
+		h.Metrics.RecordIssuePoolTransition("dispatched", 1)
+		var claimedAt, dispatchedAt pgtype.Timestamptz
+		if h.DB.QueryRow(ctx, `SELECT claimed_at,dispatched_at FROM issue_pool_item WHERE id=$1`, row.ItemID).Scan(&claimedAt, &dispatchedAt) == nil && claimedAt.Valid && dispatchedAt.Valid {
+			h.Metrics.RecordIssuePoolDuration("claim_to_dispatch", dispatchedAt.Time.Sub(claimedAt.Time))
+		}
+	} else {
+		_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
+			waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN COALESCE(waiting_acceptance_at,now()) ELSE waiting_acceptance_at END,
+			failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, row.ItemID, started.Run.ID, status)
+	}
 }
 
 func (h *Handler) resolveIssuePoolWorkflowInput(ctx context.Context, row issuePoolDispatchRow) (json.RawMessage, pgtype.Timestamptz, pgtype.UUID, error) {
@@ -175,7 +186,7 @@ func (h *Handler) deferIssuePoolItem(ctx context.Context, itemID pgtype.UUID, co
 // reconcileIssuePoolCycle projects canonical WorkflowRun state to pool items,
 // then derives the cycle and AutopilotRun status. It is safe to replay.
 func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, cycleID pgtype.UUID) {
-	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item item SET
+	projected, projectionErr := h.DB.Exec(ctx, `UPDATE issue_pool_item item SET
 		status=CASE run.status WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed'
 			WHEN 'cancelled' THEN 'cancelled' WHEN 'blocked' THEN 'blocked'
 			WHEN 'waiting_acceptance' THEN 'waiting_acceptance' ELSE 'running' END,
@@ -186,11 +197,22 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		FROM workflow_run run WHERE item.cycle_id=$1 AND item.workflow_run_id=run.id
 		AND item.status IS DISTINCT FROM CASE run.status WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed'
 			WHEN 'cancelled' THEN 'cancelled' WHEN 'blocked' THEN 'blocked' WHEN 'waiting_acceptance' THEN 'waiting_acceptance' ELSE 'running' END`, cycleID)
+	if projectionErr != nil {
+		h.Metrics.RecordIssuePoolReconciliation("error")
+		return
+	}
+	if projected.RowsAffected() > 0 {
+		h.Metrics.RecordIssuePoolReconciliation("repaired")
+	} else {
+		h.Metrics.RecordIssuePoolReconciliation("unchanged")
+	}
 
-	var total, claimed, active, waiting, blocked, completed, failed, cancelled, deferred, rejected int32
+	var total, claimed, approved, active, dispatched, waiting, blocked, completed, failed, cancelled, deferred, rejected int32
 	err := h.DB.QueryRow(ctx, `SELECT count(*)::int,
 		count(*) FILTER (WHERE status='claimed')::int,
+		count(*) FILTER (WHERE reviewer_id IS NOT NULL AND status NOT IN ('rejected','claimed'))::int,
 		count(*) FILTER (WHERE status IN ('approved','dispatching','running'))::int,
+		count(*) FILTER (WHERE workflow_run_id IS NOT NULL)::int,
 		count(*) FILTER (WHERE status='waiting_acceptance')::int,
 		count(*) FILTER (WHERE status='blocked')::int,
 		count(*) FILTER (WHERE status='completed')::int,
@@ -198,10 +220,15 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		count(*) FILTER (WHERE status='cancelled')::int,
 		count(*) FILTER (WHERE status='deferred')::int,
 		count(*) FILTER (WHERE status='rejected')::int FROM issue_pool_item WHERE cycle_id=$1`, cycleID).
-		Scan(&total, &claimed, &active, &waiting, &blocked, &completed, &failed, &cancelled, &deferred, &rejected)
+		Scan(&total, &claimed, &approved, &active, &dispatched, &waiting, &blocked, &completed, &failed, &cancelled, &deferred, &rejected)
 	if err != nil {
+		h.Metrics.RecordIssuePoolReconciliation("error")
 		return
 	}
+	h.Metrics.SetIssuePoolActive("awaiting_review", int(claimed))
+	h.Metrics.SetIssuePoolActive("running", int(active))
+	h.Metrics.SetIssuePoolActive("waiting_acceptance", int(waiting))
+	h.Metrics.SetIssuePoolActive("blocked", int(blocked))
 	status := "running"
 	terminal := completed + failed + cancelled + deferred + rejected
 	if claimed > 0 {
@@ -222,10 +249,11 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		}
 	}
 	var autopilotRunID pgtype.UUID
-	_ = h.DB.QueryRow(ctx, `UPDATE issue_pool_cycle SET status=$2,completed_count=$3,blocked_count=$4,
-		failed_count=$5,deferred_count=$6,rejected_count=$7,updated_at=now(),
+	_ = h.DB.QueryRow(ctx, `UPDATE issue_pool_cycle SET status=$2,approved_count=$3,rejected_count=$4,
+		dispatched_count=$5,awaiting_acceptance_count=$6,completed_count=$7,blocked_count=$8,
+		failed_count=$9,deferred_count=$10,updated_at=now(),
 		completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
-		WHERE id=$1 RETURNING autopilot_run_id`, cycleID, status, completed, blocked, failed, deferred, rejected).Scan(&autopilotRunID)
+		WHERE id=$1 RETURNING autopilot_run_id`, cycleID, status, approved, rejected, dispatched, waiting, completed, blocked, failed, deferred).Scan(&autopilotRunID)
 	if autopilotRunID.Valid && (status == "completed" || status == "partial" || status == "cancelled") {
 		result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
 		_, _ = h.DB.Exec(ctx, `UPDATE autopilot_run SET status='completed',completed_at=COALESCE(completed_at,now()),result=$2::jsonb

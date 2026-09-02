@@ -67,6 +67,7 @@ import { AutopilotDialog } from "./autopilot-dialog";
 import { runNowToastKind, runNowBlockedKey } from "./run-now-toast";
 import { WebhookPayloadPreview } from "./webhook-payload-preview";
 import { WebhookDeliveriesSection } from "./webhook-deliveries-section";
+import { IssuePoolSection } from "./issue-pool-section";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
 
@@ -957,6 +958,10 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
               </div>
             )}
           </section>
+
+          {autopilot.execution_mode === "issue_pool" && (
+            <IssuePoolSection autopilotId={autopilotId} canWrite={canWrite} />
+          )}
 
           {/* Webhook deliveries — only renders when at least one webhook
               trigger is configured. The component does its own fetch so

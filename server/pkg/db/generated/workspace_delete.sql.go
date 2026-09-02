@@ -76,6 +76,9 @@ WITH
 deleted_issue_pool_outbox AS (
     DELETE FROM issue_pool_notification_outbox WHERE workspace_id = $1
 ),
+deleted_issue_pool_legacy_notifications AS (
+    DELETE FROM issue_pool_notification WHERE workspace_id = $1
+),
 deleted_issue_pool_items AS (
     DELETE FROM issue_pool_item WHERE workspace_id = $1
 ),

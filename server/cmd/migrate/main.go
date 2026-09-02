@@ -72,6 +72,12 @@ var preMigrationHooks = map[string]preMigrationHook{
 	"455_issue_pool_item_active_issue_index":                cleanupInvalidConcurrentIndexHook("issue_pool_item_active_issue_key"),
 	"456_issue_pool_cycle_autopilot_index":                  cleanupInvalidConcurrentIndexHook("issue_pool_cycle_autopilot_created_index"),
 	"457_issue_pool_item_cycle_index":                       cleanupInvalidConcurrentIndexHook("issue_pool_item_cycle_index"),
+	"460_issue_pool_cycle_run_index":                        cleanupInvalidConcurrentIndexHook("issue_pool_cycle_autopilot_run_key"),
+	"461_issue_pool_item_task_index":                        cleanupInvalidConcurrentIndexHook("issue_pool_item_task_key"),
+	"463_issue_pool_notification_id_index":                  cleanupInvalidConcurrentIndexHook("issue_pool_notification_id_key"),
+	"464_issue_pool_notification_dedup_index":               cleanupInvalidConcurrentIndexHook("issue_pool_notification_dedup_key"),
+	"465_issue_pool_item_active_issue_v2_index":             cleanupInvalidConcurrentIndexHook("issue_pool_item_active_issue_v2_key"),
+	"468_issue_pool_item_reconcile_index":                   cleanupInvalidConcurrentIndexHook("issue_pool_item_reconcile_index"),
 	"471_issue_pool_item_workflow_run_index":                cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_workflow_run"),
 	"472_issue_pool_cycle_autopilot_run_index":              cleanupInvalidConcurrentIndexHook("idx_issue_pool_cycle_autopilot_run"),
 	"473_issue_pool_outbox_id_index":                        cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_id"),
@@ -79,6 +85,7 @@ var preMigrationHooks = map[string]preMigrationHook{
 	"475_issue_pool_outbox_pending_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_pending"),
 	"476_issue_pool_item_reconcile_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_reconcile"),
 	"477_issue_pool_item_active_issue_v2_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v2"),
+	"478_issue_pool_item_active_issue_v3_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v3"),
 }
 
 // cleanupInvalidConcurrentIndexHook removes an INVALID index left by an

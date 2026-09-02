@@ -1,0 +1,1 @@
+ALTER TABLE issue_pool_notification DROP CONSTRAINT IF EXISTS issue_pool_notification_pkey;

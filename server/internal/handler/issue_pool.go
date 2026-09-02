@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -180,6 +181,8 @@ type IssuePoolCycleResponse struct {
 	WorkflowTemplateVersionID *string                 `json:"workflow_template_version_id"`
 	ApprovedCount             int32                   `json:"approved_count"`
 	RejectedCount             int32                   `json:"rejected_count"`
+	DispatchedCount           int32                   `json:"dispatched_count"`
+	WaitingAcceptanceCount    int32                   `json:"waiting_acceptance_count"`
 	CompletedCount            int32                   `json:"completed_count"`
 	BlockedCount              int32                   `json:"blocked_count"`
 	FailedCount               int32                   `json:"failed_count"`
@@ -187,6 +190,13 @@ type IssuePoolCycleResponse struct {
 	CompletedAt               *string                 `json:"completed_at"`
 	Items                     []IssuePoolItemResponse `json:"items"`
 	Idempotent                bool                    `json:"idempotent_replay,omitempty"`
+}
+
+type IssuePoolCycleListResponse struct {
+	Cycles   []IssuePoolCycleResponse `json:"cycles"`
+	Total    int                      `json:"total"`
+	Page     int                      `json:"page"`
+	PageSize int                      `json:"page_size"`
 }
 
 type ReviewIssuePoolItemsRequest struct {
@@ -953,6 +963,9 @@ func (h *Handler) CreateIssuePoolCycle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create issue pool cycle")
 		return
 	}
+	h.Metrics.RecordIssuePoolTransition("scanned", int(scanned))
+	h.Metrics.RecordIssuePoolTransition("eligible", int(eligible))
+	h.Metrics.RecordIssuePoolTransition("claimed", int(claimed))
 	resp, err := h.loadIssuePoolCycle(r.Context(), ap.ID, ap.WorkspaceID, cycleID, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue pool cycle")
@@ -1025,11 +1038,65 @@ func (h *Handler) GetIssuePoolCycle(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *Handler) ListIssuePoolCycles(w http.ResponseWriter, r *http.Request) {
+	ap, _, ok := h.issuePoolAutopilot(w, r, false)
+	if !ok {
+		return
+	}
+	page, pageSize := 1, 20
+	if value, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && value > 0 {
+		page = value
+	}
+	if value, err := strconv.Atoi(r.URL.Query().Get("page_size")); err == nil && value > 0 && value <= 100 {
+		pageSize = value
+	}
+	var total int
+	if err := h.DB.QueryRow(r.Context(), `SELECT count(*) FROM issue_pool_cycle
+		WHERE autopilot_id=$1 AND workspace_id=$2`, ap.ID, ap.WorkspaceID).Scan(&total); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	rows, err := h.DB.Query(r.Context(), `SELECT id FROM issue_pool_cycle
+		WHERE autopilot_id=$1 AND workspace_id=$2 ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4`,
+		ap.ID, ap.WorkspaceID, pageSize, (page-1)*pageSize)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	ids := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	rows.Close()
+	cycles := make([]IssuePoolCycleResponse, 0, len(ids))
+	for _, id := range ids {
+		cycle, err := h.loadIssuePoolCycle(r.Context(), ap.ID, ap.WorkspaceID, id, "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+			return
+		}
+		cycles = append(cycles, cycle)
+	}
+	writeJSON(w, http.StatusOK, IssuePoolCycleListResponse{Cycles: cycles, Total: total, Page: page, PageSize: pageSize})
+}
+
 func (h *Handler) loadIssuePoolCycle(ctx context.Context, autopilotID, workspaceID, cycleID pgtype.UUID, idempotencyKey string) (IssuePoolCycleResponse, error) {
 	query := `SELECT id, policy_id, autopilot_id, workspace_id, project_id, idempotency_key,
 		status, scanned_count, eligible_count, claimed_count, created_at, updated_at, reviewed_at,
 		autopilot_run_id,workflow_template_id,workflow_template_version_id,
-		approved_count,rejected_count,completed_count,blocked_count,failed_count,deferred_count,completed_at
+		approved_count,rejected_count,dispatched_count,awaiting_acceptance_count,
+		completed_count,blocked_count,failed_count,deferred_count,completed_at
 		FROM issue_pool_cycle WHERE autopilot_id=$1 AND workspace_id=$2`
 	args := []any{autopilotID, workspaceID}
 	if cycleID.Valid {
@@ -1046,6 +1113,7 @@ func (h *Handler) loadIssuePoolCycle(ctx context.Context, autopilotID, workspace
 		&resp.IdempotencyKey, &resp.Status, &resp.ScannedCount, &resp.EligibleCount,
 		&resp.ClaimedCount, &createdAt, &updatedAt, &reviewedAt,
 		&autopilotRunID, &templateID, &versionID, &resp.ApprovedCount, &resp.RejectedCount,
+		&resp.DispatchedCount, &resp.WaitingAcceptanceCount,
 		&resp.CompletedCount, &resp.BlockedCount, &resp.FailedCount, &resp.DeferredCount, &completedAt)
 	if err != nil {
 		return IssuePoolCycleResponse{}, err
@@ -1154,6 +1222,7 @@ func (h *Handler) ReviewIssuePoolItems(w http.ResponseWriter, r *http.Request) {
 	// locked and accepts only its existing target state; a different decision
 	// remains a conflict, so retrying a lost HTTP response is safe.
 	reviewerID := parseUUID(userID)
+	approvedTransitions, rejectedTransitions := 0, 0
 	for _, decision := range req.Decisions {
 		itemID, ok := parseUUIDOrBadRequest(w, decision.ItemID, "item_id")
 		if !ok {
@@ -1190,6 +1259,11 @@ func (h *Handler) ReviewIssuePoolItems(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to review issue pool items")
 			return
 		}
+		if target == "approved" {
+			approvedTransitions++
+		} else {
+			rejectedTransitions++
+		}
 	}
 	var pending, approved, rejected int
 	if err := tx.QueryRow(r.Context(), `SELECT
@@ -1218,6 +1292,8 @@ func (h *Handler) ReviewIssuePoolItems(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to review issue pool items")
 		return
 	}
+	h.Metrics.RecordIssuePoolTransition("approved", approvedTransitions)
+	h.Metrics.RecordIssuePoolTransition("rejected", rejectedTransitions)
 	if nextStatus == "running" {
 		h.dispatchApprovedIssuePoolItems(r.Context(), ap, cycleID, reviewerID)
 	} else if nextStatus == "completed" {

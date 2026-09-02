@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_issue_pool_item_active_issue_v3;

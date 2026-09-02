@@ -139,6 +139,11 @@ import type {
   GetAutopilotResponse,
   AutopilotCollaboratorsResponse,
   ListAutopilotRunsResponse,
+  IssuePoolPreview,
+  IssuePoolPolicy,
+  PutIssuePoolPolicy,
+  IssuePoolCycle,
+  ListIssuePoolCyclesResponse,
   ListWebhookDeliveriesResponse,
   WebhookDelivery,
   NotificationPreferenceResponse,
@@ -3326,6 +3331,46 @@ export class ApiClient {
     if (params?.limit) search.set("limit", params.limit.toString());
     if (params?.offset) search.set("offset", params.offset.toString());
     return this.fetch(`/api/autopilots/${id}/runs?${search}`);
+  }
+
+  async previewIssuePool(autopilotId: string): Promise<IssuePoolPreview> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/preview`, { method: "POST" });
+  }
+
+  async getIssuePoolPolicy(autopilotId: string): Promise<IssuePoolPolicy> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/policy`);
+  }
+
+  async putIssuePoolPolicy(autopilotId: string, policy: PutIssuePoolPolicy): Promise<IssuePoolPolicy> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/policy`, {
+      method: "PUT",
+      body: JSON.stringify(policy),
+    });
+  }
+
+  async createIssuePoolCycle(autopilotId: string, idempotencyKey: string): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles`, {
+      method: "POST",
+      body: JSON.stringify({ idempotency_key: idempotencyKey }),
+    });
+  }
+
+  async listIssuePoolCycles(autopilotId: string, page = 1, pageSize = 20): Promise<ListIssuePoolCyclesResponse> {
+    const search = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles?${search}`);
+  }
+
+  async reviewIssuePoolItem(
+    autopilotId: string,
+    cycleId: string,
+    itemId: string,
+    decision: "approve" | "reject",
+    reason = "",
+  ): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles/${cycleId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decisions: [{ item_id: itemId, decision, reason }] }),
+    });
   }
 
   // Returns a single run including its full trigger_payload. List responses

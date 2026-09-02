@@ -1519,6 +1519,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/issue-pool/policy", h.PutIssuePoolPolicy)
 					r.Post("/issue-pool/preview", h.PreviewIssuePool)
 					r.Post("/issue-pool/cycles", h.CreateIssuePoolCycle)
+					r.Get("/issue-pool/cycles", h.ListIssuePoolCycles)
 					r.Get("/issue-pool/cycles/{cycleId}", h.GetIssuePoolCycle)
 					r.Post("/issue-pool/cycles/{cycleId}/review", h.ReviewIssuePoolItems)
 					r.Post("/trigger", h.TriggerAutopilot)
