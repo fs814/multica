@@ -113,6 +113,90 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 	}
 }
 
+func TestIssuePoolInboxDedupeRecoversInvalidConcurrentIndex(t *testing.T) {
+	pool, schema := newIssuePoolMigrationPool(t)
+	ctx := context.Background()
+	opts := func(files []string) runOptions {
+		return runOptions{
+			Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
+			AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+		}
+	}
+
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 1, 484))); err != nil {
+		t.Fatalf("migrate through 484: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		WITH u AS (
+			INSERT INTO "user"(name,email) VALUES('Inbox recovery owner','inbox-recovery@example.test') RETURNING id
+		), w AS (
+			INSERT INTO workspace(name,slug) VALUES('Inbox recovery workspace','inbox-recovery') RETURNING id
+		), m AS (
+			INSERT INTO member(workspace_id,user_id,role) SELECT w.id,u.id,'owner' FROM w,u RETURNING workspace_id,user_id
+		)
+		INSERT INTO inbox_item(workspace_id,recipient_type,recipient_id,type,title,details)
+		SELECT m.workspace_id,'member',m.user_id,'issue_pool','duplicate notification',
+			jsonb_build_object('notification_id','interrupted-485')
+		FROM m CROSS JOIN generate_series(1,2)
+	`); err != nil {
+		t.Fatalf("seed duplicate inbox notification IDs: %v", err)
+	}
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 485, 485))); err == nil {
+		t.Fatal("migration 485 unexpectedly succeeded with duplicate notification IDs")
+	}
+	var invalid bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+		WHERE c.relnamespace=current_schema()::regnamespace
+		  AND c.relname='idx_inbox_issue_pool_notification_dedupe'
+		  AND NOT i.indisvalid
+	)`).Scan(&invalid); err != nil || !invalid {
+		t.Fatalf("same-name INVALID index exists=%v err=%v", invalid, err)
+	}
+	var failedLedger int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+		WHERE version='485_inbox_issue_pool_notification_dedupe_index'`).Scan(&failedLedger); err != nil || failedLedger != 0 {
+		t.Fatalf("failed 485 ledger rows=%d err=%v", failedLedger, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM inbox_item a USING inbox_item b
+		WHERE a.type='issue_pool' AND b.type='issue_pool'
+		  AND a.details->>'notification_id'=b.details->>'notification_id' AND a.ctid>b.ctid`); err != nil {
+		t.Fatalf("repair duplicate inbox fixture: %v", err)
+	}
+
+	upgrade := issuePoolMigrationFiles(t, 485, 494)
+	if err := runMigrations(ctx, pool, opts(upgrade)); err != nil {
+		t.Fatalf("formal 485+ recovery: %v", err)
+	}
+	var valid bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+		WHERE c.relnamespace=current_schema()::regnamespace
+		  AND c.relname='idx_inbox_issue_pool_notification_dedupe'
+		  AND i.indisvalid AND i.indisready
+	)`).Scan(&valid); err != nil || !valid {
+		t.Fatalf("rebuilt index valid=%v err=%v", valid, err)
+	}
+	for _, file := range upgrade {
+		version := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(file), ".sql"), ".up")
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version=$1`, version).Scan(&rows); err != nil || rows != 1 {
+			t.Fatalf("ledger version %s rows=%d err=%v", version, rows, err)
+		}
+	}
+	var ledgerBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&ledgerBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(ctx, pool, opts(upgrade)); err != nil {
+		t.Fatalf("idempotent 485+ rerun: %v", err)
+	}
+	var ledgerAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&ledgerAfter); err != nil || ledgerAfter != ledgerBefore {
+		t.Fatalf("idempotent ledger count before=%d after=%d err=%v", ledgerBefore, ledgerAfter, err)
+	}
+}
+
 func installLegacyIssuePool469Fixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 	statements := []string{

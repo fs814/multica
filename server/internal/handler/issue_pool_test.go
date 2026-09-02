@@ -776,20 +776,68 @@ func TestIssuePoolRejectsSquadAssigneeOnCreateAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	squadID := dbfx.Squad(t, "Issue pool forbidden squad", uuidToString(ap.AssigneeID))
+	const wantError = "issue_pool execution requires an agent assignee"
+	assertRejected := func(t *testing.T, response *testutil.Response) {
+		t.Helper()
+		body := response.Want(http.StatusBadRequest).Map()
+		if len(body) != 1 || body["error"] != wantError {
+			t.Fatalf("error body=%v, want only error=%q", body, wantError)
+		}
+	}
 
-	createPath := "/api/autopilots?workspace_id=" + testWorkspaceID
-	createReq := newRequest(http.MethodPost, createPath, map[string]any{
-		"title": "Invalid squad issue pool", "assignee_type": "squad", "assignee_id": squadID,
-		"execution_mode": "issue_pool", "workflow_template_id": uuidToString(ap.WorkflowTemplateID),
-		"workflow_template_version_id": uuidToString(ap.WorkflowTemplateVersionID),
+	t.Run("create squad issue pool", func(t *testing.T) {
+		const title = "Invalid squad issue pool"
+		createPath := "/api/autopilots?workspace_id=" + testWorkspaceID
+		createReq := newRequest(http.MethodPost, createPath, map[string]any{
+			"title": title, "assignee_type": "squad", "assignee_id": squadID,
+			"execution_mode": "issue_pool", "workflow_template_id": uuidToString(ap.WorkflowTemplateID),
+			"workflow_template_version_id": uuidToString(ap.WorkflowTemplateVersionID),
+		})
+		assertRejected(t, testutil.Call(t, testHandler.CreateAutopilot, createReq))
+		if got := dbfx.Count(t, `SELECT count(*) FROM autopilot WHERE workspace_id=$1 AND title=$2`, testWorkspaceID, title); got != 0 {
+			t.Fatalf("rejected create persisted %d autopilots", got)
+		}
 	})
-	testutil.Call(t, testHandler.CreateAutopilot, createReq).Want(http.StatusBadRequest)
 
-	updatePath := "/api/autopilots/" + autopilotID + "?workspace_id=" + testWorkspaceID
-	updateReq := withURLParam(newRequest(http.MethodPatch, updatePath, map[string]any{
-		"assignee_type": "squad", "assignee_id": squadID,
-	}), "id", autopilotID)
-	testutil.Call(t, testHandler.UpdateAutopilot, updateReq).Want(http.StatusBadRequest)
+	t.Run("squad switches to issue pool", func(t *testing.T) {
+		squadAutopilotID := dbfx.Insert(t, "autopilot", testutil.Cols{
+			"workspace_id": testWorkspaceID, "title": "Squad run-only fixture",
+			"assignee_type": "squad", "assignee_id": squadID, "execution_mode": "run_only", "status": "active",
+			"workflow_template_id": uuidToString(ap.WorkflowTemplateID), "workflow_template_version_id": uuidToString(ap.WorkflowTemplateVersionID),
+			"created_by_type": "member", "created_by_id": testUserID,
+		})
+		updatePath := "/api/autopilots/" + squadAutopilotID + "?workspace_id=" + testWorkspaceID
+		updateReq := withURLParam(newRequest(http.MethodPatch, updatePath, map[string]any{
+			"execution_mode": "issue_pool", "title": "must not persist",
+		}), "id", squadAutopilotID)
+		assertRejected(t, testutil.Call(t, testHandler.UpdateAutopilot, updateReq))
+		var title, assigneeType, assigneeID, mode, templateID, versionID string
+		dbfx.QueryRow(t, `SELECT title,assignee_type,assignee_id::text,execution_mode,
+			workflow_template_id::text,workflow_template_version_id::text FROM autopilot WHERE id=$1`, squadAutopilotID).
+			Scan(&title, &assigneeType, &assigneeID, &mode, &templateID, &versionID)
+		if title != "Squad run-only fixture" || assigneeType != "squad" || assigneeID != squadID || mode != "run_only" ||
+			templateID != uuidToString(ap.WorkflowTemplateID) || versionID != uuidToString(ap.WorkflowTemplateVersionID) {
+			t.Fatalf("rejected update partially wrote title=%q assignee=%s/%s mode=%s template=%s/%s",
+				title, assigneeType, assigneeID, mode, templateID, versionID)
+		}
+	})
+
+	t.Run("issue pool agent switches to squad", func(t *testing.T) {
+		updatePath := "/api/autopilots/" + autopilotID + "?workspace_id=" + testWorkspaceID
+		updateReq := withURLParam(newRequest(http.MethodPatch, updatePath, map[string]any{
+			"assignee_type": "squad", "assignee_id": squadID, "title": "must not persist",
+		}), "id", autopilotID)
+		assertRejected(t, testutil.Call(t, testHandler.UpdateAutopilot, updateReq))
+		var title, assigneeType, assigneeID, mode, templateID, versionID string
+		dbfx.QueryRow(t, `SELECT title,assignee_type,assignee_id::text,execution_mode,
+			workflow_template_id::text,workflow_template_version_id::text FROM autopilot WHERE id=$1`, autopilotID).
+			Scan(&title, &assigneeType, &assigneeID, &mode, &templateID, &versionID)
+		if title != "Historical issue pool" || assigneeType != "agent" || assigneeID != uuidToString(ap.AssigneeID) || mode != "issue_pool" ||
+			templateID != uuidToString(ap.WorkflowTemplateID) || versionID != uuidToString(ap.WorkflowTemplateVersionID) {
+			t.Fatalf("rejected update partially wrote title=%q assignee=%s/%s mode=%s template=%s/%s",
+				title, assigneeType, assigneeID, mode, templateID, versionID)
+		}
+	})
 }
 
 func TestDispatchIssuePoolAutopilotRunIsIdempotent(t *testing.T) {
