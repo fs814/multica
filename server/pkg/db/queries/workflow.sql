@@ -237,6 +237,21 @@ WHERE issue_id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
 ORDER BY created_at DESC;
 
+-- name: GetIssueForWorkflowStart :one
+-- Locking the Issue serializes competing starts. The effective status closes
+-- custom-status aliases that map to terminal built-in states.
+SELECT i.*, issue_effective_status(i.workspace_id, i.status)::text AS effective_status
+FROM issue i
+WHERE i.id = $1 AND i.workspace_id = $2
+FOR UPDATE OF i;
+
+-- name: HasActiveAgentTaskForWorkflowIssue :one
+SELECT EXISTS (
+    SELECT 1 FROM agent_task_queue
+    WHERE issue_id = $1
+      AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
+) AS has_active_task;
+
 -- name: MarkWorkflowRunRunning :one
 -- pending -> running, or running -> running when resuming after an acceptance
 -- or a repaired block. Idempotent by design: replaying it changes nothing.

@@ -1,0 +1,77 @@
+-- TES-66 phase 1: durable policy, cycle, and review-item contracts for the
+-- historical issue pool. Relationships are enforced in the application; the
+-- tables intentionally carry no foreign keys or inline primary keys.
+CREATE TABLE issue_pool_policy (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    autopilot_id UUID NOT NULL,
+    workspace_id UUID NOT NULL,
+    project_id UUID,
+    eligible_statuses TEXT[] NOT NULL DEFAULT ARRAY['backlog']::TEXT[],
+    priorities TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    required_label_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
+    excluded_label_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
+    property_match JSONB NOT NULL DEFAULT '{}'::JSONB,
+    inactive_for_days INTEGER NOT NULL DEFAULT 30 CHECK (inactive_for_days BETWEEN 0 AND 3650),
+    batch_limit INTEGER NOT NULL DEFAULT 10 CHECK (batch_limit BETWEEN 1 AND 100),
+    max_in_flight INTEGER NOT NULL DEFAULT 10 CHECK (max_in_flight BETWEEN 1 AND 100),
+    review_mode TEXT NOT NULL DEFAULT 'manual' CHECK (review_mode = 'manual'),
+    allow_human_assignee BOOLEAN NOT NULL DEFAULT FALSE,
+    require_description BOOLEAN NOT NULL DEFAULT TRUE,
+    require_acceptance_criteria BOOLEAN NOT NULL DEFAULT TRUE,
+    priority_weights JSONB NOT NULL DEFAULT '{"urgent":400,"high":300,"medium":200,"low":100,"none":0}'::JSONB,
+    created_by_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (jsonb_typeof(property_match) = 'object'),
+    CHECK (jsonb_typeof(priority_weights) = 'object'),
+    CHECK (cardinality(eligible_statuses) BETWEEN 1 AND 20),
+    CHECK (cardinality(priorities) <= 5)
+);
+
+CREATE TABLE issue_pool_cycle (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    policy_id UUID NOT NULL,
+    autopilot_id UUID NOT NULL,
+    workspace_id UUID NOT NULL,
+    project_id UUID,
+    idempotency_key TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 1 AND 200),
+    status TEXT NOT NULL CHECK (status IN ('scanning', 'awaiting_review', 'reviewed', 'failed')),
+    policy_snapshot JSONB NOT NULL,
+    scanned_count INTEGER NOT NULL DEFAULT 0 CHECK (scanned_count >= 0),
+    eligible_count INTEGER NOT NULL DEFAULT 0 CHECK (eligible_count >= 0),
+    claimed_count INTEGER NOT NULL DEFAULT 0 CHECK (claimed_count >= 0),
+    created_by_id UUID NOT NULL,
+    failure_reason TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_at TIMESTAMPTZ,
+    CHECK (jsonb_typeof(policy_snapshot) = 'object')
+);
+
+CREATE TABLE issue_pool_item (
+    id UUID NOT NULL DEFAULT gen_random_uuid(),
+    cycle_id UUID NOT NULL,
+    policy_id UUID NOT NULL,
+    autopilot_id UUID NOT NULL,
+    workspace_id UUID NOT NULL,
+    project_id UUID,
+    issue_id UUID NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('claimed', 'approved', 'rejected')),
+    score INTEGER NOT NULL,
+    score_breakdown JSONB NOT NULL,
+    selection_reasons JSONB NOT NULL,
+    issue_snapshot JSONB NOT NULL,
+    claim_token UUID NOT NULL DEFAULT gen_random_uuid(),
+    claim_expires_at TIMESTAMPTZ,
+    reviewer_id UUID,
+    review_reason TEXT,
+    claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (jsonb_typeof(score_breakdown) = 'object'),
+    CHECK (jsonb_typeof(selection_reasons) = 'array'),
+    CHECK (jsonb_typeof(issue_snapshot) = 'object'),
+    CHECK (status <> 'rejected' OR (reviewer_id IS NOT NULL AND review_reason IS NOT NULL AND btrim(review_reason) <> '')),
+    CHECK (status = 'claimed' OR (reviewer_id IS NOT NULL AND reviewed_at IS NOT NULL))
+);

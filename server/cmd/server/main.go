@@ -442,6 +442,7 @@ func main() {
 		h.WorkflowEngine.Metrics = workflowMetrics
 		go h.WorkflowReconciler.Run(sweepCtx)
 	}
+	go h.RunIssuePoolReconciler(sweepCtx)
 	if h.WebhookDeliveryWorker != nil {
 		go h.WebhookDeliveryWorker.Run(sweepCtx)
 	}
