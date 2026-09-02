@@ -6,6 +6,8 @@ export {
   autopilotDeliveriesOptions,
   autopilotDeliveryOptions,
   cronPreviewOptions,
+  issuePoolPolicyOptions,
+  issuePoolCyclesOptions,
 } from "./queries";
 export {
   useCreateAutopilot,
@@ -17,5 +19,8 @@ export {
   useDeleteAutopilotTrigger,
   useRotateAutopilotTriggerWebhookToken,
   useReplayAutopilotDelivery,
+  usePutIssuePoolPolicy,
+  usePreviewIssuePool,
+  useReviewIssuePoolItems,
 } from "./mutations";
 export { buildAutopilotWebhookUrl, maskAutopilotWebhookUrl } from "./webhook";

@@ -139,6 +139,12 @@ import type {
   GetAutopilotResponse,
   AutopilotCollaboratorsResponse,
   ListAutopilotRunsResponse,
+  IssuePoolPolicy,
+  PutIssuePoolPolicyRequest,
+  IssuePoolPreview,
+  IssuePoolCycle,
+  ListIssuePoolCyclesResponse,
+  IssuePoolReviewDecision,
   ListWebhookDeliveriesResponse,
   WebhookDelivery,
   NotificationPreferenceResponse,
@@ -3333,6 +3339,51 @@ export class ApiClient {
   // up to 256 KiB × limit rows), so the detail view fetches via this route.
   async getAutopilotRun(autopilotId: string, runId: string): Promise<AutopilotRun> {
     return this.fetch(`/api/autopilots/${autopilotId}/runs/${runId}`);
+  }
+
+  async getIssuePoolPolicy(autopilotId: string): Promise<IssuePoolPolicy> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/policy`);
+  }
+
+  async putIssuePoolPolicy(
+    autopilotId: string,
+    data: PutIssuePoolPolicyRequest,
+  ): Promise<IssuePoolPolicy> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/policy`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async previewIssuePool(autopilotId: string): Promise<IssuePoolPreview> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/preview`, {
+      method: "POST",
+    });
+  }
+
+  async listIssuePoolCycles(
+    autopilotId: string,
+    params?: { limit?: number; offset?: number },
+  ): Promise<ListIssuePoolCyclesResponse> {
+    const search = new URLSearchParams();
+    if (params?.limit) search.set("limit", String(params.limit));
+    if (params?.offset) search.set("offset", String(params.offset));
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles?${search}`);
+  }
+
+  async getIssuePoolCycle(autopilotId: string, cycleId: string): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles/${cycleId}`);
+  }
+
+  async reviewIssuePoolItems(
+    autopilotId: string,
+    cycleId: string,
+    decisions: IssuePoolReviewDecision[],
+  ): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles/${cycleId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decisions }),
+    });
   }
 
   async createAutopilotTrigger(autopilotId: string, data: CreateAutopilotTriggerRequest): Promise<AutopilotTrigger> {

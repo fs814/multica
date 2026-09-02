@@ -111,6 +111,27 @@ func createIssuePoolCycle(t *testing.T, autopilotID, key string, wantStatus int)
 	return out
 }
 
+func TestListIssuePoolCyclesPaginatesNewestFirst(t *testing.T) {
+	autopilotID := newIssuePoolAutopilot(t, nil)
+	cleanIssuePoolRows(t, autopilotID)
+	putIssuePoolPolicy(t, autopilotID, map[string]any{
+		"eligible_statuses": []string{"backlog"}, "batch_limit": 1, "max_in_flight": 1,
+	})
+	first := createIssuePoolCycle(t, autopilotID, "list-first", http.StatusCreated)
+	second := createIssuePoolCycle(t, autopilotID, "list-second", http.StatusCreated)
+
+	path := "/api/autopilots/" + autopilotID + "/issue-pool/cycles?workspace_id=" + testWorkspaceID + "&limit=1&offset=1"
+	req := withURLParam(newRequest(http.MethodGet, path, nil), "id", autopilotID)
+	var out struct {
+		Cycles []IssuePoolCycleResponse `json:"cycles"`
+		Total  int                      `json:"total"`
+	}
+	testutil.Call(t, testHandler.ListIssuePoolCycles, req).Want(http.StatusOK).JSON(&out)
+	if out.Total != 2 || len(out.Cycles) != 1 || out.Cycles[0].ID != first.ID || second.ID == first.ID {
+		t.Fatalf("unexpected paginated cycles: total=%d cycles=%v", out.Total, out.Cycles)
+	}
+}
+
 func withIssuePoolParams(req *http.Request, autopilotID, cycleID string) *http.Request {
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", autopilotID)
@@ -138,27 +159,27 @@ func TestIssuePoolPreviewDeterministicExplainableAndProjectScoped(t *testing.T) 
 
 	high := dbfx.Issue(t, "High priority old issue", testutil.Cols{
 		"project_id": projectA, "status": "backlog", "priority": "high",
-		"last_activity_at": testutil.Raw("'2020-01-02T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-02T00:00:00Z'::timestamptz"),
 	})
 	low := dbfx.Issue(t, "Low priority older issue", testutil.Cols{
 		"project_id": projectA, "status": "backlog", "priority": "low",
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	dbfx.Issue(t, "Human-owned issue", testutil.Cols{
 		"project_id": projectA, "status": "backlog", "priority": "urgent",
 		"assignee_type": "member", "assignee_id": testUserID,
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	activeIssue := dbfx.Issue(t, "Issue with active task", testutil.Cols{
 		"project_id": projectA, "status": "backlog", "priority": "urgent",
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	var agentID string
 	dbfx.QueryRow(t, `SELECT id::text FROM agent WHERE workspace_id=$1 ORDER BY created_at LIMIT 1`, testWorkspaceID).Scan(&agentID)
 	dbfx.Task(t, agentID, testutil.Cols{"issue_id": activeIssue, "status": "queued", "runtime_id": testRuntimeID})
 	activeWorkflowIssue := dbfx.Issue(t, "Issue with active Workflow", testutil.Cols{
 		"project_id": projectA, "status": "backlog", "priority": "urgent",
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	ap, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
 	if err != nil {
@@ -174,7 +195,7 @@ func TestIssuePoolPreviewDeterministicExplainableAndProjectScoped(t *testing.T) 
 	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM workflow_run WHERE id=$1`, activeRun) })
 	dbfx.Issue(t, "Other project must not be scanned", testutil.Cols{
 		"project_id": projectB, "status": "backlog", "priority": "urgent",
-		"last_activity_at": testutil.Raw("'2019-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2019-01-01T00:00:00Z'::timestamptz"),
 	})
 
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
@@ -222,10 +243,10 @@ func TestIssuePoolClaimConcurrentAndIdempotent(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
 	dbfx.Issue(t, "Only claimable issue", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	dbfx.Issue(t, "Second claimable issue", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-02T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-02T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -298,7 +319,7 @@ func TestIssuePoolManualReviewRejectReleasesApproveRetainsClaim(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
 	dbfx.Issue(t, "Reviewable issue", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -386,7 +407,7 @@ func TestIssuePoolApprovalRunsOriginalIssueAndRecoversLostLink(t *testing.T) {
 	cleanIssuePoolRows(t, autopilotID)
 	issueID := dbfx.Issue(t, "Execute this historical issue", testutil.Cols{
 		"status": "backlog", "description": "deterministic input",
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -448,7 +469,7 @@ func TestIssuePoolReconcilerReclaimsExpiredClaimAndDeduplicatesOutbox(t *testing
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
 	issueID := dbfx.Issue(t, "Expired pool claim", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -457,10 +478,11 @@ func TestIssuePoolReconcilerReclaimsExpiredClaimAndDeduplicatesOutbox(t *testing
 	cycle := createIssuePoolCycle(t, autopilotID, "expire-claim", http.StatusCreated)
 	dbfx.Exec(t, `UPDATE issue_pool_item SET claim_expires_at=now()-interval '1 second' WHERE id=$1`, cycle.Items[0].ID)
 	testHandler.reconcileIssuePools(context.Background())
-	var state, code string
+	var state string
+	var code *string
 	dbfx.QueryRow(t, `SELECT status,failure_code FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&state, &code)
-	if state != "deferred" || code != "claim_expired" {
-		t.Fatalf("expired claim = %s/%s", state, code)
+	if state != "deferred" || code == nil || *code != "claim_expired" {
+		t.Fatalf("expired claim = %s/%v", state, code)
 	}
 	reclaimed := createIssuePoolCycle(t, autopilotID, "reclaim-claim", http.StatusCreated)
 	if len(reclaimed.Items) != 1 || reclaimed.Items[0].IssueID != issueID {
@@ -482,7 +504,7 @@ func TestDispatchIssuePoolAutopilotRunIsIdempotent(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
 	dbfx.Issue(t, "Autopilot pool candidate", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -530,7 +552,7 @@ func TestIssuePoolConcurrentDispatchCreatesExactlyOneWorkflowRunAndTask(t *testi
 	cleanIssuePoolRows(t, autopilotID)
 	dbfx.Issue(t, "Concurrent dispatch candidate", testutil.Cols{
 		"status": "backlog", "description": "dispatch exactly once",
-		"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -590,7 +612,7 @@ func TestIssuePoolWorkflowAcceptanceAndBoundedReworkRemainCanonical(t *testing.T
 		cleanIssuePoolRows(t, autopilotID)
 		dbfx.Issue(t, "Acceptance "+key, testutil.Cols{
 			"status": "backlog", "description": "workflow acceptance input",
-			"last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+			"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 		})
 		putIssuePoolPolicy(t, autopilotID, map[string]any{
 			"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
@@ -685,7 +707,7 @@ func TestIssuePoolWorkflowAcceptanceAndBoundedReworkRemainCanonical(t *testing.T
 func TestIssuePoolOutboxCrashReplayPersistsOneInboxItem(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
-	dbfx.Issue(t, "Outbox replay candidate", testutil.Cols{"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
+	dbfx.Issue(t, "Outbox replay candidate", testutil.Cols{"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1, "require_description": false, "require_acceptance_criteria": false})
 	cycle := createIssuePoolCycle(t, autopilotID, "outbox-crash", http.StatusCreated)
 	var notificationID string
@@ -716,7 +738,7 @@ func TestIssuePoolOutboxCrashReplayPersistsOneInboxItem(t *testing.T) {
 func TestIssuePoolInfrastructureFailureProjectsAutopilotRunFailed(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
-	dbfx.Issue(t, "Failed pool candidate", testutil.Cols{"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
+	dbfx.Issue(t, "Failed pool candidate", testutil.Cols{"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1, "require_description": false, "require_acceptance_criteria": false})
 	runID := dbfx.Insert(t, "autopilot_run", testutil.Cols{"autopilot_id": autopilotID, "source": "manual", "status": "running"})
 	ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
@@ -740,7 +762,7 @@ func TestIssuePoolDispatchDefersIssueChangedAfterReview(t *testing.T) {
 	autopilotID := newIssuePoolAutopilot(t, nil)
 	cleanIssuePoolRows(t, autopilotID)
 	issueID := dbfx.Issue(t, "Snapshot candidate", testutil.Cols{
-		"status": "backlog", "last_activity_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+		"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
 	})
 	putIssuePoolPolicy(t, autopilotID, map[string]any{
 		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,

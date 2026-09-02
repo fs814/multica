@@ -16,7 +16,31 @@ export const autopilotKeys = {
     [...autopilotKeys.all(wsId), "deliveries", autopilotId, deliveryId] as const,
   cronPreview: (wsId: string, expr: string, tz: string) =>
     [...autopilotKeys.all(wsId), "cron-preview", expr, tz] as const,
+  issuePoolPolicy: (wsId: string, id: string) =>
+    [...autopilotKeys.all(wsId), "issue-pool", id, "policy"] as const,
+  issuePoolCycles: (wsId: string, id: string) =>
+    [...autopilotKeys.all(wsId), "issue-pool", id, "cycles"] as const,
 };
+
+export function issuePoolPolicyOptions(wsId: string, autopilotId: string) {
+  return queryOptions({
+    queryKey: autopilotKeys.issuePoolPolicy(wsId, autopilotId),
+    queryFn: () => api.getIssuePoolPolicy(autopilotId),
+    retry: false,
+  });
+}
+
+export function issuePoolCyclesOptions(
+  wsId: string,
+  autopilotId: string,
+  params: { limit: number; offset: number },
+) {
+  return queryOptions({
+    queryKey: [...autopilotKeys.issuePoolCycles(wsId, autopilotId), params] as const,
+    queryFn: () => api.listIssuePoolCycles(autopilotId, params),
+    refetchInterval: 15_000,
+  });
+}
 
 export function autopilotListOptions(wsId: string) {
   return queryOptions({

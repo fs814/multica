@@ -32,7 +32,8 @@
   },
   "execution_mode": {
     "create_issue": "Create Issue",
-    "run_only": "Run Only"
+    "run_only": "Run Only",
+    "issue_pool": "Issue Pool"
   },
   "relative_date": {
     "today": "Today",
@@ -252,6 +253,40 @@
     "toast_added_webhook": "Webhook trigger added",
     "toast_add_failed": "Failed to add trigger"
   },
+  "issue_pool": {
+    "title": "Issue Pool",
+    "pinned_template": "Pinned workflow {{template}} / {{version}}",
+    "eligible_statuses": "Eligible statuses (comma separated)",
+    "priorities": "Priorities (blank means all)",
+    "inactive_days": "Inactive for days",
+    "batch_limit": "Batch limit",
+    "max_in_flight": "Max in flight",
+    "input_mapping": "Workflow input mapping (JSON)",
+    "preview": "Preview",
+    "save_policy": "Save policy",
+    "policy_saved": "Issue pool policy saved",
+    "policy_save_failed": "Failed to save issue pool policy",
+    "mapping_invalid": "Input mapping must be valid JSON",
+    "preview_summary": "Scanned {{scanned}}, eligible {{eligible}}, selected {{selected}}",
+    "excluded": "Excluded",
+    "no_cycles": "No cycles yet. Save a policy, then use Run now or a trigger.",
+    "cycle_status": "Cycle: {{status}}",
+    "cycle_counts": "Scanned {{scanned}} · eligible {{eligible}} · claimed {{claimed}}",
+    "score": "score {{score}}",
+    "select_candidate": "Select {{title}}",
+    "open_workflow_run": "Open workflow run",
+    "review_acceptance": "Review acceptance",
+    "reject_reason_placeholder": "Reason required for rejection",
+    "reject_reason_required": "Enter a reason before rejecting",
+    "reject_selected": "Reject ({{count}})",
+    "approve_selected": "Approve ({{count}})",
+    "review_saved": "Review saved",
+    "remediation_title": "Action needed",
+    "remediation_hint": "Open the workflow run, resolve the blocker or input mismatch, then trigger a new cycle.",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}} · {{total}} cycles"
+  },
   "dialog": {
     "sr_create": "New Autopilot",
     "sr_edit": "Edit Autopilot",
@@ -318,6 +353,7 @@
     "schedule_add": "Add schedule",
     "error_title_required": "Enter a name for this autopilot.",
     "error_assignee_required": "Choose the agent or squad that will run this autopilot.",
+    "issue_pool_agent_only": "Issue pools require an agent assignee.",
     "output_modes": {
       "create_issue": {
         "label": "Create issue",
@@ -326,6 +362,10 @@
       "run_only": {
         "label": "Run only",
         "description": "Silent run, no issue created"
+      },
+      "issue_pool": {
+        "label": "Issue pool",
+        "description": "Review ranked existing issues, then run the pinned workflow"
       }
     }
   },

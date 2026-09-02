@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -622,13 +623,13 @@ const issuePoolEvaluatedSQL = `
 WITH evaluated AS (
 	SELECT i.id, i.title, i.number, i.status, i.priority, i.project_id,
 		i.updated_at, i.description, i.acceptance_criteria,
-		COALESCE(i.last_activity_at, i.updated_at) AS last_activity_at,
-		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - COALESCE(i.last_activity_at, i.updated_at))) / 86400))::int AS inactive_days,
+		i.updated_at AS last_activity_at,
+		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - i.updated_at)) / 86400))::int AS inactive_days,
 		CASE i.priority WHEN 'urgent' THEN $13::int WHEN 'high' THEN $14::int WHEN 'medium' THEN $15::int WHEN 'low' THEN $16::int ELSE $17::int END AS priority_score,
 		CASE
 			WHEN NOT (i.status = ANY($3::text[])) THEN 'status_not_eligible'
 			WHEN cardinality($4::text[]) > 0 AND NOT (i.priority = ANY($4::text[])) THEN 'priority_not_eligible'
-			WHEN COALESCE(i.last_activity_at, i.updated_at) > $8::timestamptz THEN 'recently_active'
+			WHEN i.updated_at > $8::timestamptz THEN 'recently_active'
 			WHEN NOT $9::boolean AND i.assignee_type = 'member' THEN 'human_assignee'
 			WHEN $10::boolean AND btrim(COALESCE(i.description, '')) = '' THEN 'missing_description'
 			WHEN $11::boolean AND COALESCE(i.acceptance_criteria, '[]'::jsonb) = '[]'::jsonb THEN 'missing_acceptance_criteria'
@@ -792,6 +793,12 @@ func (h *Handler) PreviewIssuePool(w http.ResponseWriter, r *http.Request) {
 	for i, candidate := range candidates {
 		respCandidates[i] = candidateToResponse(candidate)
 	}
+	h.IssuePoolMetrics.AddSelection("scanned", scanned)
+	h.IssuePoolMetrics.AddSelection("eligible", eligible)
+	h.IssuePoolMetrics.AddSelection("selected", len(respCandidates))
+	for reason, count := range excluded {
+		h.IssuePoolMetrics.AddExclusion(reason, count)
+	}
 	writeJSON(w, http.StatusOK, IssuePoolPreviewResponse{
 		PolicyID: uuidToString(p.ID), ReferenceTime: reference.Format(time.RFC3339Nano),
 		ScannedCount: scanned, EligibleCount: eligible, SelectedCount: len(respCandidates),
@@ -954,6 +961,13 @@ func (h *Handler) CreateIssuePoolCycle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create issue pool cycle")
 		return
 	}
+	h.IssuePoolMetrics.AddSelection("scanned", scanned)
+	h.IssuePoolMetrics.AddSelection("eligible", eligible)
+	h.IssuePoolMetrics.AddSelection("selected", int(claimed))
+	h.IssuePoolMetrics.AddItemTransition("claimed", int(claimed))
+	for _, candidate := range candidates {
+		h.IssuePoolMetrics.ObserveDuration("backlog_age_at_claim", float64(candidate.InactiveDays)*24*60*60)
+	}
 	resp, err := h.loadIssuePoolCycle(r.Context(), ap.ID, ap.WorkspaceID, cycleID, "")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue pool cycle")
@@ -966,7 +980,7 @@ const issuePoolEligibilityPredicate = `
 	i.workspace_id = $1 AND ($2::uuid IS NULL OR i.project_id = $2::uuid)
 	AND i.status = ANY($3::text[])
 	AND (cardinality($4::text[]) = 0 OR i.priority = ANY($4::text[]))
-	AND COALESCE(i.last_activity_at, i.updated_at) <= $8::timestamptz
+	AND i.updated_at <= $8::timestamptz
 	AND ($9::boolean OR i.assignee_type IS DISTINCT FROM 'member')
 	AND (NOT $10::boolean OR btrim(COALESCE(i.description, '')) <> '')
 	AND (NOT $11::boolean OR COALESCE(i.acceptance_criteria, '[]'::jsonb) <> '[]'::jsonb)
@@ -981,11 +995,11 @@ const issuePoolEligibilityPredicate = `
 func lockIssuePoolCandidates(ctx context.Context, tx pgx.Tx, p issuePoolPolicy, reference time.Time, limit int32) ([]issuePoolCandidate, error) {
 	args := append(issuePoolQueryArgs(p, reference), limit)
 	rows, err := tx.Query(ctx, `SELECT i.id, i.title, i.number, i.status, i.priority, i.project_id,
-		COALESCE(i.last_activity_at, i.updated_at),
+		i.updated_at,
 		i.updated_at, i.description, i.acceptance_criteria,
-		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - COALESCE(i.last_activity_at, i.updated_at))) / 86400))::int AS inactive_days,
+		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - i.updated_at)) / 86400))::int AS inactive_days,
 		CASE i.priority WHEN 'urgent' THEN $13::int WHEN 'high' THEN $14::int WHEN 'medium' THEN $15::int WHEN 'low' THEN $16::int ELSE $17::int END AS priority_score,
-		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - COALESCE(i.last_activity_at, i.updated_at))) / 86400))::int +
+		GREATEST(0, floor(extract(epoch FROM ($12::timestamptz - i.updated_at)) / 86400))::int +
 		CASE i.priority WHEN 'urgent' THEN $13::int WHEN 'high' THEN $14::int WHEN 'medium' THEN $15::int WHEN 'low' THEN $16::int ELSE $17::int END AS score
 		FROM issue i WHERE `+issuePoolEligibilityPredicate+`
 		ORDER BY score DESC, i.number ASC, i.id ASC FOR UPDATE OF i SKIP LOCKED LIMIT $18`, args...)
@@ -1025,6 +1039,66 @@ func (h *Handler) GetIssuePoolCycle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) ListIssuePoolCycles(w http.ResponseWriter, r *http.Request) {
+	ap, _, ok := h.issuePoolAutopilot(w, r, false)
+	if !ok {
+		return
+	}
+	limit, offset := int32(10), int32(0)
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value > 0 {
+			limit = int32(value)
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		if value, err := strconv.Atoi(raw); err == nil && value >= 0 {
+			offset = int32(value)
+		}
+	}
+	var total int
+	if err := h.DB.QueryRow(r.Context(), `SELECT count(*)::int FROM issue_pool_cycle
+		WHERE autopilot_id=$1 AND workspace_id=$2`, ap.ID, ap.WorkspaceID).Scan(&total); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	rows, err := h.DB.Query(r.Context(), `SELECT id FROM issue_pool_cycle
+		WHERE autopilot_id=$1 AND workspace_id=$2 ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4`,
+		ap.ID, ap.WorkspaceID, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	ids := []pgtype.UUID{}
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+			return
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+		return
+	}
+	rows.Close()
+	cycles := make([]IssuePoolCycleResponse, 0, len(ids))
+	for _, id := range ids {
+		cycle, err := h.loadIssuePoolCycle(r.Context(), ap.ID, ap.WorkspaceID, id, "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list issue pool cycles")
+			return
+		}
+		cycles = append(cycles, cycle)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"cycles": cycles, "total": total})
 }
 
 func (h *Handler) loadIssuePoolCycle(ctx context.Context, autopilotID, workspaceID, cycleID pgtype.UUID, idempotencyKey string) (IssuePoolCycleResponse, error) {
@@ -1192,6 +1266,7 @@ func (h *Handler) ReviewIssuePoolItems(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to review issue pool items")
 			return
 		}
+		h.IssuePoolMetrics.AddItemTransition(target, 1)
 	}
 	var pending, approved, rejected int
 	if err := tx.QueryRow(r.Context(), `SELECT

@@ -149,6 +149,13 @@ func (h *Handler) DispatchIssuePool(ctx context.Context, ap db.Autopilot, run *d
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit issue pool cycle: %w", err)
 	}
+	h.IssuePoolMetrics.AddSelection("scanned", scanned)
+	h.IssuePoolMetrics.AddSelection("eligible", eligible)
+	h.IssuePoolMetrics.AddSelection("selected", int(claimed))
+	h.IssuePoolMetrics.AddItemTransition("claimed", int(claimed))
+	for _, candidate := range candidates {
+		h.IssuePoolMetrics.ObserveDuration("backlog_age_at_claim", float64(candidate.InactiveDays)*24*60*60)
+	}
 	return nil
 }
 

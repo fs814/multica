@@ -344,6 +344,7 @@ func main() {
 	var samplerPool *pgxpool.Pool
 	var channelMediaMetrics *obsmetrics.ChannelMediaReconcilerMetrics
 	var workflowMetrics *obsmetrics.WorkflowMetrics
+	var issuePoolMetrics *obsmetrics.IssuePoolMetrics
 	var wecomMetrics *obsmetrics.WecomMetrics
 	if metricsConfig.Enabled() {
 		// Build a dedicated tiny pool for the BusinessSamplerCollector
@@ -374,6 +375,7 @@ func main() {
 		businessMetrics = metricsRegistry.Business
 		channelMediaMetrics = metricsRegistry.ChannelMedia
 		workflowMetrics = metricsRegistry.Workflow
+		issuePoolMetrics = metricsRegistry.IssuePool
 		wecomMetrics = metricsRegistry.Wecom
 		// Forward inbound daemon WS frames into the per-kind counter so
 		// dashboards can split heartbeat / unknown / invalid traffic.
@@ -401,6 +403,7 @@ func main() {
 	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
 		HTTPMetrics:        httpMetrics,
 		BusinessMetrics:    businessMetrics,
+		IssuePoolMetrics:   issuePoolMetrics,
 		WecomMetrics:       wecomMetrics,
 		DaemonHub:          daemonHub,
 		DaemonWakeup:       daemonWakeup,

@@ -20,6 +20,7 @@ type issuePoolDispatchRow struct {
 	TemplateID, TemplateVersionID           pgtype.UUID
 	ReviewerID                              pgtype.UUID
 	Snapshot, Mapping, PolicySnapshot       []byte
+	ClaimedAt                               pgtype.Timestamptz
 }
 
 func (h *Handler) dispatchApprovedIssuePoolItems(ctx context.Context, ap db.Autopilot, cycleID, fallbackAccountable pgtype.UUID) {
@@ -28,7 +29,7 @@ func (h *Handler) dispatchApprovedIssuePoolItems(ctx context.Context, ap db.Auto
 	}
 	rows, err := h.DB.Query(ctx, `SELECT item.id,item.issue_id,item.workspace_id,item.project_id,
 		item.cycle_id,item.autopilot_id,cycle.workflow_template_id,cycle.workflow_template_version_id,
-		item.reviewer_id,item.issue_snapshot,cycle.workflow_input_mapping_snapshot,cycle.policy_snapshot
+		item.reviewer_id,item.issue_snapshot,cycle.workflow_input_mapping_snapshot,cycle.policy_snapshot,item.claimed_at
 		FROM issue_pool_item item JOIN issue_pool_cycle cycle ON cycle.id=item.cycle_id
 		WHERE item.cycle_id=$1 AND item.workspace_id=$2 AND item.status IN ('approved','dispatching')
 		ORDER BY item.created_at,item.id LIMIT 100`, cycleID, ap.WorkspaceID)
@@ -40,7 +41,7 @@ func (h *Handler) dispatchApprovedIssuePoolItems(ctx context.Context, ap db.Auto
 		var row issuePoolDispatchRow
 		if rows.Scan(&row.ItemID, &row.IssueID, &row.WorkspaceID, &row.ProjectID,
 			&row.CycleID, &row.AutopilotID, &row.TemplateID, &row.TemplateVersionID,
-			&row.ReviewerID, &row.Snapshot, &row.Mapping, &row.PolicySnapshot) == nil {
+			&row.ReviewerID, &row.Snapshot, &row.Mapping, &row.PolicySnapshot, &row.ClaimedAt) == nil {
 			if !row.ReviewerID.Valid {
 				row.ReviewerID = fallbackAccountable
 			}
@@ -99,6 +100,10 @@ func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, ro
 	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
 		dispatched_at=COALESCE(dispatched_at,now()),waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN now() ELSE waiting_acceptance_at END,
 		failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, row.ItemID, started.Run.ID, status)
+	h.IssuePoolMetrics.AddItemTransition(status, 1)
+	if row.ClaimedAt.Valid {
+		h.IssuePoolMetrics.ObserveDuration("claim_to_dispatch", time.Since(row.ClaimedAt.Time).Seconds())
+	}
 }
 
 func (h *Handler) resolveIssuePoolWorkflowInput(ctx context.Context, row issuePoolDispatchRow) (json.RawMessage, pgtype.Timestamptz, pgtype.UUID, error) {
@@ -175,12 +180,13 @@ func (h *Handler) resolveIssuePoolWorkflowInput(ctx context.Context, row issuePo
 func (h *Handler) deferIssuePoolItem(ctx context.Context, itemID pgtype.UUID, code string, err error) {
 	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET status='deferred',failure_code=$2,
 		failure_detail=jsonb_build_object('message',$3::text),completed_at=now(),updated_at=now() WHERE id=$1`, itemID, code, err.Error())
+	h.IssuePoolMetrics.AddItemTransition("deferred", 1)
 }
 
 // reconcileIssuePoolCycle projects canonical WorkflowRun state to pool items,
 // then derives the cycle and AutopilotRun status. It is safe to replay.
 func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, cycleID pgtype.UUID) {
-	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item item SET
+	projected, projectErr := h.DB.Exec(ctx, `UPDATE issue_pool_item item SET
 		status=CASE run.status WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed'
 			WHEN 'cancelled' THEN 'cancelled' WHEN 'blocked' THEN 'blocked'
 			WHEN 'waiting_acceptance' THEN 'waiting_acceptance' ELSE 'running' END,
@@ -191,6 +197,11 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		FROM workflow_run run WHERE item.cycle_id=$1 AND item.workflow_run_id=run.id
 		AND item.status IS DISTINCT FROM CASE run.status WHEN 'completed' THEN 'completed' WHEN 'failed' THEN 'failed'
 			WHEN 'cancelled' THEN 'cancelled' WHEN 'blocked' THEN 'blocked' WHEN 'waiting_acceptance' THEN 'waiting_acceptance' ELSE 'running' END`, cycleID)
+	if projectErr != nil {
+		h.IssuePoolMetrics.RecordReconciliation("projection_error")
+		return
+	}
+	_ = projected
 
 	var total, claimed, active, waiting, blocked, completed, failed, cancelled, deferred, rejected int32
 	err := h.DB.QueryRow(ctx, `SELECT count(*)::int,
@@ -205,6 +216,7 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		count(*) FILTER (WHERE status='rejected')::int FROM issue_pool_item WHERE cycle_id=$1`, cycleID).
 		Scan(&total, &claimed, &active, &waiting, &blocked, &completed, &failed, &cancelled, &deferred, &rejected)
 	if err != nil {
+		h.IssuePoolMetrics.RecordReconciliation("query_error")
 		return
 	}
 	status := "running"
@@ -228,11 +240,22 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 			status = "completed"
 		}
 	}
+	var previousStatus string
+	var cycleCreatedAt pgtype.Timestamptz
+	_ = h.DB.QueryRow(ctx, `SELECT status,created_at FROM issue_pool_cycle WHERE id=$1`, cycleID).
+		Scan(&previousStatus, &cycleCreatedAt)
 	var autopilotRunID pgtype.UUID
 	_ = h.DB.QueryRow(ctx, `UPDATE issue_pool_cycle SET status=$2,completed_count=$3,blocked_count=$4,
 		failed_count=$5,deferred_count=$6,rejected_count=$7,updated_at=now(),
 		completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
 		WHERE id=$1 RETURNING autopilot_run_id`, cycleID, status, completed, blocked, failed, deferred, rejected).Scan(&autopilotRunID)
+	if previousStatus != status && (status == "completed" || status == "partial" || status == "cancelled" || status == "failed") {
+		h.IssuePoolMetrics.RecordCycleOutcome(status)
+		if cycleCreatedAt.Valid {
+			h.IssuePoolMetrics.ObserveDuration("cycle", time.Since(cycleCreatedAt.Time).Seconds())
+		}
+	}
+	h.IssuePoolMetrics.RecordReconciliation("success")
 	if autopilotRunID.Valid && (status == "completed" || status == "partial" || status == "cancelled") {
 		result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
 		_, _ = h.DB.Exec(ctx, `UPDATE autopilot_run SET status='completed',completed_at=COALESCE(completed_at,now()),result=$2::jsonb
@@ -307,6 +330,8 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 			h.dispatchApprovedIssuePoolItems(ctx, ap, cycleID, pgtype.UUID{})
 		}
 		rows.Close()
+	} else {
+		h.IssuePoolMetrics.RecordReconciliation("query_error")
 	}
 	// Claim notification intents with bounded exponential backoff. Delivery
 	// persists the user-visible inbox row before any realtime broadcast.
@@ -318,6 +343,8 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 		updated_at=now() FROM claimed
 		WHERE outbox.id=claimed.id RETURNING outbox.id,outbox.workspace_id,outbox.recipient_id,outbox.event_type,outbox.payload`)
 	if err != nil {
+		h.IssuePoolMetrics.RecordReconciliation("query_error")
+		h.refreshIssuePoolGauges(ctx)
 		return
 	}
 	var notices []issuePoolOutboxNotice
@@ -330,6 +357,7 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 	outboxRows.Close()
 	for _, n := range notices {
 		if err := h.persistIssuePoolInbox(ctx, n); err != nil {
+			h.IssuePoolMetrics.RecordNotification("persist_error")
 			_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_notification_outbox
 				SET last_error=left($2,2000),updated_at=now() WHERE id=$1 AND delivered_at IS NULL`, n.id, err.Error())
 			continue
@@ -341,6 +369,32 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 		h.publish("issue_pool."+n.event, uuidToString(n.workspace), "system", "", payload)
 		_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_notification_outbox
 			SET delivered_at=now(),last_error=NULL,updated_at=now() WHERE id=$1 AND delivered_at IS NULL`, n.id)
+		h.IssuePoolMetrics.RecordNotification("delivered")
+	}
+	h.refreshIssuePoolGauges(ctx)
+}
+
+func (h *Handler) refreshIssuePoolGauges(ctx context.Context) {
+	for _, state := range []string{"active", "pending_review", "blocked"} {
+		h.IssuePoolMetrics.SetCurrentItems(state, 0)
+	}
+	rows, err := h.DB.Query(ctx, `SELECT CASE
+		WHEN status='claimed' THEN 'pending_review'
+		WHEN status='blocked' THEN 'blocked'
+		ELSE 'active' END AS metric_state,count(*)::float8
+		FROM issue_pool_item
+		WHERE status IN ('claimed','approved','dispatching','running','waiting_acceptance','blocked')
+		GROUP BY metric_state`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var state string
+		var count float64
+		if rows.Scan(&state, &count) == nil {
+			h.IssuePoolMetrics.SetCurrentItems(state, count)
+		}
 	}
 }
 

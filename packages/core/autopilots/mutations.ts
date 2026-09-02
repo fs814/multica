@@ -9,7 +9,42 @@ import type {
   GetAutopilotResponse,
   CreateAutopilotTriggerRequest,
   UpdateAutopilotTriggerRequest,
+  PutIssuePoolPolicyRequest,
+  IssuePoolReviewDecision,
 } from "../types";
+
+export function usePutIssuePoolPolicy() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: ({ autopilotId, policy }: { autopilotId: string; policy: PutIssuePoolPolicyRequest }) =>
+      api.putIssuePoolPolicy(autopilotId, policy),
+    onSuccess: (policy) => {
+      qc.setQueryData(autopilotKeys.issuePoolPolicy(wsId, policy.autopilot_id), policy);
+    },
+  });
+}
+
+export function usePreviewIssuePool() {
+  return useMutation({
+    mutationFn: (autopilotId: string) => api.previewIssuePool(autopilotId),
+  });
+}
+
+export function useReviewIssuePoolItems() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: ({ autopilotId, cycleId, decisions }: {
+      autopilotId: string;
+      cycleId: string;
+      decisions: IssuePoolReviewDecision[];
+    }) => api.reviewIssuePoolItems(autopilotId, cycleId, decisions),
+    onSuccess: (cycle) => {
+      qc.invalidateQueries({ queryKey: autopilotKeys.issuePoolCycles(wsId, cycle.autopilot_id) });
+    },
+  });
+}
 
 export function useCreateAutopilot() {
   const qc = useQueryClient();

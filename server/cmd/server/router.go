@@ -173,8 +173,9 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analytics
 }
 
 type RouterOptions struct {
-	HTTPMetrics     *obsmetrics.HTTPMetrics
-	BusinessMetrics *obsmetrics.BusinessMetrics
+	HTTPMetrics      *obsmetrics.HTTPMetrics
+	BusinessMetrics  *obsmetrics.BusinessMetrics
+	IssuePoolMetrics *obsmetrics.IssuePoolMetrics
 	// WecomMetrics is the WeCom adapter's health sink. Nil discards every
 	// counter, which is what a deployment with /metrics turned off gets.
 	WecomMetrics *obsmetrics.WecomMetrics
@@ -238,6 +239,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	h.Metrics = opts.BusinessMetrics
+	h.IssuePoolMetrics = opts.IssuePoolMetrics
 	h.FeatureFlags = opts.FeatureFlags
 	h.TaskService.FeatureFlags = opts.FeatureFlags
 	h.TaskService.Metrics = opts.BusinessMetrics
@@ -1519,6 +1521,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/issue-pool/policy", h.PutIssuePoolPolicy)
 					r.Post("/issue-pool/preview", h.PreviewIssuePool)
 					r.Post("/issue-pool/cycles", h.CreateIssuePoolCycle)
+					r.Get("/issue-pool/cycles", h.ListIssuePoolCycles)
 					r.Get("/issue-pool/cycles/{cycleId}", h.GetIssuePoolCycle)
 					r.Post("/issue-pool/cycles/{cycleId}/review", h.ReviewIssuePoolItems)
 					r.Post("/trigger", h.TriggerAutopilot)

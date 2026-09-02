@@ -33,13 +33,13 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 			var bootstrap, upgrade []string
 			switch path {
 			case "fresh":
-				upgrade = issuePoolMigrationFiles(t, 1, 488)
+				upgrade = issuePoolMigrationFiles(t, 1, 490)
 			case "d_drive_1_283":
 				bootstrap = issuePoolMigrationFiles(t, 1, 283)
-				upgrade = append(issuePoolMigrationFiles(t, 449, 458), issuePoolMigrationFiles(t, 470, 488)...)
+				upgrade = append(issuePoolMigrationFiles(t, 449, 458), issuePoolMigrationFiles(t, 470, 490)...)
 			case "legacy_449_469":
 				bootstrap = append(issuePoolMigrationFiles(t, 1, 283), issuePoolMigrationFiles(t, 449, 458)...)
-				upgrade = issuePoolMigrationFiles(t, 470, 488)
+				upgrade = issuePoolMigrationFiles(t, 470, 490)
 			}
 			if len(bootstrap) > 0 {
 				if err := runMigrations(ctx, pool, opts(bootstrap)); err != nil {
@@ -81,9 +81,17 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 			)`).Scan(&modeOK); err != nil {
 				t.Fatalf("inspect execution mode constraint: %v", err)
 			}
-			if !modeOK || !mappingOK || !outboxPK || !activeIndexOK || !inboxDedupeOK || !oldIndexesGone {
-				t.Fatalf("upgrade invariants mode=%v mapping=%v outbox_pk=%v active_index=%v inbox_dedupe=%v old_indexes_gone=%v",
-					modeOK, mappingOK, outboxPK, activeIndexOK, inboxDedupeOK, oldIndexesGone)
+			var effectiveStatusOK, reviewInvariantOK bool
+			if err := pool.QueryRow(ctx, `SELECT
+				to_regprocedure('public.issue_effective_status(uuid,text)') IS NOT NULL,
+				EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='issue_pool_item'::regclass
+					AND conname='issue_pool_item_review_check'
+					AND pg_get_constraintdef(oid) LIKE '%deferred%')`).Scan(&effectiveStatusOK, &reviewInvariantOK); err != nil {
+				t.Fatalf("inspect recovery compatibility: %v", err)
+			}
+			if !modeOK || !mappingOK || !outboxPK || !activeIndexOK || !inboxDedupeOK || !oldIndexesGone || !effectiveStatusOK || !reviewInvariantOK {
+				t.Fatalf("upgrade invariants mode=%v mapping=%v outbox_pk=%v active_index=%v inbox_dedupe=%v old_indexes_gone=%v effective_status=%v review_invariant=%v",
+					modeOK, mappingOK, outboxPK, activeIndexOK, inboxDedupeOK, oldIndexesGone, effectiveStatusOK, reviewInvariantOK)
 			}
 			if path == "legacy_449_469" {
 				var blocked, audited, migratedNotices int
