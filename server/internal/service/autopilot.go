@@ -538,7 +538,17 @@ func (s *AutopilotService) dispatchAutopilotRun(
 			s.failRun(ctx, run.ID, err.Error())
 			return run, dispatch.ReasonInternalError, err
 		}
-		if err := s.IssuePool.DispatchIssuePool(ctx, autopilot, run, actorUserID); err != nil {
+		accountable := actorUserID
+		if !accountable.Valid {
+			attr := triggerOwnerAttribution(ctx, s.Queries, run.TriggerID, autopilot.WorkspaceID, autopilot.ID, attribution.EvidenceAutopilotRun, run.ID)
+			accountable = attr.AccountableUserID
+		}
+		if !accountable.Valid {
+			err := fmt.Errorf("%w: no accountable human for issue pool review", ErrAttributionFailClosed)
+			s.failRun(ctx, run.ID, err.Error())
+			return run, dispatch.ReasonAttributionBlocked, err
+		}
+		if err := s.IssuePool.DispatchIssuePool(ctx, autopilot, run, accountable); err != nil {
 			s.failRun(ctx, run.ID, err.Error())
 			return run, dispatchFailReasonCode(err), fmt.Errorf("dispatch issue_pool: %w", err)
 		}
