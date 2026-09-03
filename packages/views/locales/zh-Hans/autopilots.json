@@ -54,16 +54,16 @@
       "summary": "评估并安排新提交的 bug"
     },
     "weekly_progress": {
-      "title": "每周进度报告",
-      "summary": "汇总团队本周进展"
+      "title": "质量治理周会闭环",
+      "summary": "把质量证据和会议结论转成已验证行动与可复用规则"
     },
     "dependency_audit": {
       "title": "依赖审计",
       "summary": "扫描安全漏洞和过时的依赖包"
     },
     "documentation_check": {
-      "title": "文档检查",
-      "summary": "检查近期改动是否缺失文档"
+      "title": "文档交付流水线",
+      "summary": "发现代码与文档差距，并依次完成撰写、CLI 校验和评审"
     }
   },
   "detail": {

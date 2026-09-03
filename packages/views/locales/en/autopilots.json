@@ -54,16 +54,16 @@
       "summary": "Assess and prioritize new bug reports"
     },
     "weekly_progress": {
-      "title": "Weekly progress report",
-      "summary": "Compile a weekly summary of team progress"
+      "title": "Weekly quality governance",
+      "summary": "Turn quality evidence and meeting decisions into verified actions and reusable rules"
     },
     "dependency_audit": {
       "title": "Dependency audit",
       "summary": "Scan for security vulnerabilities and outdated packages"
     },
     "documentation_check": {
-      "title": "Documentation check",
-      "summary": "Review recent changes for documentation gaps"
+      "title": "Documentation delivery pipeline",
+      "summary": "Find code-to-doc gaps and move each one through drafting, CLI verification, and review"
     }
   },
   "detail": {

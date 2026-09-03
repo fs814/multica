@@ -149,9 +149,72 @@ multica autopilot runs <autopilot-id>
 multica autopilot trigger-rotate-url <autopilot-id> <trigger-id>
 ```
 
+`create` and `update` accept exactly one of `--description`,
+`--description-stdin`, or `--description-file`. Use a UTF-8 file for a
+multi-line runbook, especially on Windows:
+
+```bash
+multica autopilot create \
+  --title "Documentation delivery pipeline" \
+  --description-file ./documentation-runbook.md \
+  --agent doc-coordinator \
+  --mode create_issue \
+  --project <project-id> \
+  --issue-title-template "Documentation audit {{date}}" \
+  --output json
+```
+
+The file must be inside the current working directory unless you explicitly pass
+`--allow-external-file`. Keeping runbooks beside the task that creates them
+prevents another run's stale temporary file from becoming the automation prompt.
+
 `autopilot get` sets `webhook_token`, `webhook_path`, and `webhook_url` to `null` by default, and returns `has_webhook_token` plus `webhook_token_hint` instead. Add `--show-secrets` only when you intentionally need the live credential; the CLI prints a warning to stderr so piped JSON stays valid.
 
 See [Using the CLI](/cli) for the full parameters.
+
+## Build a gated improvement loop
+
+Use `create_issue` when humans or several agents must inspect intermediate
+results. The automation creates the coordinator issue; the coordinator then
+creates one child issue per responsibility. Agents do not need shared memory:
+the issue description, evidence links, comments, and status are the handoff.
+
+```bash
+# Stage 1 starts now.
+multica issue create --title "Draft the confirmed documentation gap" \
+  --parent <coordinator-issue-id> --assignee doc-writer \
+  --stage 1 --status todo
+
+# Later gates stay parked.
+multica issue create --title "Verify every documented CLI command" \
+  --parent <coordinator-issue-id> --assignee cli-reviewer \
+  --stage 2 --status backlog
+multica issue create --title "Editorial review and publish decision" \
+  --parent <coordinator-issue-id> --assignee docs-reviewer \
+  --stage 3 --status backlog
+```
+
+When every child in the lowest unfinished stage reaches `done` or
+`cancelled`, Multica wakes the parent assignee once. The coordinator checks the
+evidence, then promotes the next stage with
+`multica issue status <child-id> todo`. A draft alone therefore cannot bypass
+CLI verification or editorial review.
+
+The same shape works for weekly quality governance:
+
+1. Schedule an automation to create the pre-meeting evidence report.
+2. Attach or link the meeting transcript to that issue.
+3. Separate confirmed facts, hypotheses, changed conclusions, and unresolved
+   questions.
+4. Create action issues only for confirmed decisions, with an owner and
+   acceptance criteria.
+5. Put reusable, confirmed lessons in a rules repository through a reviewable
+   PR. Never turn an unverified hypothesis into a durable rule.
+
+Keep known limits visible: Multica provides scheduling, routing, issue history,
+stage barriers, repository context, and reviewable delivery. It does not
+transcribe meetings or publish to an external wiki by itself; provide those
+systems through a project resource, MCP server, webhook, or attachment.
 
 ## Next steps
 

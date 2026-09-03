@@ -39,6 +39,7 @@ Execution modes:
 multica autopilot list --output json
 multica autopilot get <autopilot-id> --output json
 multica autopilot create --title "<title>" --description "<task prompt>" --agent <agent-name-or-id> --mode create_issue|run_only --output json
+multica autopilot create --title "<title>" --description-file ./runbook.md --agent <agent-name-or-id> --mode create_issue|run_only --output json
 multica autopilot update <autopilot-id> --status active|paused --output json
 multica autopilot runs <autopilot-id> --output json
 multica autopilot trigger-add <autopilot-id> --kind schedule --cron "0 9 * * *" --timezone Asia/Shanghai --output json
@@ -48,6 +49,12 @@ multica autopilot trigger-rotate-url <autopilot-id> <trigger-id> --yes --output 
 ```
 
 Use `trigger` only when the user explicitly asks for a manual run. Use `trigger-rotate-url` only when rotating a webhook URL; the old URL stops being valid.
+
+`create` and `update` accept exactly one of `--description`,
+`--description-stdin`, or `--description-file`. Prefer
+`--description-file ./runbook.md` for multi-line or non-ASCII runbooks on
+Windows. The file must live in the current workdir unless the user explicitly
+authorizes `--allow-external-file`; do not use a shared temp path.
 
 `autopilot get` redacts `webhook_token`, `webhook_path`, and `webhook_url` by default while reporting whether a token exists and its non-sensitive hint. Only add `--show-secrets` when the user explicitly asks to retrieve the live webhook credential; the command warns on stderr. Do not paste webhook tokens or signing material into comments, logs, docs, or PRs.
 

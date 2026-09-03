@@ -175,12 +175,13 @@ const TEMPLATES: AutopilotTemplate[] = [
   },
   {
     id: "weekly_progress",
-    prompt: `1. Gather all issues completed (status "done") in the past 7 days
-2. Gather all issues currently in progress
-3. Identify any blocked issues and their blockers
-4. Calculate key metrics: issues closed, issues opened, net change
-5. Write a structured weekly report with sections: Completed, In Progress, Blocked, Metrics
-6. Post the report as a comment on this issue`,
+    prompt: `1. Gather quality evidence from the past 7 days: failed, reopened, blocked, or repeatedly patched issues; incidents; customer impact; and temporary workarounds. Link every source.
+2. Write a weekly quality report that separates confirmed facts, hypotheses, recurring patterns, and unresolved questions.
+3. Look for a meeting transcript attached to this issue or linked from the project. If none exists, publish the pre-meeting report, list the missing transcript as an explicit gate, and stop.
+4. Reconcile the transcript with the pre-meeting report. Record where the initial conclusion changed, the evidence discussed, and the final decision.
+5. Create follow-up issues only for confirmed actions. Give each one an owner, acceptance criteria, evidence links, and one category: immediate fix, long-term fix, product change, or operations change. Use staged child issues for dependencies and leave later stages in backlog.
+6. If the project has a rules or evolution repository, open a reviewable PR containing only confirmed, reusable lessons. Never turn speculation into a rule.
+7. Post the final report on this issue with links to actions and rule changes, plus every item that remains unverified.`,
     icon: BarChart3,
     schedule: { time: { kind: "at", time: "17:00" }, days: MONDAY },
   },
@@ -196,11 +197,13 @@ const TEMPLATES: AutopilotTemplate[] = [
   },
   {
     id: "documentation_check",
-    prompt: `1. List all code changes merged in the past 7 days (via git log)
-2. For each significant change, check if related documentation was updated
-3. Identify any new APIs, config options, or features missing documentation
-4. Create a list of documentation gaps with file paths and suggested content
-5. Post the findings as a comment on this issue`,
+    prompt: `1. Treat the repository as the source of truth. Compare merged code, API routes, CLI help, built-in skills, and tests from the past 7 days with the published documentation.
+2. Record only confirmed documentation gaps. For each gap, link the code evidence, affected user workflow, and the command or behavior that proves it.
+3. Create tracked child issues for each confirmed gap. Put drafting in stage 1, CLI or behavior verification in stage 2, and editorial review in stage 3. Assign each issue to the appropriate agent and leave later stages in backlog until the prior gate closes.
+4. Require drafts to use executable CLI steps instead of console screenshots wherever the CLI supports the workflow. Keep unsupported console-only steps explicit.
+5. Verify every command against current --help output and, when safe, an isolated test workspace. Add or update automated tests when documentation depends on parsing, validation, or generated output.
+6. Publish through a reviewable PR only after the verification and editorial gates pass. Do not mark a child issue done merely because a draft exists.
+7. Post a final comment on this issue with the gap inventory, verification evidence, PR links, and anything that could not be validated.`,
     icon: FileSearch,
     schedule: { time: { kind: "at", time: "14:00" }, days: MONDAY },
   },

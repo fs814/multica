@@ -149,9 +149,66 @@ multica autopilot runs <autopilot-id>
 multica autopilot trigger-rotate-url <autopilot-id> <trigger-id>
 ```
 
+`create` と `update` では、`--description`、`--description-stdin`、
+`--description-file` のいずれか 1 つだけを使用できます。複数行の Runbook、
+特に Windows では UTF-8 ファイルを使用してください。
+
+```bash
+multica autopilot create \
+  --title "ドキュメント配信パイプライン" \
+  --description-file ./documentation-runbook.md \
+  --agent doc-coordinator \
+  --mode create_issue \
+  --project <project-id> \
+  --issue-title-template "ドキュメント監査 {{date}}" \
+  --output json
+```
+
+`--allow-external-file` を明示的に指定しない限り、ファイルは現在の作業
+ディレクトリ内に置く必要があります。これにより、別の実行が残した一時ファイルを
+誤って自動化のプロンプトとして使用することを防ぎます。
+
 `autopilot get` はデフォルトで `webhook_token`、`webhook_path`、`webhook_url` を `null` にし、代わりに `has_webhook_token` と `webhook_token_hint` を返します。実際の認証情報が必要な場合に限り `--show-secrets` を追加してください。CLI は警告を stderr に出力するため、パイプされた JSON は有効なままです。
 
 すべての引数は [CLI](/cli)を参照してください。
+
+## Gate 付きの継続的改善ループを構築する
+
+人間または複数のエージェントが中間成果物を確認する場合は `create_issue` を
+使用します。自動化が調整用タスクを作成し、調整役が責任ごとに子タスクを作成します。
+エージェント間の共有メモリは不要です。タスクの説明、証拠リンク、コメント、状態が
+引き継ぎ情報になります。
+
+```bash
+# Stage 1 はすぐに開始します。
+multica issue create --title "確認済みのドキュメント不足を執筆" \
+  --parent <coordinator-issue-id> --assignee doc-writer \
+  --stage 1 --status todo
+
+# 後続の Gate は backlog に待機させます。
+multica issue create --title "記載されたすべての CLI コマンドを検証" \
+  --parent <coordinator-issue-id> --assignee cli-reviewer \
+  --stage 2 --status backlog
+multica issue create --title "編集レビューと公開判断" \
+  --parent <coordinator-issue-id> --assignee docs-reviewer \
+  --stage 3 --status backlog
+```
+
+最も早い未完了 stage の全子タスクが `done` または `cancelled` になると、
+Multica は親の担当者を 1 回だけ起動します。調整役が証拠を確認してから
+`multica issue status <child-id> todo` で次の stage を進めます。草稿だけで
+CLI 検証や編集レビューを通過することはありません。
+
+同じ構造を週次品質ガバナンスにも利用できます。会議前の証拠レポートを定期作成し、
+会議の文字起こしを添付またはリンクします。確認済みの事実、仮説、変更された結論、
+未解決事項を分け、確認済みの決定だけを担当者と受け入れ条件付きのタスクにします。
+再利用可能な教訓はレビュー可能な PR でルールリポジトリへ追加し、未検証の仮説を
+永続的なルールにしないでください。
+
+Multica が提供するのはスケジュール、ルーティング、タスク履歴、stage barrier、
+リポジトリコンテキスト、レビュー可能な成果物です。会議の文字起こしや外部 wiki
+への公開は行いません。プロジェクトリソース、MCP サーバー、Webhook、添付ファイル
+で外部システムを接続してください。
 
 ## 次のステップ
 

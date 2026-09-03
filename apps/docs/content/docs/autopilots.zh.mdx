@@ -149,9 +149,66 @@ multica autopilot runs <autopilot-id>
 multica autopilot trigger-rotate-url <autopilot-id> <trigger-id>
 ```
 
+`create` 和 `update` 只能在 `--description`、`--description-stdin`、
+`--description-file` 中选择一种。多行 Runbook 建议使用 UTF-8 文件，Windows
+上尤其如此：
+
+```bash
+multica autopilot create \
+  --title "文档交付流水线" \
+  --description-file ./documentation-runbook.md \
+  --agent doc-coordinator \
+  --mode create_issue \
+  --project <project-id> \
+  --issue-title-template "文档审计 {{date}}" \
+  --output json
+```
+
+文件必须位于当前工作目录中；只有明确传入 `--allow-external-file` 才能读取
+外部路径。把 Runbook 放在创建它的 task 工作目录里，可以防止误用其他运行遗留
+的临时文件。
+
 `autopilot get` 默认把 `webhook_token`、`webhook_path` 和 `webhook_url` 设为 `null`，并返回 `has_webhook_token` 与 `webhook_token_hint`。只有确实需要获取当前有效凭证时才添加 `--show-secrets`；CLI 会把警告输出到 stderr，确保管道中的 JSON 仍然有效。
 
 完整参数见[使用 CLI](/cli)。
+
+## 建立带 Gate 的持续改进循环
+
+需要人工或多个智能体检查中间产物时，选择 `create_issue`。自动化先创建协调任务，
+协调智能体再按职责创建子任务。不同智能体无需共享记忆：任务描述、证据链接、评论
+和状态就是交接载体。
+
+```bash
+# Stage 1 立即启动。
+multica issue create --title "撰写已确认的文档缺口" \
+  --parent <coordinator-issue-id> --assignee doc-writer \
+  --stage 1 --status todo
+
+# 后续 Gate 暂存于 backlog。
+multica issue create --title "验证文档中的每条 CLI 命令" \
+  --parent <coordinator-issue-id> --assignee cli-reviewer \
+  --stage 2 --status backlog
+multica issue create --title "编辑评审与发布决策" \
+  --parent <coordinator-issue-id> --assignee docs-reviewer \
+  --stage 3 --status backlog
+```
+
+最早未完成 stage 的全部子任务进入 `done` 或 `cancelled` 后，Multica 只唤醒
+父任务负责人一次。协调智能体检查证据，再执行
+`multica issue status <child-id> todo` 推进下一阶段。这样，只有草稿不能绕过
+CLI 校验或编辑评审。
+
+同一结构也适用于每周质量治理：
+
+1. 用自动化定时创建会前质量证据周报。
+2. 把会议逐字稿作为附件或链接放进该任务。
+3. 分开记录已确认事实、假设、发生变化的结论和未决问题。
+4. 只为会议确认的决策创建行动任务，每条都写负责人和验收标准。
+5. 通过可审查 PR，把已确认且可复用的经验写入规则仓库；不要把未经验证的假设固化成规则。
+
+边界也要写清楚：Multica 提供定时触发、路由、任务历史、stage 屏障、仓库上下文和
+可审查交付；它本身不负责会议转写，也不会直接发布到外部 wiki。需要通过项目资源、
+MCP 服务、Webhook 或附件接入这些系统。
 
 ## 接下来
 

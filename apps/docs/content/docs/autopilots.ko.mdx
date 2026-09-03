@@ -149,9 +149,64 @@ multica autopilot runs <autopilot-id>
 multica autopilot trigger-rotate-url <autopilot-id> <trigger-id>
 ```
 
+`create`와 `update`에서는 `--description`, `--description-stdin`,
+`--description-file` 중 하나만 사용할 수 있습니다. 여러 줄 Runbook은 특히
+Windows에서 UTF-8 파일로 전달하세요.
+
+```bash
+multica autopilot create \
+  --title "문서 제공 파이프라인" \
+  --description-file ./documentation-runbook.md \
+  --agent doc-coordinator \
+  --mode create_issue \
+  --project <project-id> \
+  --issue-title-template "문서 감사 {{date}}" \
+  --output json
+```
+
+`--allow-external-file`을 명시하지 않으면 파일은 현재 작업 디렉터리 안에 있어야
+합니다. 이렇게 하면 다른 실행이 남긴 임시 파일을 자동화 프롬프트로 잘못 사용하는
+문제를 막을 수 있습니다.
+
 `autopilot get`은 기본적으로 `webhook_token`, `webhook_path`, `webhook_url`을 `null`로 설정하고 대신 `has_webhook_token`과 `webhook_token_hint`를 반환합니다. 실제 자격 증명이 꼭 필요할 때만 `--show-secrets`를 추가하세요. CLI는 경고를 stderr로 출력하므로 파이프로 전달되는 JSON은 유효하게 유지됩니다.
 
 전체 인수는 [CLI 사용](/cli)을 참고하세요.
+
+## Gate가 있는 지속 개선 루프 만들기
+
+사람이나 여러 에이전트가 중간 결과를 확인해야 한다면 `create_issue`를 사용합니다.
+자동화가 조정 태스크를 만들고 조정자가 책임별로 자식 태스크를 만듭니다. 에이전트끼리
+공유 메모리를 가질 필요는 없습니다. 태스크 설명, 근거 링크, 댓글, 상태가 인계 정보입니다.
+
+```bash
+# Stage 1은 즉시 시작합니다.
+multica issue create --title "확인된 문서 차이 작성" \
+  --parent <coordinator-issue-id> --assignee doc-writer \
+  --stage 1 --status todo
+
+# 이후 Gate는 backlog에 대기시킵니다.
+multica issue create --title "문서의 모든 CLI 명령 검증" \
+  --parent <coordinator-issue-id> --assignee cli-reviewer \
+  --stage 2 --status backlog
+multica issue create --title "편집 검토와 게시 결정" \
+  --parent <coordinator-issue-id> --assignee docs-reviewer \
+  --stage 3 --status backlog
+```
+
+가장 이른 미완료 stage의 모든 자식 태스크가 `done` 또는 `cancelled`가 되면
+Multica는 부모 담당자를 한 번만 깨웁니다. 조정자가 근거를 확인한 뒤
+`multica issue status <child-id> todo`로 다음 stage를 진행합니다. 초안만으로는
+CLI 검증이나 편집 검토를 건너뛸 수 없습니다.
+
+같은 구조를 주간 품질 거버넌스에도 사용할 수 있습니다. 회의 전 근거 보고서를 정기적으로
+만들고 회의 녹취록을 첨부하거나 연결합니다. 확인된 사실, 가설, 변경된 결론, 미해결
+질문을 분리하고 확인된 결정만 담당자와 인수 조건이 있는 태스크로 만듭니다. 재사용 가능한
+교훈은 검토 가능한 PR을 통해 규칙 저장소에 추가하고 검증되지 않은 가설을 영구 규칙으로
+만들지 마세요.
+
+Multica는 일정, 라우팅, 태스크 기록, stage barrier, 저장소 컨텍스트, 검토 가능한
+결과물을 제공합니다. 회의를 직접 전사하거나 외부 wiki에 게시하지는 않습니다. 프로젝트
+리소스, MCP 서버, Webhook 또는 첨부 파일로 외부 시스템을 연결하세요.
 
 ## 다음 단계
 
