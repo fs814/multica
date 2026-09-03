@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -765,6 +768,15 @@ func TestWorkflowTemplatePatchUpdatesDraft(t *testing.T) {
 	if stale.Code != http.StatusConflict {
 		t.Fatalf("stale PATCH: expected 409, got %d: %s", stale.Code, stale.Body.String())
 	}
+	var conflictBody struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(stale.Body).Decode(&conflictBody); err != nil {
+		t.Fatalf("decode stale PATCH: %v", err)
+	}
+	if conflictBody.Code != "workflow_template_revision_conflict" {
+		t.Fatalf("stale PATCH code = %q", conflictBody.Code)
+	}
 
 	// A metadata-only PATCH must leave the graph alone: the editor renames a
 	// template without shipping the canvas.
@@ -784,6 +796,69 @@ func TestWorkflowTemplatePatchUpdatesDraft(t *testing.T) {
 	}
 	if got := entryNodeName(t, metaOnly.Definition); got != "Investigate the report" {
 		t.Fatalf("a metadata-only PATCH changed the graph: entry node name = %q", got)
+	}
+}
+
+// TestWorkflowTemplateSQLConcurrentRevisionCAS is deliberately below HTTP: two
+// independent callers race the generated UPDATE with the same revision. The
+// database, rather than handler timing, must choose exactly one winner.
+func TestWorkflowTemplateSQLConcurrentRevisionCAS(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	created := createWorkflowTemplateForTest(t, "sql_concurrent_cas")
+
+	type result struct {
+		name string
+		row  db.WorkflowTemplate
+		err  error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, name := range []string{"Writer A", "Writer B"} {
+		name := name
+		go func() {
+			<-start
+			row, err := testHandler.Queries.UpdateWorkflowTemplate(context.Background(), db.UpdateWorkflowTemplateParams{
+				ID:               parseUUID(created.ID),
+				WorkspaceID:      parseUUID(testWorkspaceID),
+				Name:             pgtype.Text{String: name, Valid: true},
+				ExpectedRevision: created.Revision,
+			})
+			results <- result{name: name, row: row, err: err}
+		}()
+	}
+	close(start)
+
+	var winner string
+	wins, conflicts := 0, 0
+	for range 2 {
+		got := <-results
+		switch {
+		case got.err == nil:
+			wins++
+			winner = got.name
+			if got.row.Revision != created.Revision+1 {
+				t.Errorf("winner revision = %d, want %d", got.row.Revision, created.Revision+1)
+			}
+		case errors.Is(got.err, pgx.ErrNoRows):
+			conflicts++
+		default:
+			t.Fatalf("writer %q error = %v", got.name, got.err)
+		}
+	}
+	if wins != 1 || conflicts != 1 {
+		t.Fatalf("concurrent CAS results: wins=%d conflicts=%d", wins, conflicts)
+	}
+
+	var storedName string
+	var storedRevision int64
+	if err := testPool.QueryRow(context.Background(),
+		"SELECT name, revision FROM workflow_template WHERE id = $1 AND workspace_id = $2",
+		created.ID, testWorkspaceID,
+	).Scan(&storedName, &storedRevision); err != nil {
+		t.Fatalf("reload concurrent CAS winner: %v", err)
+	}
+	if storedName != winner || storedRevision != created.Revision+1 {
+		t.Fatalf("stored template = name %q revision %d, want winner %q revision %d", storedName, storedRevision, winner, created.Revision+1)
 	}
 }
 

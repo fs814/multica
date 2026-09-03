@@ -59,6 +59,7 @@ const validateMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const navigationPushMock = vi.hoisted(() => vi.fn());
+const clipboardWriteMock = vi.hoisted(() => vi.fn());
 
 // The canvas is replaced wholesale (see the header). It still reports the graph
 // it was handed, so a page that stopped feeding it nodes fails these tests.
@@ -293,6 +294,11 @@ async function canvas(): Promise<HTMLElement> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: clipboardWriteMock },
+  });
+  clipboardWriteMock.mockResolvedValue(undefined);
   detailRef.current = detail();
   membersRef.current = [{ user_id: "user-1", role: "admin" }];
   saveMock.mockResolvedValue(detail());
@@ -639,6 +645,80 @@ describe("save", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
     );
+  });
+
+  it("keeps conflicted working JSON copyable and retries it with the latest revision", async () => {
+    saveMock
+      .mockRejectedValueOnce(
+        Object.assign(new Error("API error: 409"), {
+          status: 409,
+          body: { code: "workflow_template_revision_conflict" },
+        }),
+      )
+      .mockResolvedValueOnce(detail({ revision: 9 }));
+    renderPage();
+    await canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByRole("alertdialog", {
+        name: "This draft changed elsewhere",
+      }),
+    ).toBeInTheDocument();
+    expect((await canvas()).textContent).toContain("step_1");
+    expect(
+      screen.getByRole("button", { name: "Reload latest" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy working JSON" }));
+    await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalledTimes(1));
+    const copied = JSON.parse(
+      clipboardWriteMock.mock.calls[0]?.[0] as string,
+    ) as {
+      nodes: { key: string }[];
+    };
+    expect(copied.nodes.map((node) => node.key)).toContain("step_1");
+
+    detailRef.current = detail({ revision: 8 });
+    fireEvent.click(screen.getByRole("button", { name: "Reload and retry" }));
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2));
+    const retried = saveMock.mock.calls[1]?.[0] as {
+      revision: number;
+      definition: { nodes: { key: string }[] };
+    };
+    expect(retried.revision).toBe(8);
+    expect(retried.definition.nodes.map((node) => node.key)).toContain(
+      "step_1",
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
+    );
+  });
+
+  it("reloads server JSON only after explicit conflict recovery", async () => {
+    saveMock.mockRejectedValueOnce(
+      Object.assign(new Error("API error: 409"), {
+        status: 409,
+        body: { code: "workflow_template_revision_conflict" },
+      }),
+    );
+    renderPage();
+    await canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This draft changed elsewhere");
+    expect((await canvas()).textContent).toContain("step_1");
+
+    detailRef.current = detail({ revision: 8 });
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("This draft changed elsewhere"),
+      ).not.toBeInTheDocument(),
+    );
+    expect((await canvas()).textContent).not.toContain("step_1");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
   it("surfaces a 422's messages inline rather than as a toast", async () => {

@@ -123,7 +123,7 @@ export function WorkflowTemplateDetailPage({
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
 
-  const { data, isLoading, error } = useQuery(
+  const { data, isLoading, error, refetch } = useQuery(
     workflowTemplateDetailOptions(wsId, templateId),
   );
 
@@ -136,6 +136,9 @@ export function WorkflowTemplateDetailPage({
   const [validating, setValidating] = useState(false);
   const [publishPrompt, setPublishPrompt] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [saveConflict, setSaveConflict] = useState<WorkflowDefinition | null>(
+    null,
+  );
 
   const saveTemplate = useUpdateWorkflowTemplate();
   const publishTemplate = usePublishWorkflowTemplate();
@@ -244,6 +247,13 @@ export function WorkflowTemplateDetailPage({
       setProblems(null);
       toast.success(t(($) => $.editor.toast_saved));
     } catch (err) {
+      if (isWorkflowTemplateRevisionConflict(err)) {
+        // Keep the exact bytes the user attempted to save. Background refetches
+        // are intentionally ignored by the reducer, so nothing can overwrite
+        // this working copy while the author chooses copy, reload, or retry.
+        setSaveConflict(sent);
+        return;
+      }
       // A 422 carries the server's per-rule messages. Surfacing them inline is
       // the whole point: "save failed" in a toast tells an author nothing they
       // can act on, while `Agent node "implement" must have exactly one outgoing
@@ -256,6 +266,62 @@ export function WorkflowTemplateDetailPage({
       toast.error(errorMessage(err, t(($) => $.editor.toast_save_failed)));
     }
   }, [data?.revision, saveTemplate, templateId, working, t]);
+
+  const copyConflictedJSON = useCallback(async () => {
+    if (!saveConflict) return;
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(saveConflict, null, 2),
+      );
+      toast.success(t(($) => $.editor.conflict.copied));
+    } catch {
+      toast.error(t(($) => $.editor.conflict.copy_failed));
+    }
+  }, [saveConflict, t]);
+
+  const reloadAfterConflict = useCallback(async () => {
+    const latest = (await refetch()).data;
+    if (!latest) {
+      toast.error(t(($) => $.editor.conflict.reload_failed));
+      return;
+    }
+    dispatch({
+      type: "reload_from_server",
+      templateId,
+      definition: latest.definition,
+    });
+    setSaveConflict(null);
+    setProblems(null);
+  }, [refetch, t, templateId]);
+
+  const retryAfterConflict = useCallback(async () => {
+    if (!saveConflict) return;
+    const latest = (await refetch()).data;
+    if (!latest) {
+      toast.error(t(($) => $.editor.conflict.reload_failed));
+      return;
+    }
+    try {
+      await saveTemplate.mutateAsync({
+        id: templateId,
+        definition: saveConflict,
+        revision: latest.revision,
+      });
+      dispatch({ type: "mark_saved", definition: saveConflict });
+      setSaveConflict(null);
+      setProblems(null);
+      toast.success(t(($) => $.editor.toast_saved));
+    } catch (err) {
+      if (!isWorkflowTemplateRevisionConflict(err)) {
+        toast.error(
+          errorMessage(
+            err,
+            t(($) => $.editor.conflict.retry_failed),
+          ),
+        );
+      }
+    }
+  }, [refetch, saveConflict, saveTemplate, t, templateId]);
 
   const runPublish = useCallback(async () => {
     try {
@@ -661,6 +727,46 @@ export function WorkflowTemplateDetailPage({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog
+        open={saveConflict !== null}
+        onOpenChange={(open) => {
+          if (!open) setSaveConflict(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t(($) => $.editor.conflict.title)}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t(($) => $.editor.conflict.body)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t(($) => $.editor.conflict.keep_editing)}
+            </AlertDialogCancel>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void copyConflictedJSON()}
+            >
+              {t(($) => $.editor.conflict.copy_json)}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void reloadAfterConflict()}
+            >
+              {t(($) => $.editor.conflict.reload)}
+            </Button>
+            <Button type="button" onClick={() => void retryAfterConflict()}>
+              {t(($) => $.editor.conflict.retry)}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -768,6 +874,22 @@ function validationMessages(err: unknown): string[] {
   if (!Array.isArray(messages)) return [];
   return messages.filter(
     (message): message is string => typeof message === "string",
+  );
+}
+
+function isWorkflowTemplateRevisionConflict(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as { status?: unknown; body?: unknown };
+  if (
+    candidate.status !== 409 ||
+    !candidate.body ||
+    typeof candidate.body !== "object"
+  ) {
+    return false;
+  }
+  return (
+    (candidate.body as { code?: unknown }).code ===
+    "workflow_template_revision_conflict"
   );
 }
 

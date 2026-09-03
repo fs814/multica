@@ -585,6 +585,18 @@
     "validate_failed": "The graph could not be checked with the server.",
     "toast_saved": "Draft saved",
     "toast_save_failed": "Failed to save the draft",
+    "conflict": {
+      "title": "This draft changed elsewhere",
+      "body": "Your working JSON is still here. Copy it, reload the latest draft, or retry your changes against the latest revision.",
+      "keep_editing": "Keep editing",
+      "copy_json": "Copy working JSON",
+      "copied": "Working JSON copied",
+      "copy_failed": "Could not copy the working JSON",
+      "reload": "Reload latest",
+      "reload_failed": "Could not reload the latest draft",
+      "retry": "Reload and retry",
+      "retry_failed": "Could not retry the save"
+    },
     "read_only": {
       "builtin": "Built-in workflows cannot be edited. Duplicate it to change it.",
       "archived": "This workflow is archived, so it can no longer be edited.",

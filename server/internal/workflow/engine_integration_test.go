@@ -319,6 +319,42 @@ func (env *testEnv) reloadRun(t *testing.T, runID pgtype.UUID) db.WorkflowRun {
 	return run
 }
 
+type workflowIdentityCounts struct {
+	runs, steps, distinctSteps, events, distinctEvents int64
+}
+
+func (env *testEnv) workflowIdentityCounts(t *testing.T, runID pgtype.UUID) workflowIdentityCounts {
+	t.Helper()
+	var got workflowIdentityCounts
+	if err := env.pool.QueryRow(context.Background(), `
+		SELECT
+			(SELECT count(*) FROM workflow_run WHERE id = $1 AND workspace_id = $2),
+			(SELECT count(*) FROM workflow_step_instance WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(DISTINCT (node_key, attempt)) FROM workflow_step_instance WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(*) FROM workflow_event WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(DISTINCT idempotency_key) FROM workflow_event WHERE run_id = $1 AND workspace_id = $2)`,
+		runID, env.workspaceID,
+	).Scan(&got.runs, &got.steps, &got.distinctSteps, &got.events, &got.distinctEvents); err != nil {
+		t.Fatalf("count workflow identities: %v", err)
+	}
+	return got
+}
+
+func (env *testEnv) assertWorkflowIdentityCounts(t *testing.T, runID pgtype.UUID, wantStatus string, wantSteps, wantEvents int64) workflowIdentityCounts {
+	t.Helper()
+	got := env.workflowIdentityCounts(t, runID)
+	if got.runs != 1 || got.steps != wantSteps || got.events != wantEvents {
+		t.Fatalf("workflow counts = runs %d steps %d events %d, want 1/%d/%d", got.runs, got.steps, got.events, wantSteps, wantEvents)
+	}
+	if got.steps != got.distinctSteps || got.events != got.distinctEvents {
+		t.Fatalf("workflow identities are not unique: %+v", got)
+	}
+	if status := env.reloadRun(t, runID).Status; status != wantStatus {
+		t.Fatalf("run status = %q, want %q", status, wantStatus)
+	}
+	return got
+}
+
 func passPayload(summary string) string {
 	return fmt.Sprintf(`%s
 {"verdict":"pass","artifact":{"type":"code_change","summary":%q},"rationale":"done","confidence":0.9}
@@ -383,6 +419,28 @@ func TestStartRunActivatesEntryStepAndEnqueuesTaskAtomically(t *testing.T) {
 	if taskStatus != "queued" {
 		t.Errorf("task status = %q, want queued", taskStatus)
 	}
+
+	// Simulate a process restart after the transaction committed but before any
+	// later work was observed. Replaying through a fresh Engine must rediscover
+	// the same Run without adding a Step or Event.
+	restarted := &Engine{
+		Queries: env.q, TxStarter: env.pool,
+		Router:  &fixedRouter{agentID: env.agentID, runtimeID: env.runtimeID},
+		Schemas: DefaultSchemaRegistry,
+	}
+	replay, err := restarted.StartRun(context.Background(), StartRunInput{
+		WorkspaceID:       env.workspaceID,
+		TemplateID:        env.templateID,
+		Source:            "manual",
+		IdempotencyKey:    "run-atomic-1",
+		AccountableUserID: env.userID,
+		ActorType:         "member",
+		ActorID:           env.userID,
+	})
+	if err != nil || !replay.AlreadyExisted || replay.Run.ID != run.ID {
+		t.Fatalf("restart replay = run %v existed=%v err=%v, want original %v", replay.Run.ID, replay.AlreadyExisted, err, run.ID)
+	}
+	env.assertWorkflowIdentityCounts(t, run.ID, string(RunRunning), 1, 3)
 }
 
 func TestStartRunCreatesIssueAndRunAtomicallyWithStableReplay(t *testing.T) {

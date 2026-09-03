@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/multica-ai/multica/server/internal/events"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -83,6 +85,32 @@ func seedWorkflowCallbackWorkerTest(t *testing.T) (*WorkflowCallbackWorker, db.W
 		_, _ = testPool.Exec(context.Background(), "DELETE FROM workflow_callback_destination WHERE id = $1", destination.ID)
 	})
 	return NewWorkflowCallbackWorker(testHandler), delivery
+}
+
+type callbackWorkflowIdentityCounts struct {
+	status                                             string
+	runs, steps, distinctSteps, events, distinctEvents int64
+}
+
+func loadCallbackWorkflowIdentityCounts(t *testing.T, runID string) callbackWorkflowIdentityCounts {
+	t.Helper()
+	var got callbackWorkflowIdentityCounts
+	if err := testPool.QueryRow(context.Background(), `
+		SELECT
+			(SELECT status FROM workflow_run WHERE id = $1 AND workspace_id = $2),
+			(SELECT count(*) FROM workflow_run WHERE id = $1 AND workspace_id = $2),
+			(SELECT count(*) FROM workflow_step_instance WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(DISTINCT (node_key, attempt)) FROM workflow_step_instance WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(*) FROM workflow_event WHERE run_id = $1 AND workspace_id = $2),
+			(SELECT count(DISTINCT idempotency_key) FROM workflow_event WHERE run_id = $1 AND workspace_id = $2)`,
+		runID, testWorkspaceID,
+	).Scan(&got.status, &got.runs, &got.steps, &got.distinctSteps, &got.events, &got.distinctEvents); err != nil {
+		t.Fatalf("count callback workflow identities: %v", err)
+	}
+	if got.status != string(workflow.RunRunning) || got.runs != 1 || got.steps == 0 || got.events == 0 || got.steps != got.distinctSteps || got.events != got.distinctEvents {
+		t.Fatalf("callback workflow identities are not unique and non-empty: %+v", got)
+	}
+	return got
 }
 
 func TestSignWorkflowCallbackCoversTimestampAndExactPayload(t *testing.T) {
@@ -351,6 +379,80 @@ func TestWorkflowCallbackConcurrentWorkersDeliverOnce(t *testing.T) {
 	}
 }
 
+func TestWorkflowCallbackWorkerSQLMetricsReachEndpoint(t *testing.T) {
+	engine := withWorkflowEngineForTest(t)
+	registry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{})
+	engine.Metrics = registry.Workflow
+
+	success, _ := seedWorkflowCallbackWorkerTest(t)
+	success.client = workflowCallbackClientFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusNoContent, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})
+	if worked, err := success.ProcessNext(context.Background()); err != nil || !worked {
+		t.Fatalf("success ProcessNext = (%v, %v)", worked, err)
+	}
+
+	retry, _ := seedWorkflowCallbackWorkerTest(t)
+	retry.client = workflowCallbackClientFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("temporary network failure")
+	})
+	if worked, err := retry.ProcessNext(context.Background()); err != nil || !worked {
+		t.Fatalf("retry ProcessNext = (%v, %v)", worked, err)
+	}
+
+	failedWorker, failedDelivery := seedWorkflowCallbackWorkerTest(t)
+	failedWorker.client = workflowCallbackClientFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("permanent network failure")
+	})
+	if _, err := testPool.Exec(context.Background(),
+		"UPDATE workflow_callback_delivery SET attempt_count = $2 WHERE id = $1",
+		failedDelivery.ID, workflowCallbackMaxAttempts-1,
+	); err != nil {
+		t.Fatalf("seed permanent failure: %v", err)
+	}
+	if worked, err := failedWorker.ProcessNext(context.Background()); err != nil || !worked {
+		t.Fatalf("failed ProcessNext = (%v, %v)", worked, err)
+	}
+
+	backlogWorker, backlog := seedWorkflowCallbackWorkerTest(t)
+	if _, err := testPool.Exec(context.Background(), `
+		UPDATE workflow_callback_delivery
+		SET created_at = now() - interval '2 minutes', available_at = now() + interval '1 hour'
+		WHERE id = $1`, backlog.ID); err != nil {
+		t.Fatalf("age queued callback: %v", err)
+	}
+	if worked, err := backlogWorker.ProcessNext(context.Background()); err != nil || worked {
+		t.Fatalf("future callback ProcessNext = (%v, %v), want (false, nil)", worked, err)
+	}
+
+	rec := httptest.NewRecorder()
+	obsmetrics.NewHandler(registry.Gatherer).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/metrics status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`multica_workflow_callbacks_total{outcome="delivered"} 1`,
+		`multica_workflow_callbacks_total{outcome="retry"} 1`,
+		`multica_workflow_callbacks_total{outcome="failed"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("/metrics missing %q", want)
+		}
+	}
+	var queued float64
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "multica_workflow_oldest_queued_callback_seconds ") {
+			if _, err := fmt.Sscanf(line, "multica_workflow_oldest_queued_callback_seconds %f", &queued); err != nil {
+				t.Fatalf("parse queued callback metric %q: %v", line, err)
+			}
+		}
+	}
+	if queued < 100 {
+		t.Fatalf("oldest queued callback = %.3fs, want SQL-sampled age >= 100s", queued)
+	}
+}
+
 func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 	cleanupWorkflowTemplates(t)
 	cleanupWorkflowRuns(t)
@@ -427,6 +529,25 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 	if _, err := testPool.Exec(context.Background(), `UPDATE workflow_callback_delivery SET available_at = now() - interval '1 day' WHERE id = $1`, delivery.ID); err != nil {
 		t.Fatalf("prioritize callback delivery: %v", err)
 	}
+	// Claim and then lose the worker before it can acknowledge the HTTP result.
+	// A fresh worker reclaims the expired lease; that transport retry must not
+	// create or advance any Run, Step, or durable Event a second time.
+	beforeCrash := loadCallbackWorkflowIdentityCounts(t, receipt.WorkflowRunID)
+	claimed, err := testHandler.Queries.ClaimQueuedWorkflowCallbackDelivery(context.Background())
+	if err != nil || claimed.ID != delivery.ID {
+		t.Fatalf("claim before simulated crash: id=%v err=%v", claimed.ID, err)
+	}
+	if _, err := testPool.Exec(context.Background(),
+		"UPDATE workflow_callback_delivery SET lease_expires_at = now() - interval '1 second' WHERE id = $1", delivery.ID,
+	); err != nil {
+		t.Fatalf("expire crashed worker lease: %v", err)
+	}
+	if reclaimed, err := testHandler.Queries.ReclaimExpiredWorkflowCallbackDeliveries(context.Background()); err != nil || reclaimed != 1 {
+		t.Fatalf("restart reclaim = (%d, %v), want (1, nil)", reclaimed, err)
+	}
+	if afterReclaim := loadCallbackWorkflowIdentityCounts(t, receipt.WorkflowRunID); afterReclaim != beforeCrash {
+		t.Fatalf("claim/restart changed workflow identities: before=%+v after=%+v", beforeCrash, afterReclaim)
+	}
 
 	statuses := []int{http.StatusInternalServerError, http.StatusNoContent, http.StatusNoContent, http.StatusBadRequest}
 	requestCount := 0
@@ -448,7 +569,7 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 		t.Fatalf("first callback attempt: worked=%v err=%v", worked, err)
 	}
 	queued, err := testHandler.Queries.GetWorkflowCallbackDelivery(context.Background(), db.GetWorkflowCallbackDeliveryParams{ID: delivery.ID, WorkspaceID: parseUUID(testWorkspaceID)})
-	if err != nil || queued.Status != "queued" || queued.AttemptCount != 1 {
+	if err != nil || queued.Status != "queued" || queued.AttemptCount != 2 {
 		t.Fatalf("retry state: status=%q attempts=%d err=%v", queued.Status, queued.AttemptCount, err)
 	}
 	if !bytes.Equal(capturedBody, delivery.Payload) || capturedDelivery != uuidToString(delivery.ID) || capturedSignature != signWorkflowCallback(secret, capturedTimestamp, capturedBody) {
@@ -462,8 +583,11 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 		t.Fatalf("second callback attempt: worked=%v err=%v", worked, err)
 	}
 	delivered, err := testHandler.Queries.GetWorkflowCallbackDelivery(context.Background(), db.GetWorkflowCallbackDeliveryParams{ID: delivery.ID, WorkspaceID: parseUUID(testWorkspaceID)})
-	if err != nil || delivered.Status != "delivered" || delivered.AttemptCount != 2 || !delivered.DeliveredAt.Valid {
+	if err != nil || delivered.Status != "delivered" || delivered.AttemptCount != 3 || !delivered.DeliveredAt.Valid {
 		t.Fatalf("delivered state: status=%q attempts=%d delivered=%v err=%v", delivered.Status, delivered.AttemptCount, delivered.DeliveredAt.Valid, err)
+	}
+	if afterDelivery := loadCallbackWorkflowIdentityCounts(t, receipt.WorkflowRunID); afterDelivery != beforeCrash {
+		t.Fatalf("recovered callback changed workflow identities: before=%+v after=%+v", beforeCrash, afterDelivery)
 	}
 
 	replay := httptest.NewRecorder()

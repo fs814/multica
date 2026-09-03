@@ -1112,7 +1112,7 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 	updated, err := qtx.UpdateWorkflowTemplate(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeErrorCode(w, http.StatusConflict, "conflict", "workflow template changed; copy your JSON if needed, then reload before retrying")
+			writeErrorCode(w, http.StatusConflict, "workflow_template_revision_conflict", "workflow template changed; copy your JSON if needed, then reload before retrying")
 			return
 		}
 		slog.Warn("UpdateWorkflowTemplate failed", append(logger.RequestAttrs(r), "error", err)...)

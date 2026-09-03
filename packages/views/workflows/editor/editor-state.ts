@@ -88,6 +88,12 @@ export type WorkflowEditorState = {
 export type WorkflowEditorAction =
   /** Seed from the server. Ignored if this template is already seeded. */
   | { type: "hydrate"; templateId: string; definition: WorkflowDefinition }
+  /** Explicitly discard the working copy after the author accepts a conflict reload. */
+  | {
+      type: "reload_from_server";
+      templateId: string;
+      definition: WorkflowDefinition;
+    }
   /** The canvas reports an applied node/edge array. */
   | { type: "set_graph"; nodes: FlowNode[]; edges: FlowEdge[] }
   /** Add-node toolbar. */
@@ -331,6 +337,19 @@ export function workflowEditorReducer(
         saved: action.definition,
         selectedNodeId: null,
         jsonOpen: false,
+      };
+    }
+
+    case "reload_from_server": {
+      const { nodes, edges } = definitionToGraph(action.definition);
+      return {
+        templateId: action.templateId,
+        present: { nodes, edges, base: action.definition },
+        past: [],
+        future: [],
+        saved: action.definition,
+        selectedNodeId: null,
+        jsonOpen: state.jsonOpen,
       };
     }
 
