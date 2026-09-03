@@ -1112,6 +1112,82 @@ func builderAllNodeTypesDefinition() map[string]any {
 	}
 }
 
+// TestWorkflowTemplatePublishedDraftConflictReloadsEditableDraft covers the
+// editor/API boundary after a published template receives a winning draft.
+// Runs keep seeing the published graph, while the losing editor can explicitly
+// reload the winner's mutable draft after its stale revision receives a 409.
+func TestWorkflowTemplatePublishedDraftConflictReloadsEditableDraft(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+
+	created := createWorkflowTemplateForTest(t, "published_draft_conflict")
+	publishedDefinition := string(created.Definition)
+
+	w := httptest.NewRecorder()
+	testHandler.PublishWorkflowTemplate(w, withURLParam(newRequest("POST", "/api/workflow-templates/"+created.ID+"/publish", nil), "id", created.ID))
+	if w.Code != http.StatusOK {
+		t.Fatalf("publish: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	winnerDefinition := renamedWorkflowDefinition(t, "Winner draft")
+	winner := patchWorkflowTemplateForTest(t, created.ID, map[string]any{
+		"revision":   created.Revision,
+		"definition": winnerDefinition,
+	})
+	if winner.Code != http.StatusOK {
+		t.Fatalf("winner PATCH: expected 200, got %d: %s", winner.Code, winner.Body.String())
+	}
+
+	loser := patchWorkflowTemplateForTest(t, created.ID, map[string]any{
+		"revision":   created.Revision,
+		"definition": renamedWorkflowDefinition(t, "Losing local edit"),
+	})
+	if loser.Code != http.StatusConflict {
+		t.Fatalf("loser PATCH: expected 409, got %d: %s", loser.Code, loser.Body.String())
+	}
+	var conflict struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(loser.Body).Decode(&conflict); err != nil {
+		t.Fatalf("decode loser conflict: %v", err)
+	}
+	if conflict.Code != "workflow_template_revision_conflict" {
+		t.Fatalf("loser conflict code = %q", conflict.Code)
+	}
+
+	effective := httptest.NewRecorder()
+	testHandler.GetWorkflowTemplate(effective, withURLParam(newRequest("GET", "/api/workflow-templates/"+created.ID, nil), "id", created.ID))
+	if effective.Code != http.StatusOK {
+		t.Fatalf("effective reload: expected 200, got %d: %s", effective.Code, effective.Body.String())
+	}
+	var effectiveDetail WorkflowTemplateDetailResponse
+	if err := json.NewDecoder(effective.Body).Decode(&effectiveDetail); err != nil {
+		t.Fatalf("decode effective reload: %v", err)
+	}
+	if string(effectiveDetail.Definition) != publishedDefinition {
+		t.Fatalf("Run-facing reload exposed draft bytes:\nwant: %s\ngot:  %s", publishedDefinition, string(effectiveDetail.Definition))
+	}
+
+	editable := httptest.NewRecorder()
+	request := newRequest("GET", "/api/workflow-templates/"+created.ID+"?definition=draft", nil)
+	testHandler.GetWorkflowTemplate(editable, withURLParam(request, "id", created.ID))
+	if editable.Code != http.StatusOK {
+		t.Fatalf("editable reload: expected 200, got %d: %s", editable.Code, editable.Body.String())
+	}
+	var editableDetail WorkflowTemplateDetailResponse
+	if err := json.NewDecoder(editable.Body).Decode(&editableDetail); err != nil {
+		t.Fatalf("decode editable reload: %v", err)
+	}
+	if got := entryNodeName(t, editableDetail.Definition); got != "Winner draft" {
+		t.Fatalf("editable reload entry = %q, want winner draft", got)
+	}
+	if editableDetail.Revision != created.Revision+1 {
+		t.Fatalf("editable reload revision = %d, want %d", editableDetail.Revision, created.Revision+1)
+	}
+	if len(editableDetail.Versions) != 2 || editableDetail.Versions[0].Status != "draft" {
+		t.Fatalf("editable reload did not return winner draft history: %+v", editableDetail.Versions)
+	}
+}
+
 // TestWorkflowTemplateValidateAcceptsBuilderAllNodeTypes is the cross-language
 // contract for the builder's outgoing JSON: every currently supported node kind
 // is present, but input_mode belongs only to the input node. This goes through

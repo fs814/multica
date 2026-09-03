@@ -3459,8 +3459,15 @@ export class ApiClient {
     );
   }
 
-  async getWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
-    const raw = await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(id)}`);
+  async getWorkflowTemplate(
+    id: string,
+    options?: { definition?: "effective" | "draft" },
+  ): Promise<WorkflowTemplateDetail> {
+    const definition =
+      options?.definition === "draft" ? "?definition=draft" : "";
+    const raw = await this.fetch<unknown>(
+      `/api/workflow-templates/${encodeURIComponent(id)}${definition}`,
+    );
     // The fallback carries the requested id so the detail page keeps a stable
     // identity (and its breadcrumb/back link) after a parse miss.
     return parseWithFallback(

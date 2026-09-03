@@ -37,11 +37,17 @@ export function workflowTemplateListOptions(wsId: string) {
   });
 }
 
-/** Full template including its graph definition and version history. */
+/**
+ * Full template for the editor, including its newest mutable draft.
+ *
+ * The default API response remains the effective published graph used by Runs.
+ * The editor opts into the draft view so conflict recovery cannot reload an
+ * older published definition over the author's working copy.
+ */
 export function workflowTemplateDetailOptions(wsId: string, id: string) {
   return queryOptions({
     queryKey: workflowKeys.detail(wsId, id),
-    queryFn: () => api.getWorkflowTemplate(id),
+    queryFn: () => api.getWorkflowTemplate(id, { definition: "draft" }),
   });
 }
 

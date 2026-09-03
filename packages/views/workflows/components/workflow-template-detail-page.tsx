@@ -123,7 +123,7 @@ export function WorkflowTemplateDetailPage({
   const wsPaths = useWorkspacePaths();
   const navigation = useNavigation();
 
-  const { data, isLoading, error, refetch } = useQuery(
+  const { data, isLoading, refetch } = useQuery(
     workflowTemplateDetailOptions(wsId, templateId),
   );
 
@@ -280,15 +280,15 @@ export function WorkflowTemplateDetailPage({
   }, [saveConflict, t]);
 
   const reloadAfterConflict = useCallback(async () => {
-    const latest = (await refetch()).data;
-    if (!latest) {
+    const result = await refetch();
+    if (result.isError || result.error || !result.data) {
       toast.error(t(($) => $.editor.conflict.reload_failed));
       return;
     }
     dispatch({
       type: "reload_from_server",
       templateId,
-      definition: latest.definition,
+      definition: result.data.definition,
     });
     setSaveConflict(null);
     setProblems(null);
@@ -296,8 +296,8 @@ export function WorkflowTemplateDetailPage({
 
   const retryAfterConflict = useCallback(async () => {
     if (!saveConflict) return;
-    const latest = (await refetch()).data;
-    if (!latest) {
+    const result = await refetch();
+    if (result.isError || result.error || !result.data) {
       toast.error(t(($) => $.editor.conflict.reload_failed));
       return;
     }
@@ -305,7 +305,7 @@ export function WorkflowTemplateDetailPage({
       await saveTemplate.mutateAsync({
         id: templateId,
         definition: saveConflict,
-        revision: latest.revision,
+        revision: result.data.revision,
       });
       dispatch({ type: "mark_saved", definition: saveConflict });
       setSaveConflict(null);
@@ -439,7 +439,11 @@ export function WorkflowTemplateDetailPage({
   // it is the gate. Without it an unreadable response would render a blank
   // template whose status defaults to "draft", offering a Publish button that
   // freezes a version the user was never shown.
-  if (error || !data || !data.key) {
+  // A background/refetch error must not unmount an already hydrated editor:
+  // during conflict recovery that would also remove the dialog and its local,
+  // still-copyable working JSON. Initial-load failures still have no data and
+  // take this branch.
+  if (!data || !data.key) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         {t(($) => $.detail.not_found)}

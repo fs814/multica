@@ -279,6 +279,15 @@ describe("getWorkflowTemplate", () => {
     const url = String(vi.mocked(fetch).mock.calls[0]?.[0]);
     expect(url).toContain("/api/workflow-templates/wft%201%2F2");
   });
+
+  it("requests the editable draft without changing the default effective view", async () => {
+    stubFetchJson(publishedTemplate);
+    await client().getWorkflowTemplate("wft-1", { definition: "draft" });
+    const url = String(vi.mocked(fetch).mock.calls[0]?.[0]);
+    expect(url).toBe(
+      "https://api.example.test/api/workflow-templates/wft-1?definition=draft",
+    );
+  });
 });
 
 describe("createWorkflowTemplate", () => {

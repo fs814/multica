@@ -51,6 +51,9 @@ const TEST_RESOURCES = {
 const detailRef = vi.hoisted(() => ({
   current: null as WorkflowTemplateDetail | null,
 }));
+const detailErrorRef = vi.hoisted(() => ({
+  current: null as Error | null,
+}));
 const membersRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const saveMock = vi.hoisted(() => vi.fn());
 const publishMock = vi.hoisted(() => vi.fn());
@@ -150,7 +153,9 @@ vi.mock("@multica/core/workflows", async () => {
     workflowTemplateDetailOptions: (wsId: string, id: string) => ({
       queryKey: ["workflow-templates", wsId, "detail", id],
       queryFn: () =>
-        detailRef.current
+        detailErrorRef.current
+          ? Promise.reject(detailErrorRef.current)
+          : detailRef.current
           ? Promise.resolve(detailRef.current)
           : Promise.reject(new Error("not found")),
     }),
@@ -300,6 +305,7 @@ beforeEach(() => {
   });
   clipboardWriteMock.mockResolvedValue(undefined);
   detailRef.current = detail();
+  detailErrorRef.current = null;
   membersRef.current = [{ user_id: "user-1", role: "admin" }];
   saveMock.mockResolvedValue(detail());
   publishMock.mockResolvedValue(detail({ status: "published" }));
@@ -696,7 +702,68 @@ describe("save", () => {
     );
   });
 
-  it("reloads server JSON only after explicit conflict recovery", async () => {
+  it("reloads the winning draft of a published template only after explicit conflict recovery", async () => {
+    saveMock.mockRejectedValueOnce(
+      Object.assign(new Error("API error: 409"), {
+        status: 409,
+        body: { code: "workflow_template_revision_conflict" },
+      }),
+    );
+    detailRef.current = detail({
+      status: "published",
+      current_version: 1,
+      versions: [
+        {
+          id: "wftv-1",
+          version: 1,
+          status: "published",
+          published_at: "2026-06-01T00:00:00Z",
+        },
+      ],
+    });
+    renderPage();
+    await canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This draft changed elsewhere");
+    expect((await canvas()).textContent).toContain("step_1");
+
+    const winnerDraft = WorkflowDefinitionSchema.parse({
+      schema_version: 1,
+      entry_node: "winner",
+      nodes: [{ key: "winner", type: "end", name: "Winner draft" }],
+    });
+    detailRef.current = detail({
+      status: "published",
+      current_version: 1,
+      revision: 8,
+      definition: winnerDraft,
+      versions: [
+        {
+          id: "wftv-2",
+          version: 2,
+          status: "draft",
+          published_at: null,
+        },
+        {
+          id: "wftv-1",
+          version: 1,
+          status: "published",
+          published_at: "2026-06-01T00:00:00Z",
+        },
+      ],
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("This draft changed elsewhere"),
+      ).not.toBeInTheDocument(),
+    );
+    expect((await canvas()).textContent).toBe("winner");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("keeps working JSON copyable when conflict refetch fails instead of using cached data", async () => {
     saveMock.mockRejectedValueOnce(
       Object.assign(new Error("API error: 409"), {
         status: 409,
@@ -708,17 +775,24 @@ describe("save", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("This draft changed elsewhere");
+
+    detailErrorRef.current = new Error("refetch failed");
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
+    await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
+
+    expect(
+      screen.getByRole("alertdialog", {
+        name: "This draft changed elsewhere",
+      }),
+    ).toBeInTheDocument();
     expect((await canvas()).textContent).toContain("step_1");
 
-    detailRef.current = detail({ revision: 8 });
-    fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByText("This draft changed elsewhere"),
-      ).not.toBeInTheDocument(),
-    );
-    expect((await canvas()).textContent).not.toContain("step_1");
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Copy working JSON" }));
+    await waitFor(() => expect(clipboardWriteMock).toHaveBeenCalledTimes(1));
+    const copied = JSON.parse(
+      clipboardWriteMock.mock.calls[0]?.[0] as string,
+    ) as { nodes: { key: string }[] };
+    expect(copied.nodes.map((node) => node.key)).toContain("step_1");
   });
 
   it("surfaces a 422's messages inline rather than as a toast", async () => {

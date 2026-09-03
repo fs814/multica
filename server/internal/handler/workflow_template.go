@@ -56,9 +56,10 @@ type WorkflowTemplateResponse struct {
 }
 
 // WorkflowTemplateVersionEntry is one row of the version history. The
-// definition is intentionally omitted: only the *effective* version's graph is
-// returned (on the detail response), because a template with a long edit
-// history would otherwise return every graph it ever had.
+// definition is intentionally omitted: only the selected graph is returned on
+// the detail response (effective published by default, newest draft for the
+// editor), because a template with a long edit history would otherwise return
+// every graph it ever had.
 type WorkflowTemplateVersionEntry struct {
 	ID      string `json:"id"`
 	Version int32  `json:"version"`
@@ -226,8 +227,8 @@ func workflowNodeCount(raw []byte) int {
 // effectiveWorkflowVersion picks the version whose graph the template currently
 // advertises: the published row the template's current_version points at, or -
 // before the first publish - the newest draft. This is the same resolution a Run
-// performs (GetPublishedWorkflowTemplateVersion), so the detail page shows the
-// graph a Run started now would actually pin.
+// performs (GetPublishedWorkflowTemplateVersion), so the default detail API
+// shows the graph a Run started now would actually pin.
 //
 // versions must be ordered version DESC, as ListWorkflowTemplateVersions returns.
 func effectiveWorkflowVersion(t db.WorkflowTemplate, versions []db.WorkflowTemplateVersion) (db.WorkflowTemplateVersion, bool) {
@@ -244,9 +245,22 @@ func effectiveWorkflowVersion(t db.WorkflowTemplate, versions []db.WorkflowTempl
 	return db.WorkflowTemplateVersion{}, false
 }
 
+// editableWorkflowVersion returns the newest mutable draft when one exists.
+// Published templates deliberately keep advertising current_version to Runs,
+// but an editor recovering from a CAS conflict must reload the winning draft,
+// not the older graph a newly started Run would pin.
+func editableWorkflowVersion(t db.WorkflowTemplate, versions []db.WorkflowTemplateVersion) (db.WorkflowTemplateVersion, bool) {
+	for _, v := range versions {
+		if v.Status == "draft" {
+			return v, true
+		}
+	}
+	return effectiveWorkflowVersion(t, versions)
+}
+
 // workflowTemplateDetail assembles the detail response: version history plus
-// the effective graph.
-func (h *Handler) workflowTemplateDetail(ctx context.Context, t db.WorkflowTemplate) (WorkflowTemplateDetailResponse, error) {
+// the effective graph, or the newest editable draft when requested.
+func (h *Handler) workflowTemplateDetail(ctx context.Context, t db.WorkflowTemplate, preferDraft bool) (WorkflowTemplateDetailResponse, error) {
 	versions, err := h.Queries.ListWorkflowTemplateVersions(ctx, db.ListWorkflowTemplateVersionsParams{
 		TemplateID:  t.ID,
 		WorkspaceID: t.WorkspaceID,
@@ -257,9 +271,13 @@ func (h *Handler) workflowTemplateDetail(ctx context.Context, t db.WorkflowTempl
 
 	definition := emptyWorkflowDefinition
 	nodeCount := 0
-	if effective, ok := effectiveWorkflowVersion(t, versions); ok && json.Valid(effective.Definition) {
-		definition = json.RawMessage(effective.Definition)
-		nodeCount = workflowNodeCount(effective.Definition)
+	selected, found := effectiveWorkflowVersion(t, versions)
+	if preferDraft {
+		selected, found = editableWorkflowVersion(t, versions)
+	}
+	if found && json.Valid(selected.Definition) {
+		definition = json.RawMessage(selected.Definition)
+		nodeCount = workflowNodeCount(selected.Definition)
 	}
 
 	entries := make([]WorkflowTemplateVersionEntry, len(versions))
@@ -540,8 +558,8 @@ func (h *Handler) loadWorkflowTemplate(w http.ResponseWriter, r *http.Request) (
 }
 
 // writeWorkflowTemplateDetail assembles and writes the detail response.
-func (h *Handler) writeWorkflowTemplateDetail(w http.ResponseWriter, r *http.Request, tpl db.WorkflowTemplate, status int) {
-	detail, err := h.workflowTemplateDetail(r.Context(), tpl)
+func (h *Handler) writeWorkflowTemplateDetail(w http.ResponseWriter, r *http.Request, tpl db.WorkflowTemplate, status int, preferDraft bool) {
+	detail, err := h.workflowTemplateDetail(r.Context(), tpl, preferDraft)
 	if err != nil {
 		slog.Warn("ListWorkflowTemplateVersions failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to load workflow template versions")
@@ -555,7 +573,18 @@ func (h *Handler) GetWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusOK)
+	preferDraft := r.URL.Query().Get("definition") == "draft"
+	if preferDraft {
+		member, ok := h.workspaceMember(w, r, uuidToString(tpl.WorkspaceID))
+		if !ok {
+			return
+		}
+		// Read-only members keep the existing effective-definition view. Drafts
+		// are unpublished authoring state and must not become more widely visible
+		// merely because the editor uses an opt-in query parameter.
+		preferDraft = roleAllowed(member.Role, "owner", "admin")
+	}
+	h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusOK, preferDraft)
 }
 
 // CreateWorkflowTemplate creates a template plus its first draft version.
@@ -659,7 +688,7 @@ func (h *Handler) CreateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusCreated)
+	h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusCreated, false)
 }
 
 // DuplicateBuiltinWorkflowTemplate forks the built-in's effective graph into
@@ -786,7 +815,7 @@ func (h *Handler) DuplicateBuiltinWorkflowTemplate(w http.ResponseWriter, r *htt
 		return
 	}
 
-	h.writeWorkflowTemplateDetail(w, r, copy, http.StatusCreated)
+	h.writeWorkflowTemplateDetail(w, r, copy, http.StatusCreated, false)
 }
 
 // PublishWorkflowTemplate publishes the newest draft version and points the
@@ -905,7 +934,7 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	h.writeWorkflowTemplateDetail(w, r, updated, http.StatusOK)
+	h.writeWorkflowTemplateDetail(w, r, updated, http.StatusOK, false)
 }
 
 // ArchiveWorkflowTemplate hides a template from new Runs. Archival is one-way
@@ -950,7 +979,7 @@ func (h *Handler) ArchiveWorkflowTemplate(w http.ResponseWriter, r *http.Request
 	// The list shape is enough here: archiving does not change the graph, and
 	// the client's next action is to drop the row from the list.
 	nodeCount := 0
-	if detail, err := h.workflowTemplateDetail(r.Context(), archived); err == nil {
+	if detail, err := h.workflowTemplateDetail(r.Context(), archived, false); err == nil {
 		nodeCount = detail.NodeCount
 	}
 	writeJSON(w, http.StatusOK, workflowTemplateToResponse(archived, nodeCount))
@@ -1086,7 +1115,7 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 	if req.Name == nil && req.Description == nil && definition == nil {
 		// Nothing to do. Returning the current detail rather than 400 keeps an
 		// autosave that fires with no pending edits harmless.
-		h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusOK)
+		h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusOK, false)
 		return
 	}
 	if req.Revision == nil || *req.Revision <= 0 {
@@ -1133,7 +1162,7 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 
 	// Same shape as GET so the client can drop the response straight into its
 	// cache instead of refetching.
-	h.writeWorkflowTemplateDetail(w, r, updated, http.StatusOK)
+	h.writeWorkflowTemplateDetail(w, r, updated, http.StatusOK, false)
 }
 
 // saveWorkflowTemplateDraftDefinition writes definition onto the template's

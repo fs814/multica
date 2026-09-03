@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useWorkspaceId } from "../hooks";
 import { workflowKeys, workflowRunKeys } from "./queries";
+import { WorkflowDefinitionSchema } from "./schemas";
 import type {
   CreateWorkflowTemplateRequest,
   DecideWorkflowAcceptanceRequest,
@@ -83,12 +84,11 @@ export function useDuplicateWorkflowTemplate() {
  * summary from the detail here would be a second, drift-prone projection of the
  * same row.
  *
- * Note for callers: the cached `definition` is the template's *effective* graph
- * (what a Run started now would pin), which after saving over a published
- * template is still the published bytes - the new draft is deliberately
- * invisible to Runs until publish. So this cache entry is not a mirror of the
- * editor's unsaved graph, and the editor must keep that in its own state rather
- * than re-render from here.
+ * The server's default PATCH response carries the effective graph (what a Run
+ * started now would pin). The detail query is editor-specific, however, so its
+ * cache must retain the submitted draft definition. A follow-up invalidation
+ * reloads the authoritative draft and revision without touching reducer-owned
+ * unsaved state.
  */
 export function useUpdateWorkflowTemplate() {
   const qc = useQueryClient();
@@ -99,14 +99,22 @@ export function useUpdateWorkflowTemplate() {
       ...body
     }: { id: string } & UpdateWorkflowTemplateRequest) =>
       api.updateWorkflowTemplate(id, body),
-    onSuccess: (saved, { id }) => {
+    onSuccess: (saved, { id, definition }) => {
       if (!saved.key) return;
       qc.setQueryData<WorkflowTemplateDetail>(
         workflowKeys.detail(wsId, id),
-        saved,
+        (old) => ({
+          ...saved,
+          definition: definition
+            ? (WorkflowDefinitionSchema.parse(
+                definition,
+              ) as WorkflowTemplateDetail["definition"])
+            : (old?.definition ?? saved.definition),
+        }),
       );
     },
-    onSettled: () => {
+    onSettled: (_data, _err, { id }) => {
+      qc.invalidateQueries({ queryKey: workflowKeys.detail(wsId, id) });
       qc.invalidateQueries({ queryKey: workflowKeys.list(wsId) });
     },
   });
