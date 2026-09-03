@@ -18,8 +18,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 type workflowCallbackClientFunc func(*http.Request) (*http.Response, error)
@@ -374,6 +377,10 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create callback destination: %v", err)
 	}
+	realtimeEvents := make(chan events.Event, 32)
+	testHandler.Bus.Subscribe(protocol.EventWorkflowEvent, func(event events.Event) {
+		realtimeEvents <- event
+	})
 
 	intake := httptest.NewRecorder()
 	intakeReq := withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", map[string]any{
@@ -394,6 +401,29 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 		t.Fatalf("list queued callbacks: rows=%d err=%v", len(rows), err)
 	}
 	delivery := rows[0]
+	var callbackEnvelope workflow.EventEnvelope
+	if err := json.Unmarshal(delivery.Payload, &callbackEnvelope); err != nil {
+		t.Fatalf("decode callback event envelope: %v", err)
+	}
+	if callbackEnvelope.SchemaVersion != "1" || callbackEnvelope.EventID != delivery.EventKey || callbackEnvelope.EventType != delivery.EventType {
+		t.Fatalf("callback envelope does not carry durable identity: envelope=%+v delivery=%+v", callbackEnvelope, delivery)
+	}
+	foundRealtimeIdentity := false
+	var realtimeIDs []string
+	for len(realtimeEvents) > 0 {
+		event := <-realtimeEvents
+		envelope, ok := event.Payload.(workflow.EventEnvelope)
+		if ok {
+			realtimeIDs = append(realtimeIDs, envelope.EventID)
+		}
+		if ok && envelope.EventID == delivery.EventKey {
+			foundRealtimeIdentity = true
+			break
+		}
+	}
+	if !foundRealtimeIdentity {
+		t.Fatalf("realtime stream IDs %v did not include callback event_id %s", realtimeIDs, delivery.EventKey)
+	}
 	if _, err := testPool.Exec(context.Background(), `UPDATE workflow_callback_delivery SET available_at = now() - interval '1 day' WHERE id = $1`, delivery.ID); err != nil {
 		t.Fatalf("prioritize callback delivery: %v", err)
 	}

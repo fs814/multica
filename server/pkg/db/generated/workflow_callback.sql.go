@@ -346,6 +346,19 @@ func (q *Queries) ListWorkflowCallbackDestinations(ctx context.Context, workspac
 	return items, nil
 }
 
+const oldestQueuedWorkflowCallbackSeconds = `-- name: OldestQueuedWorkflowCallbackSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - MIN(created_at)), 0)::double precision
+FROM workflow_callback_delivery
+WHERE status IN ('queued', 'dispatching')
+`
+
+func (q *Queries) OldestQueuedWorkflowCallbackSeconds(ctx context.Context) (float64, error) {
+	row := q.db.QueryRow(ctx, oldestQueuedWorkflowCallbackSeconds)
+	var column_1 float64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const reclaimExpiredWorkflowCallbackDeliveries = `-- name: ReclaimExpiredWorkflowCallbackDeliveries :execrows
 UPDATE workflow_callback_delivery
 SET status = 'queued', lease_token = NULL, lease_expires_at = NULL,

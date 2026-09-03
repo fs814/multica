@@ -1360,6 +1360,7 @@ type WorkflowTemplate struct {
 	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	Revision       int64              `json:"revision"`
 }
 
 type WorkflowTemplateVersion struct {

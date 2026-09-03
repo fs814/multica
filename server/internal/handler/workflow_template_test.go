@@ -664,6 +664,9 @@ func createWorkflowTemplateForTest(t *testing.T, key string) WorkflowTemplateDet
 
 func patchWorkflowTemplateForTest(t *testing.T, id string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
+	if _, ok := body["revision"]; !ok {
+		body["revision"] = int64(1)
+	}
 	w := httptest.NewRecorder()
 	req := withURLParam(newRequest("PATCH", "/api/workflow-templates/"+id, body), "id", id)
 	testHandler.UpdateWorkflowTemplate(w, req)
@@ -751,9 +754,21 @@ func TestWorkflowTemplatePatchUpdatesDraft(t *testing.T) {
 		t.Fatalf("GET does not reflect the saved graph: entry node name = %q", got)
 	}
 
+	// A second writer holding the original revision must lose without changing
+	// either metadata or the graph. Its working copy remains client-owned and can
+	// be copied before the author reloads the winning revision.
+	stale := patchWorkflowTemplateForTest(t, created.ID, map[string]any{
+		"revision":   created.Revision,
+		"name":       "Stale Writer",
+		"definition": renamedWorkflowDefinition(t, "Stale edit"),
+	})
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("stale PATCH: expected 409, got %d: %s", stale.Code, stale.Body.String())
+	}
+
 	// A metadata-only PATCH must leave the graph alone: the editor renames a
 	// template without shipping the canvas.
-	w = patchWorkflowTemplateForTest(t, created.ID, map[string]any{"name": "Renamed Again"})
+	w = patchWorkflowTemplateForTest(t, created.ID, map[string]any{"revision": int64(2), "name": "Renamed Again"})
 	if w.Code != http.StatusOK {
 		t.Fatalf("metadata-only PATCH: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
@@ -956,6 +971,7 @@ func TestWorkflowTemplatePatchPublishedCreatesNewDraft(t *testing.T) {
 	// A second save reuses the draft it just created rather than stacking a
 	// version 3.
 	w = patchWorkflowTemplateForTest(t, created.ID, map[string]any{
+		"revision":   int64(2),
 		"definition": renamedWorkflowDefinition(t, "Edited twice"),
 	})
 	if w.Code != http.StatusOK {

@@ -202,7 +202,7 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 	var out db.WorkflowStepInstance
 	effects := &txEffects{}
 
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		step, run, def, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, in.StepID)
 		if err != nil {
 			return err
@@ -749,7 +749,7 @@ func (e *Engine) RecordTaskTerminal(ctx context.Context, in RecordTaskTerminalIn
 
 func (e *Engine) recordTaskFailure(ctx context.Context, step db.WorkflowStepInstance, in RecordTaskTerminalInput) error {
 	effects := &txEffects{}
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		locked, run, def, err := e.lockStepAndRun(ctx, q, step.WorkspaceID, step.ID)
 		if err != nil {
 			return err
@@ -845,7 +845,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 
 	var out db.WorkflowAcceptance
 	effects := &txEffects{}
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		acceptance, err := q.GetWorkflowAcceptance(ctx, db.GetWorkflowAcceptanceParams{
 			ID:          in.AcceptanceID,
 			WorkspaceID: in.WorkspaceID,
@@ -1012,7 +1012,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID, actorID pgtype.UUID) (db.WorkflowRun, error) {
 	var out db.WorkflowRun
 	effects := &txEffects{}
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{
 			ID:          runID,
 			WorkspaceID: workspaceID,

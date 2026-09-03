@@ -88,7 +88,22 @@ export type WSEventType =
   | "github_installation:deleted"
   | "pull_request:linked"
   | "pull_request:updated"
-  | "pull_request:unlinked";
+  | "pull_request:unlinked"
+  | "workflow:event"
+  | "workflow:run_changed";
+
+export interface WorkflowEventEnvelope {
+  schema_version: string;
+  event_id: string;
+  event_type: string;
+  occurred_at: string;
+  workspace_id: string;
+  source: string;
+  subject: string;
+  correlation_id: string;
+  causation_id: string;
+  payload: Record<string, unknown>;
+}
 
 export interface WSMessage<T = unknown> {
   type: WSEventType;
@@ -505,6 +520,8 @@ export interface InvitationRevokedPayload {
  * forgets the payload shape — that's the whole point.
  */
 export interface WSEventPayloadMap {
+  "workflow:event": WorkflowEventEnvelope;
+  "workflow:run_changed": { run_id: string };
   "issue:created": IssueCreatedPayload;
   "issue:updated": IssueUpdatedPayload;
   "issue:deleted": IssueDeletedPayload;

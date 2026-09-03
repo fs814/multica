@@ -6,6 +6,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -42,6 +43,20 @@ type WorkflowNotifier struct {
 // cmd/server/router.go.
 func NewWorkflowNotifier(bus *events.Bus, tasks *TaskService) *WorkflowNotifier {
 	return &WorkflowNotifier{Bus: bus, Tasks: tasks}
+}
+
+// WorkflowEvent publishes the exact durable envelope written by the engine.
+// Consumers use it as a realtime hint, then GET the authoritative Run state.
+func (n *WorkflowNotifier) WorkflowEvent(ctx context.Context, event workflow.EventEnvelope) {
+	if n.Bus == nil || event.WorkspaceID == "" {
+		return
+	}
+	n.Bus.Publish(events.Event{
+		Type:        protocol.EventWorkflowEvent,
+		WorkspaceID: event.WorkspaceID,
+		ActorType:   "system",
+		Payload:     event,
+	})
 }
 
 // WorkflowChanged publishes the "this Run changed, refetch it" signal.

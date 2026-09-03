@@ -17,7 +17,7 @@ UPDATE workflow_template SET
     archived_at = now(),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status <> 'archived'
-RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at
+RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision
 `
 
 type ArchiveWorkflowTemplateParams struct {
@@ -43,6 +43,7 @@ func (q *Queries) ArchiveWorkflowTemplate(ctx context.Context, arg ArchiveWorkfl
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -812,7 +813,7 @@ const createWorkflowTemplate = `-- name: CreateWorkflowTemplate :one
 INSERT INTO workflow_template (
     workspace_id, key, name, description, created_by_type, created_by_id
 ) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at
+RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision
 `
 
 type CreateWorkflowTemplateParams struct {
@@ -860,6 +861,7 @@ func (q *Queries) CreateWorkflowTemplate(ctx context.Context, arg CreateWorkflow
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -1462,7 +1464,7 @@ func (q *Queries) GetWorkflowStepInstanceForUpdate(ctx context.Context, arg GetW
 }
 
 const getWorkflowTemplate = `-- name: GetWorkflowTemplate :one
-SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at FROM workflow_template
+SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision FROM workflow_template
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -1487,12 +1489,13 @@ func (q *Queries) GetWorkflowTemplate(ctx context.Context, arg GetWorkflowTempla
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
 
 const getWorkflowTemplateByKey = `-- name: GetWorkflowTemplateByKey :one
-SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at FROM workflow_template
+SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision FROM workflow_template
 WHERE workspace_id = $1 AND LOWER(key) = LOWER($2::text)
 `
 
@@ -1519,6 +1522,7 @@ func (q *Queries) GetWorkflowTemplateByKey(ctx context.Context, arg GetWorkflowT
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -2245,7 +2249,7 @@ func (q *Queries) ListWorkflowTemplateVersions(ctx context.Context, arg ListWork
 }
 
 const listWorkflowTemplates = `-- name: ListWorkflowTemplates :many
-SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at FROM workflow_template
+SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision FROM workflow_template
 WHERE workspace_id = $1
   AND ($2::bool OR status <> 'archived')
 ORDER BY created_at DESC
@@ -2278,6 +2282,7 @@ func (q *Queries) ListWorkflowTemplates(ctx context.Context, arg ListWorkflowTem
 			&i.ArchivedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -2290,7 +2295,7 @@ func (q *Queries) ListWorkflowTemplates(ctx context.Context, arg ListWorkflowTem
 }
 
 const listWorkflowTemplatesByIDs = `-- name: ListWorkflowTemplatesByIDs :many
-SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at FROM workflow_template
+SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision FROM workflow_template
 WHERE workspace_id = $1::uuid
   AND id = ANY($2::uuid[])
 `
@@ -2329,6 +2334,7 @@ func (q *Queries) ListWorkflowTemplatesByIDs(ctx context.Context, arg ListWorkfl
 			&i.ArchivedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Revision,
 		); err != nil {
 			return nil, err
 		}
@@ -2901,6 +2907,19 @@ func (q *Queries) NextWorkflowIssuePosition(ctx context.Context, arg NextWorkflo
 	return position, err
 }
 
+const oldestStalledWorkflowRunSeconds = `-- name: OldestStalledWorkflowRunSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - MIN(updated_at)), 0)::double precision
+FROM workflow_run
+WHERE status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
+`
+
+func (q *Queries) OldestStalledWorkflowRunSeconds(ctx context.Context) (float64, error) {
+	row := q.db.QueryRow(ctx, oldestStalledWorkflowRunSeconds)
+	var column_1 float64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const publishWorkflowTemplateVersion = `-- name: PublishWorkflowTemplateVersion :one
 UPDATE workflow_template_version SET
     status = 'published',
@@ -2976,7 +2995,7 @@ UPDATE workflow_template SET
     status = 'published',
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at
+RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision
 `
 
 type SetWorkflowTemplateCurrentVersionParams struct {
@@ -3003,6 +3022,7 @@ func (q *Queries) SetWorkflowTemplateCurrentVersion(ctx context.Context, arg Set
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }
@@ -3077,16 +3097,19 @@ const updateWorkflowTemplate = `-- name: UpdateWorkflowTemplate :one
 UPDATE workflow_template SET
     name = COALESCE($3, name),
     description = COALESCE($4, description),
+    revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
-RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at
+  AND revision = $5::bigint
+RETURNING id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision
 `
 
 type UpdateWorkflowTemplateParams struct {
-	ID          pgtype.UUID `json:"id"`
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Name        pgtype.Text `json:"name"`
-	Description pgtype.Text `json:"description"`
+	ID               pgtype.UUID `json:"id"`
+	WorkspaceID      pgtype.UUID `json:"workspace_id"`
+	Name             pgtype.Text `json:"name"`
+	Description      pgtype.Text `json:"description"`
+	ExpectedRevision int64       `json:"expected_revision"`
 }
 
 // `key` is immutable: external callers and autopilots reference it, so a
@@ -3097,6 +3120,7 @@ func (q *Queries) UpdateWorkflowTemplate(ctx context.Context, arg UpdateWorkflow
 		arg.WorkspaceID,
 		arg.Name,
 		arg.Description,
+		arg.ExpectedRevision,
 	)
 	var i WorkflowTemplate
 	err := row.Scan(
@@ -3112,6 +3136,7 @@ func (q *Queries) UpdateWorkflowTemplate(ctx context.Context, arg UpdateWorkflow
 		&i.ArchivedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Revision,
 	)
 	return i, err
 }

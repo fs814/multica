@@ -54,6 +54,11 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	if r == nil || r.Engine == nil || r.Queries == nil {
 		return nil
 	}
+	if r.Engine.Metrics != nil {
+		if seconds, err := r.Queries.OldestStalledWorkflowRunSeconds(ctx); err == nil {
+			r.Engine.Metrics.SetOldestStalledRun(seconds)
+		}
+	}
 	stale := r.StaleAfter
 	if stale < 0 {
 		stale = 0
@@ -141,7 +146,7 @@ func workflowTaskOutput(result []byte) string {
 // directly invents a successful status; irreconcilable state is blocked.
 func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUID) error {
 	effects := &txEffects{}
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{ID: runID, WorkspaceID: workspaceID})
 		if err != nil {
 			return err

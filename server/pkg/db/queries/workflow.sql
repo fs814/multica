@@ -41,8 +41,10 @@ ORDER BY created_at DESC;
 UPDATE workflow_template SET
     name = COALESCE(sqlc.narg('name'), name),
     description = COALESCE(sqlc.narg('description'), description),
+    revision = revision + 1,
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
+  AND revision = sqlc.arg('expected_revision')::bigint
 RETURNING *;
 
 -- name: SetWorkflowTemplateCurrentVersion :one
@@ -236,6 +238,11 @@ SELECT * FROM workflow_run
 WHERE issue_id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
 ORDER BY created_at DESC;
+
+-- name: OldestStalledWorkflowRunSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - MIN(updated_at)), 0)::double precision
+FROM workflow_run
+WHERE status IN ('pending', 'running', 'waiting_acceptance', 'blocked');
 
 -- name: MarkWorkflowRunRunning :one
 -- pending -> running, or running -> running when resuming after an acceptance

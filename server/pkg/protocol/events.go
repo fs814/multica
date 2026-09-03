@@ -145,6 +145,7 @@ const (
 	// no ids embedded (plan section 12). Declared here rather than invented at
 	// each call site so the set stays enumerable.
 	EventWorkflowRunChanged     = "workflow:run_changed"
+	EventWorkflowEvent          = "workflow:event"
 	EventWorkflowRunStarted     = "workflow:run_started"
 	EventWorkflowRunCompleted   = "workflow:run_completed"
 	EventWorkflowRunFailed      = "workflow:run_failed"

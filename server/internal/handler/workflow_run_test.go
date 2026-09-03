@@ -611,6 +611,71 @@ func TestWorkflowRunIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestWorkflowRunExplicitIdempotencyKeyRejectsChangedPayload(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	cleanupWorkflowRuns(t)
+	withWorkflowEngineForTest(t)
+	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
+	tpl := seededBugFixTemplate(t)
+	body := map[string]any{
+		"idempotency_key": "cli-retry-42",
+		"title":           "Stable automation start",
+		"description":     "The same CLI or MCP retry must converge.",
+	}
+	first := runWorkflowTemplateForTest(t, tpl.ID, body)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first explicit-key run = %d %s", first.Code, first.Body.String())
+	}
+	firstRun := decodeWorkflowRunDetail(t, first, "first explicit-key run")
+	replay := runWorkflowTemplateForTest(t, tpl.ID, body)
+	if replay.Code != http.StatusOK || decodeWorkflowRunDetail(t, replay, "explicit replay").ID != firstRun.ID {
+		t.Fatalf("explicit replay = %d %s, want same Run %s", replay.Code, replay.Body.String(), firstRun.ID)
+	}
+	conflict := runWorkflowTemplateForTest(t, tpl.ID, map[string]any{
+		"idempotency_key": "cli-retry-42",
+		"title":           "Stable automation start",
+		"description":     "Changed payload under a reused key.",
+	})
+	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), workflow.ErrCodeIdempotencyConflict) {
+		t.Fatalf("changed explicit replay = %d %s, want idempotency conflict", conflict.Code, conflict.Body.String())
+	}
+}
+
+func TestWorkflowRunExplicitKeyConvergesAcrossManualAndIntake(t *testing.T) {
+	cleanupWorkflowTemplates(t)
+	cleanupWorkflowRuns(t)
+	withWorkflowEngineForTest(t)
+	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
+	tpl := seededBugFixTemplate(t)
+	key := "cross-entry-42"
+	title := "One operation through two adapters"
+	description := "A retry must return the existing durable Run."
+	manual := runWorkflowTemplateForTest(t, tpl.ID, map[string]any{
+		"idempotency_key": key, "title": title, "description": description,
+	})
+	if manual.Code != http.StatusCreated {
+		t.Fatalf("manual start = %d %s", manual.Code, manual.Body.String())
+	}
+	manualRun := decodeWorkflowRunDetail(t, manual, "manual start")
+
+	intake := httptest.NewRecorder()
+	request := withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", map[string]any{
+		"source": "contract-test", "event_id": "transport-event-42", "template_key": tpl.Key,
+		"idempotency_key": key, "title": title, "description": description,
+	}), "id", testWorkspaceID)
+	testHandler.WorkflowIntake(intake, request)
+	if intake.Code != http.StatusOK {
+		t.Fatalf("intake replay = %d %s", intake.Code, intake.Body.String())
+	}
+	var receipt WorkflowIntakeResponse
+	if err := json.Unmarshal(intake.Body.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.WorkflowRunID != manualRun.ID || receipt.ReceiptID != manualRun.ID {
+		t.Fatalf("cross-entry identities differ: manual=%s intake=%+v", manualRun.ID, receipt)
+	}
+}
+
 // TestWorkflowRunRejectsBadRequests covers the input contract, including the
 // deliberate decision that description is REQUIRED.
 //

@@ -472,13 +472,17 @@ describe("updateWorkflowTemplate", () => {
     // helpfully fill in the ones the caller left out - sending `definition: null`
     // for a rename would clear the graph.
     stubFetchJson({ ...publishedTemplate, definition: bugFixDefinition });
-    await client().updateWorkflowTemplate("wft-1", { name: "Renamed" });
+    await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
+      name: "Renamed",
+    });
     const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
     expect(String(url)).toBe(
       "https://api.example.test/api/workflow-templates/wft-1",
     );
     expect((init as RequestInit).method).toBe("PATCH");
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({
+      revision: 7,
       name: "Renamed",
     });
   });
@@ -493,6 +497,7 @@ describe("updateWorkflowTemplate", () => {
       ],
     });
     const detail = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Renamed",
       definition: bugFixDefinition,
     });
@@ -506,6 +511,7 @@ describe("updateWorkflowTemplate", () => {
   it("falls back to a placeholder carrying the requested id", async () => {
     stubFetchJson({ wrong: "shape" });
     const detail = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Renamed",
     });
     expect(detail.id).toBe("wft-1");
@@ -515,6 +521,7 @@ describe("updateWorkflowTemplate", () => {
   it("falls back when the body is null", async () => {
     stubFetchJson(null);
     const detail = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Renamed",
     });
     expect(detail).toEqual({ ...EMPTY_WORKFLOW_TEMPLATE_DETAIL, id: "wft-1" });
@@ -527,6 +534,7 @@ describe("updateWorkflowTemplate", () => {
   it("leaves `key` empty on the fallback so a parse miss stays detectable", async () => {
     stubFetchJson({ wrong: "shape" });
     const missed = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Renamed",
     });
     expect(missed.id).toBe("wft-1");
@@ -534,6 +542,7 @@ describe("updateWorkflowTemplate", () => {
 
     stubFetchJson({ ...publishedTemplate, definition: bugFixDefinition });
     const real = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Renamed",
     });
     expect(real.key).toBe("bug_fix");
@@ -542,6 +551,7 @@ describe("updateWorkflowTemplate", () => {
   it("degrades only the graph when the saved definition comes back malformed", async () => {
     stubFetchJson({ ...publishedTemplate, definition: { nodes: 7 } });
     const detail = await client().updateWorkflowTemplate("wft-1", {
+      revision: 7,
       name: "Bug Fix",
     });
     expect(detail.key).toBe("bug_fix");
@@ -550,7 +560,10 @@ describe("updateWorkflowTemplate", () => {
 
   it("URL-encodes the template id", async () => {
     stubFetchJson(publishedTemplate);
-    await client().updateWorkflowTemplate("wft 1/2", { name: "x" });
+    await client().updateWorkflowTemplate("wft 1/2", {
+      revision: 7,
+      name: "x",
+    });
     const url = String(vi.mocked(fetch).mock.calls[0]?.[0]);
     expect(url).toContain("/api/workflow-templates/wft%201%2F2");
   });

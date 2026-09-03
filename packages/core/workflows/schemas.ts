@@ -276,6 +276,8 @@ export type WorkflowTemplate = {
   /** Built-in templates (e.g. `bug_fix`) are seeded, not user-authored. */
   is_builtin: boolean;
   node_count: number;
+  /** Optimistic-concurrency token required by draft saves. */
+  revision: number;
   created_at: string;
   updated_at: string;
 };
@@ -347,6 +349,7 @@ export type UpdateWorkflowTemplateRequest = {
   name?: string;
   description?: string;
   definition?: WorkflowDefinitionInput;
+  revision: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -432,6 +435,7 @@ export const WorkflowTemplateSchema = z
     current_version: z.number().nullable().optional().default(null),
     is_builtin: z.boolean().optional().default(false),
     node_count: z.number().optional().default(0),
+    revision: z.number().int().positive().optional().default(1),
     created_at: z.string().optional().default(""),
     updated_at: z.string().optional().default(""),
   })
@@ -495,6 +499,7 @@ export const EMPTY_WORKFLOW_TEMPLATE_DETAIL: WorkflowTemplateDetail = {
   current_version: null,
   is_builtin: false,
   node_count: 0,
+  revision: 1,
   created_at: "",
   updated_at: "",
   definition: emptyDefinition(),
@@ -636,13 +641,14 @@ export type WorkflowRunListResponse = {
 /**
  * Body of `POST /api/workflow-templates/{id}/run`.
  *
- * No idempotency key: the server derives one, because the thing being guarded
- * against is a double-clicked button, and a client-generated key would let the
- * second click through whenever the client regenerated it.
+ * Interactive callers may omit `idempotency_key` and use the server-derived
+ * double-click guard. Automation callers should persist and reuse a key so
+ * retries through CLI, MCP, and HTTP converge on the same durable Run.
  */
 export type RunWorkflowTemplateRequest = {
   title: string;
   description: string;
+  idempotency_key?: string;
   /** Optional project for the issue the run creates. */
   project_id?: string | null;
 };

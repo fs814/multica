@@ -138,6 +138,7 @@ func (w *WorkflowCallbackWorker) Run(ctx context.Context) {
 }
 
 func (w *WorkflowCallbackWorker) ProcessNext(ctx context.Context) (bool, error) {
+	defer w.sampleBacklogMetric(ctx)
 	delivery, err := w.h.Queries.ClaimQueuedWorkflowCallbackDelivery(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -216,6 +217,9 @@ func (w *WorkflowCallbackWorker) retryOrFailWithResponse(ctx context.Context, de
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
+	if err == nil && w.h.WorkflowEngine != nil && w.h.WorkflowEngine.Metrics != nil {
+		w.h.WorkflowEngine.Metrics.RecordCallback("retry")
+	}
 	return err
 }
 
@@ -235,7 +239,20 @@ func (w *WorkflowCallbackWorker) complete(ctx context.Context, delivery db.Workf
 	if err == nil && status == "failed" {
 		w.notifyPermanentFailure(ctx, delivery, message)
 	}
+	if err == nil && w.h.WorkflowEngine != nil && w.h.WorkflowEngine.Metrics != nil {
+		w.h.WorkflowEngine.Metrics.RecordCallback(status)
+	}
 	return err
+}
+
+func (w *WorkflowCallbackWorker) sampleBacklogMetric(ctx context.Context) {
+	if w == nil || w.h == nil || w.h.WorkflowEngine == nil || w.h.WorkflowEngine.Metrics == nil {
+		return
+	}
+	seconds, err := w.h.Queries.OldestQueuedWorkflowCallbackSeconds(ctx)
+	if err == nil {
+		w.h.WorkflowEngine.Metrics.SetOldestQueuedCallback(seconds)
+	}
 }
 
 func (w *WorkflowCallbackWorker) notifyPermanentFailure(ctx context.Context, delivery db.WorkflowCallbackDelivery, message string) {

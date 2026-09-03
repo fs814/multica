@@ -60,6 +60,9 @@ type Metrics interface {
 	ObserveRun(status string, seconds float64)
 	ObserveStep(nodeType, status string, seconds float64)
 	ObserveAcceptanceWait(seconds float64)
+	RecordCallback(outcome string)
+	SetOldestQueuedCallback(seconds float64)
+	SetOldestStalledRun(seconds float64)
 }
 
 // TxStarter matches the existing service-layer interface (service.TxStarter), so
@@ -103,6 +106,8 @@ type RouteResult struct {
 // Notifier receives post-commit notifications. Implementations publish to the
 // realtime bus and wake the daemon that owns the runtime.
 type Notifier interface {
+	// WorkflowEvent projects the exact persisted event envelope after commit.
+	WorkflowEvent(ctx context.Context, event EventEnvelope)
 	// WorkflowChanged invalidates client-side queries for a Run.
 	WorkflowChanged(ctx context.Context, workspaceID, runID string)
 	// IssueChanged reconciles the Issue projection after a Run status change.
@@ -123,12 +128,13 @@ func (e *Engine) now() time.Time {
 
 // runInTx runs fn inside a transaction, mirroring TaskService.runInTx so the
 // rollback/commit discipline is identical across the codebase.
-func (e *Engine) runInTx(ctx context.Context, effects *txEffects, fn func(*db.Queries) error) error {
+func (e *Engine) runInTx(ctx context.Context, effects *txEffects, fn func(context.Context, *db.Queries) error) error {
+	txCtx := context.WithValue(ctx, txEffectsContextKey{}, effects)
 	if e.TxStarter == nil {
-		if err := fn(e.Queries); err != nil {
+		if err := fn(txCtx, e.Queries); err != nil {
 			return err
 		}
-		return e.projectRunIssueStatuses(ctx, e.Queries, effects)
+		return e.projectRunIssueStatuses(txCtx, e.Queries, effects)
 	}
 	tx, err := e.TxStarter.Begin(ctx)
 	if err != nil {
@@ -136,10 +142,10 @@ func (e *Engine) runInTx(ctx context.Context, effects *txEffects, fn func(*db.Qu
 	}
 	defer tx.Rollback(ctx)
 	q := e.Queries.WithTx(tx)
-	if err := fn(q); err != nil {
+	if err := fn(txCtx, q); err != nil {
 		return err
 	}
-	if err := e.projectRunIssueStatuses(ctx, q, effects); err != nil {
+	if err := e.projectRunIssueStatuses(txCtx, q, effects); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -228,7 +234,7 @@ func (e *Engine) recordEvent(ctx context.Context, q *db.Queries, ev eventSpec) e
 	if payload == nil {
 		payload = []byte("{}")
 	}
-	_, err := q.CreateWorkflowEvent(ctx, db.CreateWorkflowEventParams{
+	recorded, err := q.CreateWorkflowEvent(ctx, db.CreateWorkflowEventParams{
 		WorkspaceID:    ev.WorkspaceID,
 		RunID:          ev.RunID,
 		StepID:         ev.StepID,
@@ -245,28 +251,23 @@ func (e *Engine) recordEvent(ctx context.Context, q *db.Queries, ev eventSpec) e
 		}
 		return fmt.Errorf("record workflow event %q: %w", ev.Type, err)
 	}
+	envelope := newEventEnvelope(recorded)
+	if effects, ok := ctx.Value(txEffectsContextKey{}).(*txEffects); ok && effects != nil {
+		effects.eventRecorded(envelope)
+	}
 	if callbackEventType(ev.Type) {
 		run, getErr := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: ev.RunID, WorkspaceID: ev.WorkspaceID})
 		if getErr != nil {
 			return fmt.Errorf("load workflow run for callback: %w", getErr)
 		}
 		if run.CallbackDestinationID.Valid {
-			callbackPayload := mustJSON(map[string]any{
-				"event":           ev.Type,
-				"event_key":       ev.IdempotencyKey,
-				"occurred_at":     e.now().UTC().Format(time.RFC3339Nano),
-				"workflow_run_id": uuidString(run.ID),
-				"issue_id":        uuidString(run.IssueID),
-				"source_event_id": run.SourceEventID.String,
-				"status":          run.Status,
-				"data":            json.RawMessage(payload),
-			})
+			callbackPayload := mustJSON(envelope)
 			if _, createErr := q.CreateWorkflowCallbackDelivery(ctx, db.CreateWorkflowCallbackDeliveryParams{
 				WorkspaceID:   ev.WorkspaceID,
 				DestinationID: run.CallbackDestinationID,
 				WorkflowRunID: run.ID,
 				EventType:     ev.Type,
-				EventKey:      ev.IdempotencyKey,
+				EventKey:      envelope.EventID,
 				Payload:       callbackPayload,
 			}); createErr != nil && !errors.Is(createErr, pgx.ErrNoRows) {
 				return fmt.Errorf("queue workflow callback %q: %w", ev.Type, createErr)
@@ -316,6 +317,38 @@ type eventSpec struct {
 	ActorType      string
 	ActorID        pgtype.UUID
 	Payload        []byte
+}
+
+// EventEnvelopeV1 is the single persisted workflow event projection used by
+// callbacks and realtime. Websocket delivery is an invalidation hint and may
+// be lost; event_id points consumers back to the durable workflow_event row.
+type EventEnvelope struct {
+	SchemaVersion string          `json:"schema_version"`
+	EventID       string          `json:"event_id"`
+	EventType     string          `json:"event_type"`
+	OccurredAt    string          `json:"occurred_at"`
+	WorkspaceID   string          `json:"workspace_id"`
+	Source        string          `json:"source"`
+	Subject       string          `json:"subject"`
+	CorrelationID string          `json:"correlation_id"`
+	CausationID   string          `json:"causation_id"`
+	Payload       json.RawMessage `json:"payload"`
+}
+
+func newEventEnvelope(event db.WorkflowEvent) EventEnvelope {
+	runID := uuidString(event.RunID)
+	return EventEnvelope{
+		SchemaVersion: "1",
+		EventID:       uuidString(event.ID),
+		EventType:     event.EventType,
+		OccurredAt:    event.CreatedAt.Time.UTC().Format(time.RFC3339Nano),
+		WorkspaceID:   uuidString(event.WorkspaceID),
+		Source:        "multica.workflow",
+		Subject:       "workflow_run/" + runID,
+		CorrelationID: runID,
+		CausationID:   event.IdempotencyKey,
+		Payload:       json.RawMessage(event.Payload),
+	}
 }
 
 // Event type names written to workflow_event.event_type. Bounded and normalized
@@ -432,7 +465,7 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 
 	var result StartRunResult
 	effects := &txEffects{}
-	err := e.runInTx(ctx, effects, func(q *db.Queries) error {
+	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		version, err := e.resolveVersion(ctx, q, in.WorkspaceID, in.TemplateID, in.TemplateVersionID)
 		if err != nil {
 			return err
@@ -688,7 +721,10 @@ type txEffects struct {
 	tasks  []db.AgentTaskQueue
 	runs   []db.WorkflowRun
 	issues []issueChange
+	events []EventEnvelope
 }
+
+type txEffectsContextKey struct{}
 
 type issueChange struct {
 	issue      db.Issue
@@ -707,11 +743,18 @@ func (t *txEffects) issueChanged(issue db.Issue, prevStatus string) {
 	t.issues = append(t.issues, issueChange{issue: issue, prevStatus: prevStatus})
 }
 
+func (t *txEffects) eventRecorded(event EventEnvelope) {
+	t.events = append(t.events, event)
+}
+
 // flush emits every collected notification. Called only after a successful
 // commit.
 func (t *txEffects) flush(ctx context.Context, n Notifier) {
 	if n == nil {
 		return
+	}
+	for _, event := range t.events {
+		n.WorkflowEvent(ctx, event)
 	}
 	for _, run := range t.runs {
 		n.WorkflowChanged(ctx, uuidString(run.WorkspaceID), uuidString(run.ID))

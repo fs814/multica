@@ -47,7 +47,10 @@ type WorkflowTemplateResponse struct {
 	// NodeCount is derived from the effective definition. It is a display hint,
 	// not a contract: see workflowNodeCount for why an unparseable graph reports
 	// 0 instead of failing the request.
-	NodeCount int    `json:"node_count"`
+	NodeCount int `json:"node_count"`
+	// Revision is the optimistic-concurrency token for all editable template
+	// fields, including the mutable draft definition.
+	Revision  int64  `json:"revision"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -102,6 +105,7 @@ type UpdateWorkflowTemplateRequest struct {
 	Name        *string         `json:"name"`
 	Description *string         `json:"description"`
 	Definition  json.RawMessage `json:"definition"`
+	Revision    *int64          `json:"revision"`
 }
 
 // ValidateWorkflowDefinitionRequest is the body of the standalone check that
@@ -176,6 +180,7 @@ func workflowTemplateToResponse(t db.WorkflowTemplate, nodeCount int) WorkflowTe
 		// predicate, leave them unable to delete their own mistake.
 		IsBuiltin: isBuiltinWorkflowTemplateRow(t),
 		NodeCount: nodeCount,
+		Revision:  t.Revision,
 		CreatedAt: timestampToString(t.CreatedAt),
 		UpdatedAt: timestampToString(t.UpdatedAt),
 	}
@@ -1084,6 +1089,11 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 		h.writeWorkflowTemplateDetail(w, r, tpl, http.StatusOK)
 		return
 	}
+	if req.Revision == nil || *req.Revision <= 0 {
+		writeErrorCode(w, http.StatusBadRequest, "validation_error", "revision is required and must be positive")
+		return
+	}
+	params.ExpectedRevision = *req.Revision
 
 	// Metadata and graph move together: a rename that lands without its graph
 	// (or the reverse) would leave the editor showing a state the author never
@@ -1096,21 +1106,18 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	updated := tpl
-	if req.Name != nil || req.Description != nil {
-		// UpdateWorkflowTemplate COALESCEs both columns, so the unset half of
-		// params preserves the existing value; `key` is deliberately not
-		// updatable because intake resolves templates by it.
-		updated, err = qtx.UpdateWorkflowTemplate(r.Context(), params)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "workflow template not found")
-				return
-			}
-			slog.Warn("UpdateWorkflowTemplate failed", append(logger.RequestAttrs(r), "error", err)...)
-			writeError(w, http.StatusInternalServerError, "failed to update workflow template")
+	// This guarded update is also the definition-only save fence: two editors
+	// that both read revision N cannot overwrite each other. Exactly one moves
+	// the row to N+1; the other receives a conflict before draft bytes are written.
+	updated, err := qtx.UpdateWorkflowTemplate(r.Context(), params)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeErrorCode(w, http.StatusConflict, "conflict", "workflow template changed; copy your JSON if needed, then reload before retrying")
 			return
 		}
+		slog.Warn("UpdateWorkflowTemplate failed", append(logger.RequestAttrs(r), "error", err)...)
+		writeError(w, http.StatusInternalServerError, "failed to update workflow template")
+		return
 	}
 
 	if definition != nil {

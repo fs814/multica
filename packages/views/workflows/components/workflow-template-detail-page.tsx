@@ -231,7 +231,11 @@ export function WorkflowTemplateDetailPage({
   const handleSave = useCallback(async () => {
     const sent = working;
     try {
-      await saveTemplate.mutateAsync({ id: templateId, definition: sent });
+      await saveTemplate.mutateAsync({
+        id: templateId,
+        definition: sent,
+        revision: data?.revision ?? 0,
+      });
       // `sent`, not the response's `definition`: a save over a published
       // template returns the *published* bytes because the new draft is
       // deliberately invisible to Runs until publish (see api/client.ts). Using
@@ -251,7 +255,7 @@ export function WorkflowTemplateDetailPage({
       }
       toast.error(errorMessage(err, t(($) => $.editor.toast_save_failed)));
     }
-  }, [saveTemplate, templateId, working, t]);
+  }, [data?.revision, saveTemplate, templateId, working, t]);
 
   const runPublish = useCallback(async () => {
     try {
@@ -271,7 +275,11 @@ export function WorkflowTemplateDetailPage({
   const saveThenPublish = useCallback(async () => {
     const sent = working;
     try {
-      await saveTemplate.mutateAsync({ id: templateId, definition: sent });
+      await saveTemplate.mutateAsync({
+        id: templateId,
+        definition: sent,
+        revision: data?.revision ?? 0,
+      });
       dispatch({ type: "mark_saved", definition: sent });
     } catch (err) {
       const messages = validationMessages(err);
@@ -288,7 +296,7 @@ export function WorkflowTemplateDetailPage({
       return;
     }
     await runPublish();
-  }, [saveTemplate, templateId, working, runPublish, t]);
+  }, [data?.revision, saveTemplate, templateId, working, runPublish, t]);
 
   const handlePublish = useCallback(() => {
     if (dirty) {

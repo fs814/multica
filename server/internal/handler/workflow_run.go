@@ -175,9 +175,10 @@ type WorkflowRunDetailResponse struct {
 // "Severity is required" about a value the submitter did send. See
 // decodeRunWorkflowTemplateRequest, which decodes both this and the raw bag.
 type RunWorkflowTemplateRequest struct {
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	ProjectID   *string `json:"project_id"`
+	Title          string  `json:"title"`
+	Description    string  `json:"description"`
+	ProjectID      *string `json:"project_id"`
+	IdempotencyKey string  `json:"idempotency_key"`
 }
 
 // runWorkflowTemplateFields are the request keys this handler models itself, and
@@ -190,9 +191,10 @@ type RunWorkflowTemplateRequest struct {
 // offer it to a graph that declared a field of the same name as if a human had
 // typed it.
 var runWorkflowTemplateFields = map[string]bool{
-	"title":       true,
-	"description": true,
-	"project_id":  true,
+	"title":           true,
+	"description":     true,
+	"project_id":      true,
+	"idempotency_key": true,
 }
 
 // DecideWorkflowAcceptanceRequest records a reviewer's verdict.
@@ -718,9 +720,9 @@ func (h *Handler) workflowRunAcceptance(ctx context.Context, run db.WorkflowRun)
 // Engine.StartRun owns the transaction containing the Issue, subscriber, Run,
 // first event, entry Step, and initial Agent task, so no orphan window exists.
 //
-// The idempotency key is derived server-side from
-// (workspace, template, user, normalized title+description) — the client cannot
-// send one. A double-clicked Run button issues two identical requests, and the
+// Browser callers may use the server-derived double-click key. Automation
+// callers provide a stable key shared by HTTP, CLI, and MCP. Two identical
+// requests converge on one Run, and the
 // point is that the second must return the first's Run rather than start a
 // parallel one that burns a second set of agent tasks. Deriving from the request
 // content is what makes that true without any client cooperation; a client-chosen
@@ -826,7 +828,23 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to encode run input")
 		return
 	}
-	idempotencyKey := workflowRunIdempotencyKey(tpl.ID, userUUID, title, description)
+	requestHash, err := workflowStartRequestHash(tpl.ID, userUUID, projectID, input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if idempotencyKey == "" {
+		// Browser clients created before Workflow Action Contract v1 rely on the
+		// deterministic content key. CLI and MCP v1 require an explicit key.
+		idempotencyKey = workflowRunIdempotencyKey(tpl.ID, userUUID, title, description)
+	} else {
+		if len(idempotencyKey) > 220 {
+			writeErrorCode(w, http.StatusBadRequest, "validation_error", "idempotency_key must be 220 characters or fewer")
+			return
+		}
+		idempotencyKey = "workflow-start:v1:" + idempotencyKey
+	}
 
 	// Short-circuit the common replay before entering the engine transaction.
 	// StartRun repeats the same check and catches the unique-index race, so this
@@ -835,6 +853,10 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID:    tpl.WorkspaceID,
 		IdempotencyKey: idempotencyKey,
 	}); err == nil {
+		if existing.RequestHash.Valid && existing.RequestHash.String != requestHash {
+			writeErrorCode(w, http.StatusConflict, workflow.ErrCodeIdempotencyConflict, "the idempotency key was already used with a different payload")
+			return
+		}
 		// 200, not 201: nothing was created. The body is the original Run, so a
 		// double-clicked button lands on the run the first click started.
 		h.writeWorkflowRunDetail(w, r, existing, http.StatusOK)
@@ -853,7 +875,7 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 		// answer between our check above and the pin.
 		Source:         "manual",
 		IdempotencyKey: idempotencyKey,
-		RequestHash:    idempotencyKey,
+		RequestHash:    requestHash,
 		// The member who pressed Run is answerable for the Run, and routing checks
 		// every candidate agent's invocation permission against exactly this user.
 		AccountableUserID: userUUID,
@@ -946,6 +968,26 @@ func workflowRunIdempotencyKey(templateID, userID pgtype.UUID, title, descriptio
 		description,
 	}, "\x00")))
 	return "manual-run:" + hex.EncodeToString(sum[:])
+}
+
+// workflowStartRequestHash hashes transport-independent workflow semantics so
+// the same explicit key can converge across HTTP, CLI, and MCP adapters.
+func workflowStartRequestHash(templateID, ownerID, projectID pgtype.UUID, input []byte) (string, error) {
+	var inputObject map[string]any
+	if err := json.Unmarshal(input, &inputObject); err != nil {
+		return "", err
+	}
+	canonical, err := json.Marshal(map[string]any{
+		"template_id": uuidToString(templateID),
+		"owner_id":    uuidToString(ownerID),
+		"project_id":  uuidToString(projectID),
+		"input":       inputObject,
+	})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // buildWorkflowRunInput assembles the Run's input JSONB from the validated

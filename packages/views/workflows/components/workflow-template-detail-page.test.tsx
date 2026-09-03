@@ -190,6 +190,7 @@ function detail(
     current_version: null,
     is_builtin: false,
     node_count: 5,
+    revision: 7,
     created_at: "2026-05-28T00:00:00Z",
     updated_at: "2026-05-28T00:00:00Z",
     definition: bugFixDefinition(),
@@ -624,9 +625,11 @@ describe("save", () => {
     await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
     const sent = saveMock.mock.calls[0]?.[0] as {
       id: string;
+      revision: number;
       definition: { nodes: { key: string }[] };
     };
     expect(sent.id).toBe("wft-1");
+    expect(sent.revision).toBe(7);
     expect(sent.definition.nodes.map((node) => node.key)).toContain("step_1");
     await waitFor(() =>
       expect(toastSuccessMock).toHaveBeenCalledWith("Draft saved"),

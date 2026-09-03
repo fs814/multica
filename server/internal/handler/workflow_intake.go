@@ -32,6 +32,7 @@ type WorkflowIntakeRequest struct {
 	SourceURL             string          `json:"source_url"`
 	Payload               json.RawMessage `json:"payload"`
 	CallbackDestinationID *string         `json:"callback_destination_id"`
+	IdempotencyKey        string          `json:"idempotency_key"`
 }
 
 type WorkflowIntakeResponse struct {
@@ -149,17 +150,22 @@ func (h *Handler) WorkflowIntake(w http.ResponseWriter, r *http.Request) {
 	}
 	payloadBag["title"] = req.Title
 	payloadBag["description"] = req.Description
-	payloadBag["source_url"] = req.SourceURL
+	if req.SourceURL != "" {
+		payloadBag["source_url"] = req.SourceURL
+	}
 	input, _ := json.Marshal(payloadBag)
-	hashBody, _ := json.Marshal(map[string]any{
-		"source": req.Source, "event_id": req.EventID, "template_key": strings.ToLower(template.Key),
-		"title": req.Title, "description": req.Description, "owner_user_id": uuidToString(ownerID),
-		"source_url": req.SourceURL, "payload": payloadBag, "callback_destination_id": uuidToString(callbackID),
-	})
-	requestHashBytes := sha256.Sum256(hashBody)
-	requestHash := hex.EncodeToString(requestHashBytes[:])
-	eventHash := sha256.Sum256([]byte(req.EventID))
-	idempotencyKey := "external:" + req.Source + ":" + hex.EncodeToString(eventHash[:])
+	requestHash, _ := workflowStartRequestHash(template.ID, ownerID, pgtype.UUID{}, input)
+	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
+	if idempotencyKey != "" {
+		if len(idempotencyKey) > 220 {
+			writeErrorCode(w, http.StatusUnprocessableEntity, "validation_error", "idempotency_key must be 220 characters or fewer")
+			return
+		}
+		idempotencyKey = "workflow-start:v1:" + idempotencyKey
+	} else {
+		eventHash := sha256.Sum256([]byte(req.EventID))
+		idempotencyKey = "external:" + req.Source + ":" + hex.EncodeToString(eventHash[:])
+	}
 
 	started, err := engine.StartRun(r.Context(), workflow.StartRunInput{
 		WorkspaceID:           wsUUID,

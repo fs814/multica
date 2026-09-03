@@ -78,3 +78,8 @@ RETURNING *;
 SELECT * FROM workflow_callback_delivery
 WHERE workflow_run_id = $1 AND workspace_id = $2
 ORDER BY created_at DESC;
+
+-- name: OldestQueuedWorkflowCallbackSeconds :one
+SELECT COALESCE(EXTRACT(EPOCH FROM now() - MIN(created_at)), 0)::double precision
+FROM workflow_callback_delivery
+WHERE status IN ('queued', 'dispatching');
