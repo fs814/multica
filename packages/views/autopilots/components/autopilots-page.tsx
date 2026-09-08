@@ -392,7 +392,7 @@ function ModeCell({ autopilot }: { autopilot: Autopilot }) {
   const { t } = useT("autopilots");
   const mode = autopilot.execution_mode;
   const label =
-    mode === "create_issue" || mode === "run_only"
+    mode === "create_issue" || mode === "run_only" || mode === "issue_pool"
       ? t(($) => $.execution_mode[mode])
       : mode;
   return (

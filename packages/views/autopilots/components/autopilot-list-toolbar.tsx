@@ -67,7 +67,7 @@ const SORT_FIELDS: AutopilotSortField[] = [
   "created",
 ];
 
-const MODES = ["create_issue", "run_only"] as const;
+const MODES = ["create_issue", "run_only", "issue_pool"] as const;
 const TRIGGER_KINDS = ["schedule", "webhook", "api"] as const;
 
 export function countActiveFilterDimensions(
