@@ -67,6 +67,7 @@ import { AutopilotDialog } from "./autopilot-dialog";
 import { runNowToastKind, runNowBlockedKey } from "./run-now-toast";
 import { WebhookPayloadPreview } from "./webhook-payload-preview";
 import { WebhookDeliveriesSection } from "./webhook-deliveries-section";
+import { IssuePoolSection } from "./issue-pool-section";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
 
@@ -965,6 +966,15 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             autopilotId={autopilotId}
             hasWebhookTrigger={triggers.some((trig) => trig.kind === "webhook")}
           />
+
+          {autopilot.execution_mode === "issue_pool" && (
+            <IssuePoolSection
+              autopilotId={autopilot.id}
+              canWrite={canWrite}
+              workflowTemplateId={autopilot.workflow_template_id ?? null}
+              workflowTemplateVersionId={autopilot.workflow_template_version_id ?? null}
+            />
+          )}
 
           {/* Run History */}
           <section className="space-y-3">

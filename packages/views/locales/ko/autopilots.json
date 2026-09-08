@@ -32,7 +32,8 @@
   },
   "execution_mode": {
     "create_issue": "태스크 생성",
-    "run_only": "실행만"
+    "run_only": "실행만",
+    "issue_pool": "이슈 풀"
   },
   "relative_date": {
     "today": "오늘",
@@ -252,6 +253,40 @@
     "toast_added_webhook": "Webhook 트리거를 추가했습니다",
     "toast_add_failed": "트리거를 추가하지 못했습니다"
   },
+  "issue_pool": {
+    "title": "Issue Pool",
+    "pinned_template": "Pinned workflow {{template}} / {{version}}",
+    "eligible_statuses": "Eligible statuses (comma separated)",
+    "priorities": "Priorities (blank means all)",
+    "inactive_days": "Inactive for days",
+    "batch_limit": "Batch limit",
+    "max_in_flight": "Max in flight",
+    "input_mapping": "Workflow input mapping (JSON)",
+    "preview": "Preview",
+    "save_policy": "Save policy",
+    "policy_saved": "Issue pool policy saved",
+    "policy_save_failed": "Failed to save issue pool policy",
+    "mapping_invalid": "Input mapping must be valid JSON",
+    "preview_summary": "Scanned {{scanned}}, eligible {{eligible}}, selected {{selected}}",
+    "excluded": "Excluded",
+    "no_cycles": "No cycles yet. Save a policy, then use Run now or a trigger.",
+    "cycle_status": "Cycle: {{status}}",
+    "cycle_counts": "Scanned {{scanned}} · eligible {{eligible}} · claimed {{claimed}}",
+    "score": "score {{score}}",
+    "select_candidate": "Select {{title}}",
+    "open_workflow_run": "Open workflow run",
+    "review_acceptance": "Review acceptance",
+    "reject_reason_placeholder": "Reason required for rejection",
+    "reject_reason_required": "Enter a reason before rejecting",
+    "reject_selected": "Reject ({{count}})",
+    "approve_selected": "Approve ({{count}})",
+    "review_saved": "Review saved",
+    "remediation_title": "Action needed",
+    "remediation_hint": "Open the workflow run, resolve the blocker or input mismatch, then trigger a new cycle.",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}} · {{total}} cycles"
+  },
   "dialog": {
     "sr_create": "새 오토파일럿",
     "sr_edit": "오토파일럿 수정",
@@ -318,6 +353,7 @@
     "schedule_add": "일정 추가",
     "error_title_required": "오토파일럿 이름을 입력하세요.",
     "error_assignee_required": "실행할 에이전트 또는 스쿼드를 선택하세요.",
+    "issue_pool_agent_only": "이슈 풀에는 에이전트 담당자가 필요합니다.",
     "output_modes": {
       "create_issue": {
         "label": "태스크 생성",
@@ -326,6 +362,10 @@
       "run_only": {
         "label": "실행만",
         "description": "태스크를 만들지 않고 조용히 실행합니다"
+      },
+      "issue_pool": {
+        "label": "이슈 풀",
+        "description": "기존 이슈를 검토한 후 고정 워크플로를 실행합니다"
       }
     }
   },

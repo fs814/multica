@@ -64,6 +64,58 @@ var preMigrationHooks = map[string]preMigrationHook{
 	"198_agent_task_attribution_strict_constraint_validate": runAttributionStrictHook,
 	"257_agent_task_queue_channel_media_pending_unique_v2":  cleanupInvalidConcurrentIndexHook("idx_one_pending_task_per_issue_agent_v2"),
 	"261_agent_task_queue_terminal_completed_at_v2":         cleanupInvalidConcurrentIndexHook("idx_agent_task_queue_terminal_completed_at_v2"),
+	"450_issue_pool_policy_id_index":                        cleanupInvalidConcurrentIndexHook("issue_pool_policy_id_key"),
+	"451_issue_pool_cycle_id_index":                         cleanupInvalidConcurrentIndexHook("issue_pool_cycle_id_key"),
+	"452_issue_pool_item_id_index":                          cleanupInvalidConcurrentIndexHook("issue_pool_item_id_key"),
+	"453_issue_pool_policy_autopilot_index":                 cleanupInvalidConcurrentIndexHook("issue_pool_policy_autopilot_key"),
+	"454_issue_pool_cycle_idempotency_index":                cleanupInvalidConcurrentIndexHook("issue_pool_cycle_idempotency_key"),
+	"455_issue_pool_item_active_issue_index":                cleanupInvalidConcurrentIndexHook("issue_pool_item_active_issue_key"),
+	"456_issue_pool_cycle_autopilot_index":                  cleanupInvalidConcurrentIndexHook("issue_pool_cycle_autopilot_created_index"),
+	"457_issue_pool_item_cycle_index":                       cleanupInvalidConcurrentIndexHook("issue_pool_item_cycle_index"),
+	"471_issue_pool_item_workflow_run_index":                cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_workflow_run"),
+	"472_issue_pool_cycle_autopilot_run_index":              cleanupInvalidConcurrentIndexHook("idx_issue_pool_cycle_autopilot_run"),
+	"473_issue_pool_outbox_id_index":                        cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_id"),
+	"474_issue_pool_outbox_dedupe_index":                    cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_dedupe"),
+	"475_issue_pool_outbox_pending_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_outbox_pending"),
+	"476_issue_pool_item_reconcile_index":                   cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_reconcile"),
+	"477_issue_pool_item_active_issue_v2_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v2"),
+	"470_issue_pool_workflow_execution":                     reconcileLegacyIssuePoolExecutionHook,
+	"479_inbox_issue_pool_notification_dedupe_index":        cleanupInvalidConcurrentIndexHook("idx_inbox_issue_pool_notification_dedupe"),
+	"480_issue_pool_item_active_issue_v3_index":             cleanupInvalidConcurrentIndexHook("idx_issue_pool_item_active_issue_v3"),
+	"485_issue_pool_outbox_pkey_candidate":                  cleanupInvalidConcurrentIndexHook("issue_pool_notification_outbox_pkey_candidate"),
+}
+
+// reconcileLegacyIssuePoolExecutionHook unblocks deployments that applied the
+// superseded 459-469 direct-task prototype. Migration 470 replaces its status
+// check, so legacy-only active states must be quarantined before 470 can run.
+// Audit evidence stays on the item; 478 maps it into the final failure fields.
+func reconcileLegacyIssuePoolExecutionHook(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `
+		DO $$
+		BEGIN
+			IF to_regclass(current_schema() || '.issue_pool_item') IS NULL OR NOT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_schema=current_schema() AND table_name='issue_pool_item' AND column_name='task_id'
+			) THEN
+				RETURN;
+			END IF;
+			UPDATE issue_pool_item
+			SET issue_snapshot = COALESCE(issue_snapshot, '{}'::jsonb) || jsonb_build_object(
+				'legacy_execution', jsonb_strip_nulls(jsonb_build_object(
+					'code', 'legacy_execution_unmappable',
+					'prior_status', status,
+					'task_id', task_id,
+					'failure_reason', failure_reason
+				))),
+				status = 'blocked',
+				updated_at = now()
+			WHERE status IN ('queued', 'running', 'awaiting_acceptance');
+		END $$;
+	`)
+	if err != nil {
+		return fmt.Errorf("quarantine legacy issue-pool execution: %w", err)
+	}
+	return nil
 }
 
 // cleanupInvalidConcurrentIndexHook removes an INVALID index left by an

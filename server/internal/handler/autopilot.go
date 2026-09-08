@@ -400,6 +400,12 @@ type UpdateAutopilotRequest struct {
 	Subscribers []SubscriberInput `json:"subscribers"`
 }
 
+const issuePoolRequiresAgentCode = "issue_pool_requires_agent"
+
+func writeIssuePoolRequiresAgent(w http.ResponseWriter) {
+	writeErrorCode(w, http.StatusBadRequest, issuePoolRequiresAgentCode, "issue_pool execution requires an agent assignee")
+}
+
 type SubscriberInput struct {
 	UserType string `json:"user_type"`
 	UserID   string `json:"user_id"`
@@ -713,8 +719,8 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "execution_mode is required")
 		return
 	}
-	if req.ExecutionMode != "create_issue" && req.ExecutionMode != "run_only" {
-		writeError(w, http.StatusBadRequest, "execution_mode must be create_issue or run_only")
+	if req.ExecutionMode != "create_issue" && req.ExecutionMode != "run_only" && req.ExecutionMode != "issue_pool" {
+		writeError(w, http.StatusBadRequest, "execution_mode must be create_issue, run_only, or issue_pool")
 		return
 	}
 	if req.IssueTitleTemplate != nil {
@@ -747,6 +753,10 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "assignee_type must be agent or squad")
 		return
 	}
+	if req.ExecutionMode == "issue_pool" && assigneeType != "agent" {
+		writeIssuePoolRequiresAgent(w)
+		return
+	}
 	projectID, ok := h.parseAutopilotProjectID(w, r, req.ProjectID, wsUUID)
 	if !ok {
 		return
@@ -754,6 +764,10 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	workflowTemplateID, workflowVersionID, err := h.resolveAutopilotWorkflowBinding(r.Context(), wsUUID, req.WorkflowTemplateID, req.WorkflowTemplateVersionID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.ExecutionMode == "issue_pool" && (!workflowTemplateID.Valid || !workflowVersionID.Valid) {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires a fixed published workflow template version")
 		return
 	}
 
@@ -966,6 +980,14 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		params.WorkflowTemplateID = templateID
 		params.WorkflowTemplateVersionID = versionID
 	}
+	nextExecutionMode := prev.ExecutionMode
+	if req.ExecutionMode != nil {
+		nextExecutionMode = *req.ExecutionMode
+		if nextExecutionMode != "create_issue" && nextExecutionMode != "run_only" && nextExecutionMode != "issue_pool" {
+			writeError(w, http.StatusBadRequest, "execution_mode must be create_issue, run_only, or issue_pool")
+			return
+		}
+	}
 	// assignee_type and assignee_id are validated as a pair: switching
 	// between agent and squad without supplying a new id would leave the
 	// row pointing at the wrong table. The client is expected to send both
@@ -1007,6 +1029,14 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		if idSent {
 			params.AssigneeID = nextID
 		}
+	}
+	if nextExecutionMode == "issue_pool" && nextType != "agent" {
+		writeIssuePoolRequiresAgent(w)
+		return
+	}
+	if nextExecutionMode == "issue_pool" && (!params.WorkflowTemplateID.Valid || !params.WorkflowTemplateVersionID.Valid) {
+		writeError(w, http.StatusBadRequest, "issue_pool execution requires a fixed published workflow template version")
+		return
 	}
 
 	// Subscribers are validated up-front (before any write) so a bad payload

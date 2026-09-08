@@ -13,6 +13,7 @@ import {
   Maximize2,
   Minimize2,
   Play,
+  ListTodo,
   Plus,
   Rocket,
   Users,
@@ -113,11 +114,12 @@ export type AutopilotDialogProps =
 // Static schema-level data (not user-visible)
 // ---------------------------------------------------------------------------
 
-const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only"];
+const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only", "issue_pool"];
 
 const OUTPUT_MODE_ICONS: Record<AutopilotExecutionMode, typeof FilePlus2> = {
   create_issue: FilePlus2,
   run_only: Play,
+  issue_pool: ListTodo,
 };
 
 // ---------------------------------------------------------------------------
@@ -257,8 +259,20 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   );
 
   const handleAssigneeChange = (next: AssigneeSelection) => {
+    if (executionMode === "issue_pool" && next.type !== "agent") {
+      toast.error(t(($) => $.dialog.issue_pool_agent_only));
+      return;
+    }
     setAssigneeType(next.type);
     setAssigneeId(next.id);
+  };
+
+  const handleExecutionModeChange = (next: AutopilotExecutionMode) => {
+    if (next === "issue_pool" && assigneeType !== "agent") {
+      toast.error(t(($) => $.dialog.issue_pool_agent_only));
+      return;
+    }
+    setExecutionMode(next);
   };
 
   const createAutopilot = useCreateAutopilot();
@@ -321,7 +335,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
         const autopilot = await createAutopilot.mutateAsync({
           title: title.trim(),
           description: description.trim() || undefined,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "run_only" ? null : projectId,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -376,7 +390,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
           id: props.autopilotId,
           title: title.trim(),
           description: description.trim() || null,
-          project_id: executionMode === "create_issue" ? projectId : null,
+          project_id: executionMode === "run_only" ? null : projectId,
           assignee_type: assigneeType,
           assignee_id: assigneeId,
           execution_mode: executionMode,
@@ -629,7 +643,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               errorId={assigneeErrorId}
             />
 
-            <OutputModeSection mode={executionMode} onChange={setExecutionMode} />
+            <OutputModeSection mode={executionMode} onChange={handleExecutionModeChange} />
 
             <WorkflowTemplateSection
               templates={workflowTemplates.filter((template) => template.status === "published")}
@@ -640,7 +654,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               }}
             />
 
-            {executionMode === "create_issue" && (
+            {executionMode !== "run_only" && (
               <ProjectSection
                 projectId={projectId}
                 selectedProject={selectedProject}
@@ -648,7 +662,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               />
             )}
 
-            {executionMode === "create_issue" && (
+            {executionMode !== "run_only" && (
               <SubscribersSection
                 selectedUserIds={subscriberUserIds}
                 onChange={setSubscriberUserIds}

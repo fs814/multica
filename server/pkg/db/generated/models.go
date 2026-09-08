@@ -675,6 +675,111 @@ type IssueLabel struct {
 	Description  string             `json:"description"`
 }
 
+type IssuePoolCycle struct {
+	ID                           pgtype.UUID        `json:"id"`
+	PolicyID                     pgtype.UUID        `json:"policy_id"`
+	AutopilotID                  pgtype.UUID        `json:"autopilot_id"`
+	WorkspaceID                  pgtype.UUID        `json:"workspace_id"`
+	ProjectID                    pgtype.UUID        `json:"project_id"`
+	IdempotencyKey               string             `json:"idempotency_key"`
+	Status                       string             `json:"status"`
+	PolicySnapshot               []byte             `json:"policy_snapshot"`
+	ScannedCount                 int32              `json:"scanned_count"`
+	EligibleCount                int32              `json:"eligible_count"`
+	ClaimedCount                 int32              `json:"claimed_count"`
+	CreatedByID                  pgtype.UUID        `json:"created_by_id"`
+	FailureReason                pgtype.Text        `json:"failure_reason"`
+	CreatedAt                    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                    pgtype.Timestamptz `json:"updated_at"`
+	ReviewedAt                   pgtype.Timestamptz `json:"reviewed_at"`
+	AutopilotRunID               pgtype.UUID        `json:"autopilot_run_id"`
+	WorkflowTemplateID           pgtype.UUID        `json:"workflow_template_id"`
+	WorkflowTemplateVersionID    pgtype.UUID        `json:"workflow_template_version_id"`
+	WorkflowInputMappingSnapshot []byte             `json:"workflow_input_mapping_snapshot"`
+	RequestHash                  pgtype.Text        `json:"request_hash"`
+	ApprovedCount                int32              `json:"approved_count"`
+	RejectedCount                int32              `json:"rejected_count"`
+	CompletedCount               int32              `json:"completed_count"`
+	BlockedCount                 int32              `json:"blocked_count"`
+	FailedCount                  int32              `json:"failed_count"`
+	DeferredCount                int32              `json:"deferred_count"`
+	StartedAt                    pgtype.Timestamptz `json:"started_at"`
+	CompletedAt                  pgtype.Timestamptz `json:"completed_at"`
+}
+
+type IssuePoolItem struct {
+	ID                  pgtype.UUID        `json:"id"`
+	CycleID             pgtype.UUID        `json:"cycle_id"`
+	PolicyID            pgtype.UUID        `json:"policy_id"`
+	AutopilotID         pgtype.UUID        `json:"autopilot_id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	ProjectID           pgtype.UUID        `json:"project_id"`
+	IssueID             pgtype.UUID        `json:"issue_id"`
+	Status              string             `json:"status"`
+	Score               int32              `json:"score"`
+	ScoreBreakdown      []byte             `json:"score_breakdown"`
+	SelectionReasons    []byte             `json:"selection_reasons"`
+	IssueSnapshot       []byte             `json:"issue_snapshot"`
+	ClaimToken          pgtype.UUID        `json:"claim_token"`
+	ClaimExpiresAt      pgtype.Timestamptz `json:"claim_expires_at"`
+	ReviewerID          pgtype.UUID        `json:"reviewer_id"`
+	ReviewReason        pgtype.Text        `json:"review_reason"`
+	ClaimedAt           pgtype.Timestamptz `json:"claimed_at"`
+	ReviewedAt          pgtype.Timestamptz `json:"reviewed_at"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+	WorkflowRunID       pgtype.UUID        `json:"workflow_run_id"`
+	ResolvedInput       []byte             `json:"resolved_input"`
+	RequestHash         pgtype.Text        `json:"request_hash"`
+	DispatchAttempts    int32              `json:"dispatch_attempts"`
+	FailureCode         pgtype.Text        `json:"failure_code"`
+	FailureDetail       []byte             `json:"failure_detail"`
+	DispatchedAt        pgtype.Timestamptz `json:"dispatched_at"`
+	WaitingAcceptanceAt pgtype.Timestamptz `json:"waiting_acceptance_at"`
+	CompletedAt         pgtype.Timestamptz `json:"completed_at"`
+}
+
+type IssuePoolNotificationOutbox struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	AutopilotID pgtype.UUID        `json:"autopilot_id"`
+	CycleID     pgtype.UUID        `json:"cycle_id"`
+	ItemID      pgtype.UUID        `json:"item_id"`
+	RecipientID pgtype.UUID        `json:"recipient_id"`
+	EventType   string             `json:"event_type"`
+	Payload     []byte             `json:"payload"`
+	Attempts    int32              `json:"attempts"`
+	AvailableAt pgtype.Timestamptz `json:"available_at"`
+	DeliveredAt pgtype.Timestamptz `json:"delivered_at"`
+	LastError   pgtype.Text        `json:"last_error"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type IssuePoolPolicy struct {
+	ID                        pgtype.UUID        `json:"id"`
+	AutopilotID               pgtype.UUID        `json:"autopilot_id"`
+	WorkspaceID               pgtype.UUID        `json:"workspace_id"`
+	ProjectID                 pgtype.UUID        `json:"project_id"`
+	EligibleStatuses          []string           `json:"eligible_statuses"`
+	Priorities                []string           `json:"priorities"`
+	RequiredLabelIds          []pgtype.UUID      `json:"required_label_ids"`
+	ExcludedLabelIds          []pgtype.UUID      `json:"excluded_label_ids"`
+	PropertyMatch             []byte             `json:"property_match"`
+	InactiveForDays           int32              `json:"inactive_for_days"`
+	BatchLimit                int32              `json:"batch_limit"`
+	MaxInFlight               int32              `json:"max_in_flight"`
+	ReviewMode                string             `json:"review_mode"`
+	AllowHumanAssignee        bool               `json:"allow_human_assignee"`
+	RequireDescription        bool               `json:"require_description"`
+	RequireAcceptanceCriteria bool               `json:"require_acceptance_criteria"`
+	PriorityWeights           []byte             `json:"priority_weights"`
+	CreatedByID               pgtype.UUID        `json:"created_by_id"`
+	CreatedAt                 pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                 pgtype.Timestamptz `json:"updated_at"`
+	WorkflowInputMapping      []byte             `json:"workflow_input_mapping"`
+}
+
 type IssueProperty struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`

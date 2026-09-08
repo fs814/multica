@@ -383,8 +383,13 @@ type StartRunInput struct {
 	// a concurrent publish cannot change the answer mid-flight.
 	TemplateVersionID pgtype.UUID
 	IssueID           pgtype.UUID
-	Source            string
-	SourceEventID     string
+	// EnforceIssueSnapshot turns the issue-pool candidate snapshot into an
+	// optimistic fence after the existing Issue row is locked.
+	EnforceIssueSnapshot   bool
+	ExpectedIssueProjectID pgtype.UUID
+	ExpectedIssueUpdatedAt pgtype.Timestamptz
+	Source                 string
+	SourceEventID          string
 	// IdempotencyKey is required. Callers derive it from the originating event
 	// (intake event id, autopilot run id) so a replay collides.
 	IdempotencyKey        string
@@ -579,6 +584,46 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 			}
 			issueID = issue.ID
 			result.Issue = &issue
+		} else if issueID.Valid {
+			locked, err := q.GetIssueForWorkflowStart(ctx, db.GetIssueForWorkflowStartParams{
+				ID: issueID, WorkspaceID: in.WorkspaceID,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return newEngineError(ErrCodeInvariantViolation, "the existing issue is outside the run workspace or no longer exists")
+			}
+			if err != nil {
+				return fmt.Errorf("lock existing workflow issue: %w", err)
+			}
+			if locked.EffectiveStatus == "done" || locked.EffectiveStatus == "cancelled" {
+				return newEngineError(ErrCodeInvalidTransition, "a terminal issue cannot start a workflow run")
+			}
+			if in.EnforceIssueSnapshot && (locked.ProjectID != in.ExpectedIssueProjectID ||
+				!locked.UpdatedAt.Time.Equal(in.ExpectedIssueUpdatedAt.Time)) {
+				return newEngineError(ErrCodeIdempotencyConflict, "the issue changed after issue-pool review")
+			}
+			activeRuns, err := q.ListActiveWorkflowRunsForIssue(ctx, db.ListActiveWorkflowRunsForIssueParams{
+				IssueID: issueID, WorkspaceID: in.WorkspaceID,
+			})
+			if err != nil {
+				return fmt.Errorf("check active workflow runs for issue: %w", err)
+			}
+			if len(activeRuns) > 0 {
+				return newEngineError(ErrCodeInvalidTransition, "the issue already has an active workflow run")
+			}
+			hasActiveTask, err := q.HasActiveAgentTaskForWorkflowIssue(ctx, issueID)
+			if err != nil {
+				return fmt.Errorf("check active tasks for workflow issue: %w", err)
+			}
+			if hasActiveTask {
+				return newEngineError(ErrCodeInvalidTransition, "the issue already has an active agent task")
+			}
+			if in.AccountableUserID.Valid {
+				if _, err := q.AddIssueSubscriber(ctx, db.AddIssueSubscriberParams{
+					IssueID: issueID, UserType: "member", UserID: in.AccountableUserID, Reason: "manual",
+				}); err != nil {
+					return fmt.Errorf("subscribe existing workflow issue owner: %w", err)
+				}
+			}
 		}
 
 		run, err := q.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
