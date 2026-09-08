@@ -26,6 +26,14 @@ func configureProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+// startAgentProcess starts cmd. On Unix the process group configured by
+// configureProcessGroup before Start already owns the tree, so there is
+// nothing to attach afterwards; the Windows build assigns a Job Object here
+// because a job needs a live pid.
+func startAgentProcess(cmd *exec.Cmd) error {
+	return cmd.Start()
+}
+
 func codexInitializeRetrySupported() bool { return true }
 
 // signalProcessGroup sends sig to the whole process group led by p (when the

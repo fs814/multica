@@ -260,7 +260,7 @@ func (b *piBackend) Execute(ctx context.Context, prompt string, opts ExecOptions
 	closeStdin := func() { closeStdinOnce.Do(func() { _ = stdin.Close() }) }
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "["+label+":stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		closeStdin()
 		cancel()
 		return nil, fmt.Errorf("start %s: %w", label, err)

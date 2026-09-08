@@ -154,7 +154,7 @@ func (b *devecoBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	}
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "[deveco:stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start deveco: %w", err)
 	}

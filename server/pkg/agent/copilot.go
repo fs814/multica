@@ -367,7 +367,7 @@ func (b *copilotBackend) Execute(ctx context.Context, prompt string, opts ExecOp
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[copilot:stderr] "), agentStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start copilot: %w", err)
 	}

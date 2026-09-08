@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"io/fs"
 	"log/slog"
 	"math/rand"
 	"os"
@@ -6009,7 +6010,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, fmt.Errorf("prepare task temp dir: %w", err)
 	}
 	defer func() {
-		if cerr := os.RemoveAll(taskTempDir); cerr != nil {
+		if cerr := removeTaskTempDir(taskTempDir); cerr != nil {
 			taskLog.Warn("task temp dir cleanup failed", "path", taskTempDir, "error", cerr)
 		}
 	}()
@@ -7645,6 +7646,45 @@ func ensureTaskTempDir(envRoot string, workspaceID string, taskID string) (strin
 		return "", err
 	}
 	return dir, nil
+}
+
+// taskTempDirRemoveTimeout bounds how long cleanup will retry a temp dir that
+// a lingering descendant still holds open. Short enough not to stall task
+// completion, long enough to outlast a tool subprocess being torn down.
+const taskTempDirRemoveTimeout = 5 * time.Second
+
+// removeTaskTempDir deletes the per-task temp dir, retrying while a straggling
+// descendant still holds a handle inside it.
+//
+// A plain os.RemoveAll is not enough on Windows. The dir is exported to the
+// agent as TMPDIR/TMP/TEMP, so any tool subprocess it spawned may hold an open
+// handle or have it as its working directory; Windows then refuses the delete
+// (ERROR_SHARING_VIOLATION / ERROR_DIR_NOT_EMPTY) and the old code merely
+// logged a warning and moved on. The residue was worse than a stale directory:
+// MSYS shells (Git Bash sh.exe) mount %TEMP% as /tmp and cache that mapping in
+// a shared region, so a half-deleted task temp dir left every later shell on
+// the machine resolving /tmp to a path that no longer exists.
+//
+// This defer runs after the agent session has returned, and the agent's
+// process tree is reaped when its leader exits (see startAgentProcess on
+// Windows), so the retry window is about handles closing rather than waiting
+// on live work.
+func removeTaskTempDir(dir string) error {
+	deadline := time.Now().Add(taskTempDirRemoveTimeout)
+	for {
+		err := os.RemoveAll(dir)
+		if err == nil {
+			return nil
+		}
+		// Gone already (or never created) is success, not a failure.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func socketSafeTempBaseDir() string {
