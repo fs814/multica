@@ -5,15 +5,9 @@ import {
   writeFile,
   mkdir,
   rm,
-  open,
-  stat,
 } from "fs/promises";
-import {
-  existsSync,
-  watchFile,
-  unwatchFile,
-  type StatsListener,
-} from "fs";
+import { existsSync } from "fs";
+import { startDaemonLogTail } from "./daemon-log-tail";
 import { join } from "path";
 import { homedir, hostname } from "os";
 import type {
@@ -46,8 +40,6 @@ import {
 
 const POLL_INTERVAL_MS = 5_000;
 const PREFS_PATH = join(homedir(), ".multica", "desktop_prefs.json");
-const LOG_TAIL_RETRY_MS = 2_000;
-const LOG_TAIL_MAX_RETRIES = 5;
 // How long a start may sit in "starting" (with no /health) before we probe the
 // token to find out whether login expired. The daemon's own startup can legitimately
 // take a while (it renews the PAT and lists workspaces before serving /health), so we
@@ -71,7 +63,7 @@ interface ActiveProfile {
 }
 
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
-let logTailWatcher: { path: string; listener: StatsListener } | null = null;
+let disposeLogTail: (() => void) | null = null;
 let currentState: DaemonStatus["state"] = "installing_cli";
 let getMainWindow: () => BrowserWindow | null = () => null;
 let operationInProgress = false;
@@ -1043,101 +1035,21 @@ function stopPolling(): void {
   }
 }
 
-const LOG_TAIL_INITIAL_WINDOW_BYTES = 32 * 1024;
-const LOG_TAIL_INITIAL_LINES = 200;
-const LOG_TAIL_POLL_MS = 500;
-
-async function readLogRange(
-  path: string,
-  startAt: number,
-  length: number,
-): Promise<string> {
-  const handle = await open(path, "r");
-  try {
-    const buffer = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, startAt);
-    return buffer.subarray(0, bytesRead).toString("utf-8");
-  } finally {
-    await handle.close();
-  }
-}
-
-function sendLines(win: BrowserWindow, text: string): void {
-  const lines = text.split("\n").filter((line) => line.length > 0);
-  for (const line of lines) {
-    win.webContents.send("daemon:log-line", line);
-  }
-}
-
-// Cross-platform tail -f replacement: read the tail of the file once, then
-// poll its stat with fs.watchFile and forward any new bytes since the last
-// known offset. watchFile works on macOS, Linux, and Windows; spawn("tail")
-// would silently fail on Windows.
-function startLogTail(win: BrowserWindow, retryCount = 0): void {
+function startLogTail(win: BrowserWindow): void {
   stopLogTail();
-
-  void ensureActiveProfile().then(async (active) => {
-    // Before the renderer reports its apiUrl there is no Desktop-owned profile
-    // yet, and therefore no log file of ours to tail. Retry rather than reach
-    // for the default profile's log.
-    const logPath = active ? profileLogPath(active.name) : null;
-    if (!logPath || !existsSync(logPath)) {
-      if (retryCount < LOG_TAIL_MAX_RETRIES) {
-        setTimeout(() => startLogTail(win, retryCount + 1), LOG_TAIL_RETRY_MS);
-      }
-      return;
-    }
-
-    let position = 0;
-    try {
-      const initialStats = await stat(logPath);
-      const windowBytes = Math.min(
-        initialStats.size,
-        LOG_TAIL_INITIAL_WINDOW_BYTES,
-      );
-      const startAt = initialStats.size - windowBytes;
-      if (windowBytes > 0) {
-        const text = await readLogRange(logPath, startAt, windowBytes);
-        const lines = text
-          .split("\n")
-          .filter((line) => line.length > 0)
-          .slice(-LOG_TAIL_INITIAL_LINES);
-        for (const line of lines) {
-          win.webContents.send("daemon:log-line", line);
-        }
-      }
-      position = initialStats.size;
-    } catch (err) {
-      console.warn("[daemon] log tail initial read failed:", err);
-      return;
-    }
-
-    const listener: StatsListener = (curr) => {
-      const target = getMainWindow();
-      if (!target) return;
-      // File rotated/truncated — restart from the new beginning.
-      if (curr.size < position) position = 0;
-      if (curr.size === position) return;
-      const from = position;
-      const length = curr.size - from;
-      position = curr.size;
-      readLogRange(logPath, from, length)
-        .then((text) => sendLines(target, text))
-        .catch((err) => {
-          console.warn("[daemon] log tail read failed:", err);
-        });
-    };
-
-    watchFile(logPath, { interval: LOG_TAIL_POLL_MS }, listener);
-    logTailWatcher = { path: logPath, listener };
+  disposeLogTail = startDaemonLogTail({
+    resolvePath: async () => {
+      const active = await ensureActiveProfile();
+      return active ? profileLogPath(active.name) : null;
+    },
+    isAlive: () => !win.isDestroyed() && !win.webContents.isDestroyed(),
+    onLine: (line) => win.webContents.send("daemon:log-line", line),
   });
 }
 
 function stopLogTail(): void {
-  if (logTailWatcher) {
-    unwatchFile(logTailWatcher.path, logTailWatcher.listener);
-    logTailWatcher = null;
-  }
+  disposeLogTail?.();
+  disposeLogTail = null;
 }
 
 export function setupDaemonManager(
