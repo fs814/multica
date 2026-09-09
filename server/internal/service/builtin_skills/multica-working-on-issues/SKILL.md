@@ -183,7 +183,9 @@ on it. These are the contracts, not advice:
   fires. Moving `backlog → todo` (or any non-done/non-cancelled status) enqueues
   the assigned agent then.
 - **`in_progress` / `in_review` on assignment runs** are agent-managed CLI
-  mutations, not `StartTask` / `CompleteTask` side effects. The assignment
+  mutations for CLI agents. Ordinary Knot HTTP assignments are the exception:
+  the server advances them on start and substantive completion (see below).
+  The assignment
   runtime brief asks ordinary agents for `todo`/`backlog` → `in_progress` then
   `in_review` when they have delivered. Squad leaders share the opening
   `in_progress` step on the first assignment turn, keep the parent there while
@@ -289,3 +291,22 @@ contract above: the `pull-requests` CLI and route, the PR response field list,
 notify, the stage column / `stageBarrierClosed` barrier and the `--stage` /
 `issue children` CLI, and the metadata CLI. Re-derive before depending on an
 exact line.
+
+## Knot HTTP remote workspace
+
+When Knot HTTP dispatches without a client UUID (including `client_uuid=remote`
+or a failed local-client probe), the request omits the dispatching machine's
+workspace path. The selected remote tool host uses its own filesystem; a local
+Multica checkout is not copied to it. An explicitly resolved client UUID retains
+the configured workspace path. Do not assume local files exist on a remote host.
+Ordinary Knot HTTP issue assignments now receive their title and description
+inline, loaded by the daemon from the assigning server using task-scoped auth.
+They return their result directly; the server's existing completion fallback
+records it as an issue comment. The server advances ordinary agent assignments
+from todo/backlog to in_progress on start, then to in_review on completion with
+nonempty output, in the same transaction as the task transition. Updates preserve
+terminal states, reassignment and manual status changes and broadcast issue:updated
+without enqueueing another run. Leaders and squad tasks retain their own lifecycle.
+This path does not run remote Multica CLI setup. Failed context reads fail the run.
+Comment-triggered turns, explicit handoffs, workflows, chats, autopilots and
+quick-create retain their existing prompt contracts.

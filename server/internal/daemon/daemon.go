@@ -6080,7 +6080,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}()
 	}
 
-	prompt := BuildPrompt(task, provider)
+	prompt, err := d.buildExecutionPrompt(ctx, task, provider)
+	if err != nil {
+		return TaskResult{}, fmt.Errorf("build execution prompt: %w", err)
+	}
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI
 	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
@@ -6496,7 +6499,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 				execOpts.SystemPrompt = runtimeBrief
 			}
 		}
-		freshPrompt := BuildPrompt(task, provider)
+		freshPrompt, err := d.buildExecutionPrompt(ctx, task, provider)
+		if err != nil {
+			return TaskResult{}, fmt.Errorf("build fresh execution prompt: %w", err)
+		}
 
 		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
 		if retryErr != nil {

@@ -33,7 +33,7 @@ func knotHTTPTestBackend(t *testing.T, srv *httptest.Server, env map[string]stri
 		merged[k] = v
 	}
 	return &knotHTTPBackend{
-		cfg:        Config{Env: merged, Logger: knotHTTPTestLogger()},
+		cfg:        Config{Env: merged, Logger: knotHTTPTestLogger(), ExecutablePath: filepath.Join(t.TempDir(), "missing-knot-cli")},
 		baseURL:    srv.URL,
 		httpClient: srv.Client(),
 	}
@@ -131,7 +131,7 @@ func TestKnotHTTPSendsDocumentedRequestShape(t *testing.T) {
 	srv := serveSSEFixture(t, "knot-http-agui-sse.txt", &gotReq, &gotBody)
 	defer srv.Close()
 
-	b := knotHTTPTestBackend(t, srv, map[string]string{KnotHTTPUserEnv: "shengfeng"})
+	b := knotHTTPTestBackend(t, srv, map[string]string{KnotHTTPUserEnv: "shengfeng", KnotClientUUIDEnv: "11111111-1111-4111-8111-111111111111"})
 	workdir := t.TempDir()
 	res, _ := drainKnotHTTP(t, b, ExecOptions{
 		Model:           "claude-4.8-opus",
@@ -573,5 +573,35 @@ func TestLooksLikeKnotClientUUID(t *testing.T) {
 		if got := LooksLikeKnotClientUUID(in); got != want {
 			t.Fatalf("LooksLikeKnotClientUUID(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// Remote execution must not receive a path from the dispatcher's filesystem.
+func TestKnotHTTPRemoteOmitsLocalWorkspace(t *testing.T) {
+	t.Parallel()
+	for _, setting := range []string{"remote", "REMOTE", ""} {
+		t.Run(setting, func(t *testing.T) {
+			var body []byte
+			srv := serveSSEFixture(t, "knot-http-agui-sse.txt", nil, &body)
+			defer srv.Close()
+			backend := knotHTTPTestBackend(t, srv, map[string]string{KnotClientUUIDEnv: setting})
+			result, _ := drainKnotHTTP(t, backend, ExecOptions{Cwd: `D:\dispatch-host\task-workspace`})
+			if result.Status != "completed" {
+				t.Fatalf("execution failed: %s", result.Error)
+			}
+			var sent knotHTTPRequest
+			if err := json.Unmarshal(body, &sent); err != nil {
+				t.Fatal(err)
+			}
+			if len(sent.Input.ChatExtra.Workspace) != 0 {
+				t.Errorf("remote received local workspace: %v", sent.Input.ChatExtra.Workspace)
+			}
+			if sent.Input.ChatExtra.AgentClientUUID != "" {
+				t.Errorf("remote received client UUID: %q", sent.Input.ChatExtra.AgentClientUUID)
+			}
+			if strings.Contains(string(body), "dispatch-host") {
+				t.Error("request leaked dispatcher's local path")
+			}
+		})
 	}
 }

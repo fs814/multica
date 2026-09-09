@@ -129,7 +129,7 @@ and is hidden from the PR list.
 | Same contract in batch update | `server/internal/handler/issue.go:3021-3024` | new citation |
 | Child → `done` notifies + wakes the parent, gated by the stage barrier | `server/internal/handler/issue_child_done.go:66` (`notifyParentOfChildDone`; doc comment at `:15`; barrier gate at `:115`) | func def `:51` |
 | Status change (incl. → `cancelled`) does NOT cancel in-flight tasks; only issue deletion does (MUL-4465) | no-cancel note in `server/internal/handler/issue.go:2652-2658` (`UpdateIssue`) and `:3170-3171` (`BatchUpdateIssues`); deletion still cancels at `:2863` (`DeleteIssue`) / `:3239` (`BatchDeleteIssues`) via `CancelTasksForIssue` (`server/internal/service/task.go:1229`) | new citation |
-| `StartTask` / `CompleteTask` do not write issue status (agent CLI owns progress) | `server/internal/service/task.go` (`StartTask` / `CompleteTask` comments) | new citation |
+| `StartTask` / `CompleteTask` synchronize ordinary HTTP assignment status; CLI agents own their progress | `server/internal/service/task.go` (`StartTask` / `CompleteTask` comments) | new citation |
 | Assignment brief: ordinary agent `in_progress` then `in_review`; squad leader `in_progress` only on first dispatch | `server/internal/daemon/execenv/runtime_config_sections.go` (`writeWorkflowAssignment`) | new citation |
 | Failed task may roll `in_progress` → `todo` when no active task remains | `server/internal/service/task.go` (`HandleFailedTasks`) | new citation |
 
@@ -198,3 +198,29 @@ grep -n 'qualifyingIdents\|reference_only\|ReferenceOnly' internal/handler/githu
 grep -n 'prevIssue.Status == "backlog"\|func (h \*Handler) shouldEnqueueAgentTask' internal/handler/issue.go
 grep -n 'func notifyParentOfChildDone'       internal/handler/issue_child_done.go
 ```
+
+## Knot HTTP remote workspace
+
+- `server/pkg/agent/knot_http.go:374` — `buildKnotHTTPRequest` sends a workspace
+  only when a nonempty client UUID has been resolved.
+- `server/pkg/agent/knot_http_test.go` — `TestKnotHTTPRemoteOmitsLocalWorkspace`
+  covers explicit remote mode and failed local-client discovery;
+  `TestKnotHTTPSendsDocumentedRequestShape` covers a targeted client's workspace.
+- `server/internal/daemon/http_prompt.go` — `httpIssueContext` reads only the
+  assigning server with task-scoped auth; `buildExecutionPrompt` inlines only
+  title/description for ordinary HTTP assignments and specifies direct delivery.
+- `server/internal/daemon/http_prompt_test.go` — context projection, identity,
+  fail-fast behavior and unchanged turn contracts.
+- `server/internal/service/task.go:3668` — completion fallback writes output to
+  the issue when the agent has not already commented during the run.
+## HTTP assignment issue status
+
+- `server/internal/service/http_assignment.go` — ordinary HTTP assignments move
+  to in_progress on start and in_review on substantive completion. Other turn
+  types and leaders are excluded.
+- `server/pkg/db/queries/http_assignment.sql` — locked status/assignee/provider
+  guards; no enqueue side effect.
+- `server/internal/service/task.go` — StartTask and CompleteTask transact the
+  issue transition with the task transition and broadcast after commit.
+- `server/internal/service/http_assignment_test.go` — transactional lifecycle,
+  replay, cancellation, reassignment and unaffected-provider regression coverage.

@@ -3439,11 +3439,23 @@ func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, sta
 }
 
 // StartTask transitions a dispatched task to running.
-// Issue status is NOT changed here — the agent manages it via the CLI.
+// Ordinary HTTP assignments also advance from todo/backlog to in_progress.
 func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.AgentTaskQueue, error) {
-	task, err := s.Queries.StartAgentTask(ctx, taskID)
-	if err != nil {
+	var task db.AgentTaskQueue
+	var issueChange *db.AdvanceHTTPAssignmentIssueStatusRow
+	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
+		var err error
+		task, err = qtx.StartAgentTask(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		issueChange, err = advanceHTTPAssignmentIssue(ctx, qtx, task, nil)
+		return err
+	}); err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
+	}
+	if issueChange != nil {
+		s.broadcastIssueUpdated(issueChange.Issue, issueChange.PreviousStatus)
 	}
 	s.cancelDeferredEscalationsForTask(ctx, task.ID)
 
@@ -3547,7 +3559,7 @@ func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID 
 }
 
 // CompleteTask marks a task as completed.
-// Issue status is NOT changed here — the agent manages it via the CLI.
+// Ordinary HTTP assignments advance to in_review on substantive delivery; other agents manage issue status via the CLI.
 //
 // For chat tasks, CompleteAgentTask and the chat_session resume-pointer
 // update run in a single transaction. This closes a race where the next
@@ -3560,6 +3572,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	// task inside the completion transaction below. It is broadcast (chat:done)
 	// only after the transaction commits.
 	var chatAssistantMsg *db.ChatMessage
+	var issueChange *db.AdvanceHTTPAssignmentIssueStatusRow
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		if err := lockChatSessionForTaskWrite(ctx, qtx, taskID); err != nil {
 			return err
@@ -3576,6 +3589,10 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 			return err
 		}
 		task = t
+		issueChange, err = advanceHTTPAssignmentIssue(ctx, qtx, t, result)
+		if err != nil {
+			return err
+		}
 
 		if t.ChatSessionID.Valid {
 			// Pin the chat_session's runtime_id alongside the session_id so the
@@ -3655,6 +3672,10 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 			)
 		}
 		return nil, fmt.Errorf("complete task: %w", err)
+	}
+
+	if issueChange != nil {
+		s.broadcastIssueUpdated(issueChange.Issue, issueChange.PreviousStatus)
 	}
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))

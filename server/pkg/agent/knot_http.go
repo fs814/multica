@@ -375,7 +375,8 @@ func buildKnotHTTPRequest(prompt string, opts ExecOptions, clientUUID string) kn
 	extra := knotHTTPExtra{
 		AgentClientUUID: clientUUID,
 	}
-	if opts.Cwd != "" {
+	// A remote tool host cannot use the dispatching daemon's local directory.
+	if opts.Cwd != "" && clientUUID != "" {
 		extra.Workspace = []string{opts.Cwd}
 	}
 	if opts.ThinkingLevel != "" {
