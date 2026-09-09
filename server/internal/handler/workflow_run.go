@@ -823,6 +823,27 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 		projectID = parsed
 	}
 
+	var templateVersionID pgtype.UUID
+	if rawID := r.Header.Get("X-Workflow-Template-Version-ID"); rawID != "" {
+		versionID, ok := parseUUIDOrBadRequest(w, rawID, "template version id")
+		if !ok {
+			return
+		}
+		version, err := h.Queries.GetWorkflowTemplateVersion(r.Context(), db.GetWorkflowTemplateVersionParams{ID: versionID, WorkspaceID: tpl.WorkspaceID})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				writeError(w, 404, "template version not found")
+			} else {
+				writeError(w, 500, "failed to read template version")
+			}
+			return
+		}
+		if version.TemplateID != tpl.ID || version.Status != "published" {
+			writeError(w, 409, "run must reference a published version of this workflow")
+			return
+		}
+		templateVersionID = version.ID
+	}
 	input, err := buildWorkflowRunInput(title, description, rawBody)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to encode run input")
@@ -832,6 +853,10 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	if templateVersionID.Valid {
+		sum := sha256.Sum256([]byte(requestHash + ":" + uuidToString(templateVersionID)))
+		requestHash = hex.EncodeToString(sum[:])
 	}
 	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
 	if idempotencyKey == "" {
@@ -870,12 +895,12 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
 	started, err := engine.StartRun(r.Context(), workflow.StartRunInput{
 		WorkspaceID: tpl.WorkspaceID,
 		TemplateID:  tpl.ID,
-		// TemplateVersionID left zero: StartRun resolves the published version
-		// inside its own transaction, so a concurrent publish cannot change the
-		// answer between our check above and the pin.
-		Source:         "manual",
-		IdempotencyKey: idempotencyKey,
-		RequestHash:    requestHash,
+		// Pin the displayed immutable graph when supplied by the client.
+		// Older clients continue to resolve the current publication in the engine.
+		TemplateVersionID: templateVersionID,
+		Source:            "manual",
+		IdempotencyKey:    idempotencyKey,
+		RequestHash:       requestHash,
 		// The member who pressed Run is answerable for the Run, and routing checks
 		// every candidate agent's invocation permission against exactly this user.
 		AccountableUserID: userUUID,

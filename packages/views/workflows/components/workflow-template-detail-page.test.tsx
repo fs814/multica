@@ -51,11 +51,13 @@ const TEST_RESOURCES = {
 const detailRef = vi.hoisted(() => ({
   current: null as WorkflowTemplateDetail | null,
 }));
+const publishedRef = vi.hoisted(() => ({ current: null as WorkflowTemplateDetail | null }));
 const detailErrorRef = vi.hoisted(() => ({
   current: null as Error | null,
 }));
 const membersRef = vi.hoisted(() => ({ current: [] as unknown[] }));
 const saveMock = vi.hoisted(() => vi.fn());
+const runMock = vi.hoisted(() => vi.fn());
 const publishMock = vi.hoisted(() => vi.fn());
 const duplicateMock = vi.hoisted(() => vi.fn());
 const validateMock = vi.hoisted(() => vi.fn());
@@ -68,7 +70,8 @@ const clipboardWriteMock = vi.hoisted(() => vi.fn());
 // it was handed, so a page that stopped feeding it nodes fails these tests.
 vi.mock("../canvas/workflow-canvas", () => ({
   WorkflowCanvas: (props: {
-    nodes: { id: string }[];
+    nodes: { id: string; data: { node: WorkflowDefinition["nodes"][number] } }[];
+    onChangeNode(node: WorkflowDefinition["nodes"][number]): void;
     edges: { id: string }[];
     readOnly: boolean;
     selectedNodeId: string | null;
@@ -82,6 +85,11 @@ vi.mock("../canvas/workflow-canvas", () => ({
       data-edges={props.edges.map((edge) => edge.id).join(",")}
     >
       {props.nodes.map((node) => node.id).join(",")}
+      {props.nodes.filter((node) => node.data.node.type === "input").map((node) => (
+        <button key={node.id} data-testid="canvas-fill-input" onClick={() => props.onChangeNode({
+          ...node.data.node, name: "Current machine", instruction: "List the current OS version",
+        })} />
+      ))}
       {!props.readOnly && props.edges.length > 0 ? (
         <button
           type="button"
@@ -159,6 +167,10 @@ vi.mock("@multica/core/workflows", async () => {
           ? Promise.resolve(detailRef.current)
           : Promise.reject(new Error("not found")),
     }),
+    workflowTemplateRunOptions: (wsId: string, id: string) => ({
+      queryKey: ["workflow-templates", wsId, "published", id],
+      queryFn: async () => publishedRef.current ?? detailRef.current,
+    }),
     useUpdateWorkflowTemplate: () => ({
       mutateAsync: saveMock,
       isPending: false,
@@ -171,8 +183,9 @@ vi.mock("@multica/core/workflows", async () => {
       mutateAsync: duplicateMock,
       isPending: false,
     }),
+    workflowInputInstanceListOptions: () => ({ queryKey: ["test-input-instances"], queryFn: async () => [] }),
     useRunWorkflowTemplate: () => ({
-      mutateAsync: vi.fn(),
+      mutateAsync: runMock,
       isPending: false,
     }),
   };
@@ -298,6 +311,7 @@ async function canvas(): Promise<HTMLElement> {
 }
 
 beforeEach(() => {
+  publishedRef.current = null;
   vi.clearAllMocks();
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
@@ -308,6 +322,7 @@ beforeEach(() => {
   detailErrorRef.current = null;
   membersRef.current = [{ user_id: "user-1", role: "admin" }];
   saveMock.mockResolvedValue(detail());
+  runMock.mockResolvedValue({ id: "run-1", status: "running" });
   publishMock.mockResolvedValue(detail({ status: "published" }));
   duplicateMock.mockResolvedValue(
     detail({
@@ -939,4 +954,98 @@ describe("unreadable payload", () => {
     expect(await screen.findByText("Workflow not found")).toBeInTheDocument();
     expect(screen.queryByTestId("canvas")).not.toBeInTheDocument();
   });
+});
+
+describe("node deletion", () => {
+  it("removes an added node from the panel and supports undo and redo", async () => {
+    renderPage();
+    await canvas();
+    fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
+    expect(screen.getByTestId("canvas")).toHaveTextContent("step_1");
+    fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+    expect(screen.getByTestId("canvas")).not.toHaveTextContent("step_1");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.getByTestId("canvas")).toHaveTextContent("step_1");
+    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    expect(screen.getByTestId("canvas")).not.toHaveTextContent("step_1");
+  });
+
+  it("saves a deleted node without incident edges and keeps it deleted after reopening", async () => {
+    const view = renderPage();
+    await canvas();
+    fireEvent.click(screen.getByTestId("canvas-select-acceptance"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+    expect(screen.getByTestId("canvas")).not.toHaveTextContent("acceptance");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    const sent = saveMock.mock.calls[0]?.[0] as { definition: WorkflowDefinition };
+    expect(sent.definition.nodes.map((node) => node.key)).not.toContain("acceptance");
+    expect(sent.definition.nodes.find((node) => node.key === "validate")?.next).toEqual([]);
+    view.unmount();
+    detailRef.current = detail({ definition: sent.definition });
+    renderPage();
+    const reopened = await canvas();
+    expect(reopened).not.toHaveTextContent("acceptance");
+    expect(reopened.dataset.edges).not.toContain("acceptance");
+  });
+});
+describe("running with inline Input content", () => {
+  it("passes freshly typed content to the Run request without saving or retyping", async () => {
+    const definition = allNodeTypesDefinition();
+    definition.nodes[0]!.instruction = "Previously published content";
+        detailRef.current = detail({
+      definition, status: "published", current_version: 1,
+      versions: [{ id: "published-1", version: 1, status: "published", published_at: "2026-09-09T00:00:00Z" }],
+    });
+    renderPage();
+    await canvas();
+    fireEvent.click(screen.getByTestId("canvas-fill-input"));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(await screen.findByRole("textbox", { name: "Title" })).toHaveValue("Current machine");
+    expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("List the current OS version");
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await waitFor(() => expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
+      templateId: "wft-1", title: "Current machine", description: "List the current OS version",
+    })));
+    expect(saveMock).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+    expect(definition.nodes[0]!.instruction).toBe("Previously published content");
+  });
+});
+it("opens saved input controls with unsaved canvas values without starting a run", async () => {
+  detailRef.current = detail({ definition: allNodeTypesDefinition(), status: "draft", current_version: null });
+  renderPage();
+  await canvas();
+  fireEvent.click(screen.getByTestId("canvas-fill-input"));
+  fireEvent.click(screen.getByRole("button", { name: "Save as instance" }));
+  expect(await screen.findByRole("textbox", { name: "Instance name" })).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Current machine");
+  expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("List the current OS version");
+  expect(runMock).not.toHaveBeenCalled();
+  expect(saveMock).not.toHaveBeenCalled();
+  expect(publishMock).not.toHaveBeenCalled();
+});
+
+it("uses the published input declaration while retaining unsaved draft text", async () => {
+  const definition = allNodeTypesDefinition();
+  const publication = detail({
+    definition, status: "published", current_version: 1,
+    versions: [{ id: "published-1", version: 1, status: "published", published_at: null }],
+  });
+  publishedRef.current = publication;
+  const draft = structuredClone(definition);
+  draft.nodes[0]!.input_fields = [{ key: "draft_only", label: "Draft-only field", type: "text", required: true, options: [], placeholder: "" }];
+  detailRef.current = { ...publication, definition: draft };
+  renderPage();
+  await canvas();
+  fireEvent.click(screen.getByTestId("canvas-fill-input"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  expect(await screen.findByRole("textbox", { name: "Description" })).toHaveValue("List the current OS version");
+  expect(screen.queryByRole("textbox", { name: "Draft-only field" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
+    templateVersionId: "published-1", description: "List the current OS version",
+  })));
 });

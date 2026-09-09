@@ -103,8 +103,12 @@ export function WorkflowPropertiesPanel({
   definition,
   readOnly,
   onChange,
+  onDelete,
+  onSetEntry,
 }: {
   node: WorkflowNode | null;
+  onDelete?(): void;
+  onSetEntry?(): void;
   definition: WorkflowDefinition;
   readOnly: boolean;
   onChange(next: WorkflowNode): void;
@@ -116,6 +120,29 @@ export function WorkflowPropertiesPanel({
       className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-background"
       aria-label={t(($) => $.panel.aria)}
     >
+      {node && !readOnly && (
+        <div className="flex flex-col gap-2 border-b p-3">
+          {onSetEntry && definition.entry_node !== node.key && (
+            <Button variant="outline" size="sm" onClick={onSetEntry}>
+              {t(($) => $.node_actions.set_entry)}
+            </Button>
+          )}
+          {onDelete && (
+            <Button variant="outline" size="sm" className="text-destructive" onClick={onDelete}>
+              <Trash2 className="size-3.5" aria-hidden="true" />
+              {t(($) => $.node_actions.delete)}
+            </Button>
+          )}
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.node_actions.hint)}
+          </p>
+          {!definition.entry_node && (
+            <p role="status" className="text-caption text-muted-foreground">
+              {t(($) => $.node_actions.missing_entry)}
+            </p>
+          )}
+        </div>
+      )}
       {node === null ? (
         <PanelNotice
           title={t(($) => $.panel.empty.title)}

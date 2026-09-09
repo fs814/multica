@@ -1,0 +1,1 @@
+ALTER TABLE workflow_input_instance DROP CONSTRAINT workflow_input_instance_pkey;

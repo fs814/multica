@@ -711,6 +711,7 @@ describe("run dialog", () => {
 
     await waitFor(() =>
       expect(runTemplateMock).toHaveBeenCalledWith({
+        idempotency_key: expect.any(String),
         templateId: "wft-1",
         title: "Claim endpoint 500s",
         description: "Returns 500 for an empty queue.",

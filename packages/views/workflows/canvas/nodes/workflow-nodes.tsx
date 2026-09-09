@@ -30,6 +30,7 @@ import { resolvePublicFileUrlWithBase } from "@multica/core/workspace/avatar-url
 import { useT } from "../../../i18n";
 import { toWorkflowInputFieldType, type FlowNode } from "../../graph";
 import { RoutingSummary } from "./routing-summary";
+import { InputNodeEditor } from "./input-node-editor";
 import { WorkflowNodeCard, WorkflowNodeSummary } from "./workflow-node-card";
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,7 @@ import { WorkflowNodeCard, WorkflowNodeSummary } from "./workflow-node-card";
  * The declaration is capped at four rows with a "+n more" tail. A card is a fixed
  * 240px wide (see WorkflowNodeCard) sitting in a layered layout, so an
  * unbounded list would push a long form's card past its neighbours' rows and make
- * the graph unreadable - the properties panel is where the full list is edited.
+ * the graph unreadable - the expandable node controls hold the full field editor.
  */
 const MAX_LISTED_FIELDS = 4;
 
@@ -76,6 +77,7 @@ export const InputNode = memo(function InputNode({
       data={data}
       selected={selected}
       typeLabel={t(($) => $.canvas.node_type.input)}
+      className="w-72"
       summary={
         <WorkflowNodeSummary icon={Asterisk}>
           {/* An empty declaration is legal - the node documents where work enters
@@ -91,59 +93,62 @@ export const InputNode = memo(function InputNode({
         </WorkflowNodeSummary>
       }
       body={
-        imageMode ? (
-          imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={t(($) => $.canvas.summary.input_image_alt)}
-              className="h-36 w-full rounded-md bg-muted/30 object-contain"
-            />
-          ) : (
-            <p className="text-caption text-destructive">
-              {t(($) => $.canvas.summary.input_image_missing)}
-            </p>
-          )
-        ) : fields.length === 0 ? null : (
-          <ul className="flex flex-col gap-0.5">
-            {shown.map((field, index) => (
-              // Index key: the rows are positional, exactly like the properties
-              // panel's field list, and a duplicate key is a graph the validator
-              // rejects but the canvas still has to draw.
-              <li
-                key={index}
-                className="flex min-w-0 items-center gap-1 text-micro text-muted-foreground"
-              >
-                <span className="min-w-0 truncate">
-                  {field.label || field.key}
-                </span>
-                {/* The type token, because "textarea" vs "select" is what tells an
-                    author whether this asks for prose or for one of a fixed set -
-                    which is the difference the downstream prompt is written
-                    against. Narrowed, so a kind from a newer server reads as the
-                    text input the dialog will actually render. */}
-                <code className="shrink-0 font-mono opacity-60">
-                  {toWorkflowInputFieldType(field.type)}
-                </code>
-                {/* Required is marked, not spelled out: it is the one property
-                    that decides whether a run can start without the value, and it
-                    has to survive at 10px. */}
-                {field.required ? (
-                  <span
-                    className="shrink-0 text-rose-500"
-                    aria-label={t(($) => $.canvas.summary.input_required_aria)}
-                  >
-                    *
+        <div className="flex flex-col gap-3">
+          <InputNodeEditor node={data.node} onChange={data.onChange} />
+          {imageMode ? (
+            imageUrl ? (
+              <img
+                src={imageUrl}
+                alt={t(($) => $.canvas.summary.input_image_alt)}
+                className="h-36 w-full rounded-md bg-muted/30 object-contain"
+              />
+            ) : (
+              <p className="text-caption text-destructive">
+                {t(($) => $.canvas.summary.input_image_missing)}
+              </p>
+            )
+          ) : fields.length === 0 ? null : (
+            <ul className="flex flex-col gap-0.5">
+              {shown.map((field, index) => (
+                // Index key: the rows are positional, exactly like the properties
+                // panel's field list, and a duplicate key is a graph the validator
+                // rejects but the canvas still has to draw.
+                <li
+                  key={index}
+                  className="flex min-w-0 items-center gap-1 text-micro text-muted-foreground"
+                >
+                  <span className="min-w-0 truncate">
+                    {field.label || field.key}
                   </span>
-                ) : null}
-              </li>
-            ))}
-            {hidden > 0 ? (
-              <li className="text-micro text-muted-foreground">
-                {t(($) => $.canvas.summary.input_more, { count: hidden })}
-              </li>
-            ) : null}
-          </ul>
-        )
+                  {/* The type token, because "textarea" vs "select" is what tells an
+                      author whether this asks for prose or for one of a fixed set -
+                      which is the difference the downstream prompt is written
+                      against. Narrowed, so a kind from a newer server reads as the
+                      text input the dialog will actually render. */}
+                  <code className="shrink-0 font-mono opacity-60">
+                    {toWorkflowInputFieldType(field.type)}
+                  </code>
+                  {/* Required is marked, not spelled out: it is the one property
+                      that decides whether a run can start without the value, and it
+                      has to survive at 10px. */}
+                  {field.required ? (
+                    <span
+                      className="shrink-0 text-rose-500"
+                      aria-label={t(($) => $.canvas.summary.input_required_aria)}
+                    >
+                      *
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+              {hidden > 0 ? (
+                <li className="text-micro text-muted-foreground">
+                  {t(($) => $.canvas.summary.input_more, { count: hidden })}
+                </li>
+              ) : null}
+            </ul>
+          )}
+        </div>
       }
       // No target handle at all. An input node must BE the entry node (the
       // validator rejects it anywhere else), so an incoming port could only ever

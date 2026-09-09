@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { WorkflowInputInstances } from "./workflow-input-instances";
 import { ChevronDown, ChevronRight, FolderKanban, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useRunWorkflowTemplate } from "@multica/core/workflows";
+import { useRunWorkflowTemplate, workflowRunInputDefaults } from "@multica/core/workflows";
 import type {
   RunWorkflowTemplateRequest,
   WorkflowDefinition,
@@ -134,15 +135,22 @@ function entryInputFields(
   return entry.input_fields;
 }
 
-export function WorkflowRunDialog({
+export function WorkflowRunDialog(props: React.ComponentProps<typeof WorkflowRunDialogForm>) {
+  const wsId = useWorkspaceId();
+  return <WorkflowRunDialogForm key={`${wsId}:${props.templateId}:${props.open}`} {...props} />;
+}
+
+function WorkflowRunDialogForm({
   templateId,
   templateName,
+  templateVersionId,
   /**
    * The template's effective graph - what a run started now would pin. Optional:
    * see "Why the fallback is not optional" above. Absent, or without an entry
    * input node, means the freeform Title + Description form.
    */
   definition,
+  inputDefaults,
   /** True when the template has a published version to pin. */
   runnable,
   /** Set when `runnable` is false: which refusal applies. */
@@ -152,7 +160,10 @@ export function WorkflowRunDialog({
 }: {
   templateId: string;
   templateName: string;
+  templateVersionId?: string;
   definition?: WorkflowDefinition;
+  /** The editor may supply current intake text while the run keeps its published schema. */
+  inputDefaults?: Record<string, string>;
   runnable: boolean;
   refusal?: "unpublished" | "archived";
   open: boolean;
@@ -166,14 +177,21 @@ export function WorkflowRunDialog({
   const { data: projects = [] } = useQuery(projectListOptions(wsId));
 
   /**
-   * Values by field key, which is also how the run's input bag is keyed.
+   * User overrides by field key. Node content supplies defaults; explicit empty
+   * strings stay empty, so clearing a field never restores the default.
    *
    * One map rather than a `useState` per control, because the control set is
    * decided by the pinned graph and is not known at compile time. A missing key
    * reads as `""`, so a field the author adds to a draft mid-session does not need
    * the map to be re-seeded.
    */
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [overrides, setValues] = useState<Record<string, string>>({});
+  const [useDefaults, setUseDefaults] = useState(true);
+  const [loadedVersion, setLoadedVersion] = useState<string | null | undefined>(templateVersionId);
+  const values = {
+    ...(useDefaults ? inputDefaults ?? workflowRunInputDefaults(definition, templateName) : {}),
+    ...overrides,
+  };
   /**
    * Keys the submitter has left. Per-field problems appear on blur rather than
    * immediately, so an untouched form is not a wall of red before anyone has typed
@@ -182,6 +200,8 @@ export function WorkflowRunDialog({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [projectId, setProjectId] = useState<string | null>(null);
   const runTemplate = useRunWorkflowTemplate();
+  const runAttempt = useRef<{ body: string; key: string } | null>(null);
+  const submitting = useRef(false);
 
   const declared = entryInputFields(definition);
   const fields = resolveRunFormFields(declared, {
@@ -227,20 +247,34 @@ export function WorkflowRunDialog({
     if (problem !== undefined) problems.set(field.key, problem);
   }
 
-  const canSubmit = runnable && problems.size === 0 && !runTemplate.isPending;
+  const fieldKeys = new Set(fields.map((field) => field.key));
+  const removedKeys = Object.keys(values).filter((key) => !fieldKeys.has(key));
+  const versionChanged = Boolean(templateVersionId && loadedVersion !== undefined && loadedVersion !== templateVersionId);
+  const needsReview = versionChanged || removedKeys.length > 0;
+  const canSubmit = runnable && !needsReview && problems.size === 0 && !runTemplate.isPending;
 
   const reset = () => {
+    runAttempt.current = null;
+    setUseDefaults(true);
+    setLoadedVersion(templateVersionId);
     setValues({});
     setTouched({});
     setProjectId(null);
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
+    const body = { ...runRequestBody(fields, values, projectId), ...(templateVersionId ? { templateVersionId } : {}) };
+    const serialized = JSON.stringify(body);
+    if (runAttempt.current?.body !== serialized) {
+      runAttempt.current = { body: serialized, key: crypto.randomUUID() };
+    }
     try {
       const run = await runTemplate.mutateAsync({
         templateId,
-        ...runRequestBody(fields, values, projectId),
+        ...body,
+        idempotency_key: runAttempt.current.key,
       });
       // Both guards, and they are not redundant. This endpoint does NOT spread
       // the requested id onto its parse-miss fallback (the id is what the call
@@ -271,6 +305,8 @@ export function WorkflowRunDialog({
           ? err.message
           : t(($) => $.runs.dialog.toast_failed),
       );
+    } finally {
+      submitting.current = false;
     }
   };
 
@@ -279,10 +315,7 @@ export function WorkflowRunDialog({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
-        // Clearing on close, not on open: a dialog reopened after an accidental
-        // dismissal keeping a half-typed report would be nice, but the run is
-        // idempotent on (template, user, title, description) server-side, so a
-        // stale body silently resolving to an earlier run is the worse failure.
+        // Closing ends this submission attempt; reopening starts a new run key.
         if (!next) reset();
       }}
     >
@@ -341,12 +374,39 @@ export function WorkflowRunDialog({
         )}
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
+          <WorkflowInputInstances
+            key={templateId}
+            templateId={templateId}
+            templateVersionId={templateVersionId}
+            values={values}
+            projectId={projectId}
+            disabled={refusal === "archived" || runTemplate.isPending || needsReview}
+            onLoad={(input, project, versionId) => {
+              setUseDefaults(input === null);
+              setLoadedVersion(input === null ? templateVersionId : versionId ?? null);
+              setValues(input ?? {});
+              setProjectId(project);
+              setTouched({});
+            }}
+          />
+          {needsReview && (
+            <div role="alert" className="flex flex-col gap-2 rounded-md border p-3 text-caption">
+              <p>{t(($) => $.input_instances.changed)}</p>
+              {removedKeys.length > 0 && <p>{t(($) => $.input_instances.removed, { fields: removedKeys.join(", ") })}</p>}
+              <Button type="button" size="sm" variant="outline" onClick={() => {
+                setUseDefaults(false);
+                setValues(Object.fromEntries(Object.entries(values).filter(([key]) => fieldKeys.has(key))));
+                setLoadedVersion(templateVersionId);
+                setTouched(Object.fromEntries(fields.map((field) => [field.key, true])));
+              }}>{t(($) => $.input_instances.review)}</Button>
+            </div>
+          )}
           {fields.map((field) => (
             <RunFormControl
               key={field.key}
               field={field}
               value={valueOf(field.key)}
-              disabled={!runnable}
+              disabled={refusal === "archived" || runTemplate.isPending}
               // The problem is withheld until the control has been left: see
               // `touched`. It reappears on every render after that, so a field
               // emptied again does not go quiet.
@@ -417,7 +477,7 @@ export function WorkflowRunDialog({
           <Button
             size="sm"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={() => { reset(); onOpenChange(false); }}
           >
             {t(($) => $.runs.dialog.cancel)}
           </Button>
@@ -531,14 +591,9 @@ export function resolveRunFormFields(
  *
  * A declared field beyond those two is sent under its own declared key, flat,
  * because flat-and-keyed-by-the-declared-key is exactly how the run's input JSONB
- * is shaped and how `ParseRunInputFor` looks values up. Note for the reader: the
- * run endpoint decodes into a struct of `title`/`description`/`project_id` and
- * therefore ignores keys it does not model today, so an extra declared value does
- * not yet reach the bag. Sending it in the bag's own shape is what makes this
- * dialog correct the moment the endpoint forwards unmodelled keys, and there is no
- * shape a client could send that today's endpoint WOULD carry - the alternative
- * was to refuse to render the field at all, which would hide the declaration the
- * author published.
+ * is shaped and how `ParseRunInputFor` looks values up. The endpoint decodes
+ * both the standard fields and the raw bag so declared custom values reach the
+ * run's independent input snapshot.
  *
  * Values are trimmed, matching the server (`strings.TrimSpace` on both fields), so
  * two submissions differing only in trailing whitespace resolve to one idempotency

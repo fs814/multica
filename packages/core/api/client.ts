@@ -1,3 +1,4 @@
+import { WorkflowInputInstanceSchema, WorkflowInputInstanceListSchema, type SaveWorkflowInputInstance, type WorkflowInputInstance } from "../workflows/input-instance-schemas";
 import type {
   Issue,
   IssuePriority,
@@ -3664,13 +3665,39 @@ export class ApiClient {
    *  when the pinned graph fails validation; both are thrown as ApiError rather
    *  than degraded, because "your run did not start" is not something a fallback
    *  can represent. */
+  async listWorkflowInputInstances(templateId: string) {
+    const raw = await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(templateId)}/input-instances`);
+    const parsed = parseWithFallback<{ instances: WorkflowInputInstance[] } | null>(raw, WorkflowInputInstanceListSchema.nullable(), null, { endpoint: "GET /api/workflow-templates/:id/input-instances" });
+    if (!parsed) throw new Error("Unable to read saved input instances. Please reload.");
+    return parsed.instances;
+  }
+
+  async saveWorkflowInputInstance(templateId: string, body: SaveWorkflowInputInstance, id?: string) {
+    const path = `/api/workflow-templates/${encodeURIComponent(templateId)}/input-instances${id ? `/${encodeURIComponent(id)}` : ""}`;
+    const raw = await this.fetch<unknown>(path, {
+      method: id ? "PUT" : "POST",
+      body: JSON.stringify({ name: body.name, input: body.input, project_id: body.projectId, revision: body.revision, template_version_id: body.templateVersionId }),
+    });
+    const parsed = parseWithFallback<WorkflowInputInstance | null>(raw, WorkflowInputInstanceSchema.nullable(), null, { endpoint: "save workflow input instance" });
+    if (!parsed) throw new Error("The saved input instance response could not be read. Reload before saving again.");
+    return parsed;
+  }
+
+  async deleteWorkflowInputInstance(templateId: string, id: string): Promise<void> {
+    await this.fetch(`/api/workflow-templates/${encodeURIComponent(templateId)}/input-instances/${encodeURIComponent(id)}`, { method: "DELETE" });
+  }
   async runWorkflowTemplate(
     id: string,
     body: RunWorkflowTemplateRequest,
   ): Promise<WorkflowRunDetail> {
+    const { templateVersionId, ...input } = body;
     const raw = await this.fetch<unknown>(
       `/api/workflow-templates/${encodeURIComponent(id)}/run`,
-      { method: "POST", body: JSON.stringify(body) },
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        ...(templateVersionId ? { headers: { "X-Workflow-Template-Version-ID": templateVersionId } } : {}),
+      },
     );
     // No id to spread: the run's id is what this call *returns*. An empty id
     // here therefore also means "unreadable", and callers must not navigate to

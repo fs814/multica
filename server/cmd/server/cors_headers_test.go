@@ -39,3 +39,9 @@ func TestCORSExposedHeaders_IncludeTruncationSignals(t *testing.T) {
 		}
 	}
 }
+
+func TestCORSAllowedHeaders_IncludeWorkflowVersion(t *testing.T) {
+	if !slices.Contains(corsAllowedHeaders, "X-Workflow-Template-Version-ID") {
+		t.Fatal("browser workflow runs cannot pin the displayed template version")
+	}
+}

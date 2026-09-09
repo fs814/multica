@@ -51,6 +51,14 @@ export function workflowTemplateDetailOptions(wsId: string, id: string) {
   });
 }
 
+/** The run form reads the published graph independently of the editor draft. */
+export function workflowTemplateRunOptions(wsId: string, id: string, version?: number | null) {
+  return queryOptions({
+    queryKey: [...workflowKeys.detail(wsId, id), "published", version] as const,
+    queryFn: () => api.getWorkflowTemplate(id),
+  });
+}
+
 /**
  * Query keys for workflow *runs*.
  *

@@ -67,6 +67,9 @@ WHERE webhook_delivery.workspace_id = $1
 
 -- name: DeleteWorkspaceWorkflowData :exec
 WITH
+deleted_input_instances AS (
+  DELETE FROM workflow_input_instance WHERE workspace_id = $1
+),
 deleted_callback_deliveries AS (
     DELETE FROM workflow_callback_delivery WHERE workflow_callback_delivery.workspace_id = $1
 ),

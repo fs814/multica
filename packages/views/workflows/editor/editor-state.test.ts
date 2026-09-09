@@ -512,3 +512,88 @@ describe("panel edits to edge-derived fields survive a save", () => {
     expect(isDirty(next)).toBe(true);
   });
 });
+
+describe("delete_node and entry editing", () => {
+  it("cleans every graph reference, stays deleted after property edits and save, and undoes atomically", () => {
+    const definition = bugFixDefinition();
+    const acceptance = definition.nodes.find((node) => node.key === "acceptance")!;
+    acceptance.join_sources = ["implement", "validate"];
+    const analyze = definition.nodes.find((node) => node.key === "analyze")!;
+    analyze.branches = [{ target: "implement", when_verdict: "pass" }];
+    const opened = apply(seeded(definition), { type: "select", nodeId: "implement" });
+    const deleted = workflowEditorReducer(opened, { type: "delete_node", nodeId: "implement" });
+    const payload = workingDefinition(deleted);
+    expect(payload.nodes.map((node) => node.key)).not.toContain("implement");
+    expect(deleted.present.edges.every((edge) => edge.source !== "implement" && edge.target !== "implement")).toBe(true);
+    for (const node of payload.nodes) {
+      expect(node.next).not.toContain("implement");
+      expect(node.rework_targets).not.toContain("implement");
+      expect(node.join_sources).not.toContain("implement");
+      expect(node.branches.some((branch) => branch.target === "implement")).toBe(false);
+      expect(node.routing?.from_node).not.toBe("implement");
+    }
+    expect(payload.nodes.find((node) => node.key === "acceptance")?.join_sources).toEqual(["validate"]);
+    expect(payload.nodes.find((node) => node.key === "validate")?.routing?.strategy).toBe("previous_step");
+    expect(deleted.selectedNodeId).toBeNull();
+    expect(isDirty(deleted)).toBe(true);
+    for (const node of deleted.present.nodes) {
+      expect(node.position).toEqual(opened.present.nodes.find((before) => before.id === node.id)?.position);
+    }
+    const edited = workflowEditorReducer(deleted, {
+      type: "patch_node",
+      node: { ...deleted.present.nodes.find((node) => node.id === "analyze")!.data.node, name: "Edited" },
+    });
+    expect(workingDefinition(edited).nodes.find((node) => node.key === "analyze")?.next).toEqual([]);
+    expect(workingDefinition(seeded(payload))).toStrictEqual(payload);
+    const restored = workflowEditorReducer(deleted, { type: "undo" });
+    expect(workingDefinition(restored)).toStrictEqual(definition);
+    expect(restored.present.edges).toStrictEqual(opened.present.edges);
+    expect(isDirty(restored)).toBe(false);
+    expect(workingDefinition(workflowEditorReducer(restored, { type: "redo" }))).toStrictEqual(payload);
+  });
+
+  it("clears a deleted entry and allows choosing and undoing its replacement", () => {
+    const deleted = workflowEditorReducer(seeded(), { type: "delete_node", nodeId: "analyze" });
+    expect(workingDefinition(deleted).entry_node).toBe("");
+    expect(deleted.present.nodes.some((node) => node.data.isEntry)).toBe(false);
+    const replaced = workflowEditorReducer(deleted, { type: "set_entry", nodeId: "implement" });
+    expect(workingDefinition(replaced).entry_node).toBe("implement");
+    expect(replaced.present.nodes.filter((node) => node.data.isEntry).map((node) => node.id)).toEqual(["implement"]);
+    expect(workingDefinition(workflowEditorReducer(replaced, { type: "undo" })).entry_node).toBe("");
+  });
+
+  it("sets the first node in an empty graph as entry and clears stale selection on undo", () => {
+    const empty = seeded({ ...bugFixDefinition(), nodes: [], entry_node: "" });
+    const added = workflowEditorReducer(empty, { type: "add_node", nodeType: "input" });
+    expect(workingDefinition(added).entry_node).toBe("input_1");
+    const undone = workflowEditorReducer(added, { type: "undo" });
+    expect(undone.selectedNodeId).toBeNull();
+    expect(workingDefinition(undone).entry_node).toBe("");
+    const deleted = workflowEditorReducer(added, { type: "delete_node", nodeId: "input_1" });
+    expect(workingDefinition(deleted).nodes).toEqual([]);
+    expect(workingDefinition(deleted).entry_node).toBe("");
+  });
+
+  it("ignores stale deletion and entry commands without consuming history", () => {
+    const state = seeded();
+    expect(workflowEditorReducer(state, { type: "delete_node", nodeId: "missing" })).toBe(state);
+    expect(workflowEditorReducer(state, { type: "set_entry", nodeId: "missing" })).toBe(state);
+  });
+});
+describe("property edits after changing connections", () => {
+  it("does not restore a deleted connection or discard a new connection when typing", () => {
+    const opened = seeded();
+    const reconnected = workflowEditorReducer(opened, {
+      type: "set_graph",
+      nodes: opened.present.nodes,
+      edges: opened.present.edges.map((edge) => edge.source === "analyze" && edge.target === "implement"
+        ? { ...edge, target: "validate" } : edge),
+    });
+    const edited = workflowEditorReducer(reconnected, {
+      type: "patch_node",
+      node: { ...reconnected.present.nodes.find((node) => node.id === "analyze")!.data.node, instruction: "New requirements" },
+    });
+    expect(workingDefinition(edited).nodes.find((node) => node.key === "analyze")?.next).toEqual(["validate"]);
+    expect(workingDefinition(edited).nodes.find((node) => node.key === "analyze")?.instruction).toBe("New requirements");
+  });
+});

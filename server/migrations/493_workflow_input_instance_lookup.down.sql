@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_workflow_input_instance_template;

@@ -61,6 +61,7 @@ var corsAllowedHeaders = []string{
 	"Authorization",
 	"Content-Type",
 	"X-Workspace-ID",
+	"X-Workflow-Template-Version-ID",
 	"X-Workspace-Slug",
 	"X-Request-ID",
 	"X-Agent-ID",
@@ -1574,6 +1575,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// graph and budget every future Run pins, running an
 					// already-published process is the ordinary use of it.
 					r.Post("/run", h.RunWorkflowTemplate)
+					r.Get("/input-instances", h.ListWorkflowInputInstances)
+					r.Post("/input-instances", h.SaveWorkflowInputInstance)
+					r.Put("/input-instances/{instanceID}", h.SaveWorkflowInputInstance)
+					r.Delete("/input-instances/{instanceID}", h.DeleteWorkflowInputInstance)
 				})
 			})
 

@@ -98,6 +98,8 @@ export type WorkflowEditorAction =
   | { type: "set_graph"; nodes: FlowNode[]; edges: FlowEdge[] }
   /** Add-node toolbar. */
   | { type: "add_node"; nodeType: WorkflowNodeType }
+  | { type: "delete_node"; nodeId: string }
+  | { type: "set_entry"; nodeId: string }
   /** The properties panel edited the selected node. */
   | { type: "patch_node"; node: WorkflowNode }
   /** The JSON view applied a wholesale replacement. */
@@ -353,12 +355,23 @@ export function workflowEditorReducer(
       };
     }
 
-    case "set_graph":
+    case "set_graph": {
+      if (action.edges === state.present.edges) {
+        return commit(state, { ...state.present, nodes: action.nodes });
+      }
+      // Inline and panel editors spread node payloads. Keep their outgoing
+      // references current so typing after a connection edit cannot undo it.
+      const definition = graphToDefinition(action.nodes, action.edges, state.present.base);
+      const byKey = new Map(definition.nodes.map((node) => [node.key, node]));
       return commit(state, {
         ...state.present,
-        nodes: action.nodes,
+        nodes: action.nodes.map((node) => ({
+          ...node,
+          data: { ...node.data, node: byKey.get(node.data.node.key)! },
+        })),
         edges: action.edges,
       });
+    }
 
     case "add_node": {
       const key = freshNodeKey(state.present.nodes, action.nodeType);
@@ -368,7 +381,13 @@ export function workflowEditorReducer(
         id,
         type: action.nodeType,
         position: nextNodePosition(state.present.nodes),
-        data: { id, nodeKey: key, type: action.nodeType, isEntry: false, node },
+        data: {
+          id,
+          nodeKey: key,
+          type: action.nodeType,
+          isEntry: state.present.nodes.length === 0,
+          node,
+        },
       };
       // Selected immediately: a blank node is invalid until it is configured
       // (an agent node needs routing, an acceptance node needs rework targets),
@@ -377,11 +396,68 @@ export function workflowEditorReducer(
         ...commit(state, {
           ...state.present,
           nodes: [...state.present.nodes, flowNode],
+          base: state.present.nodes.length === 0
+            ? { ...state.present.base, entry_node: key }
+            : state.present.base,
         }),
         selectedNodeId: id,
       };
     }
 
+    case "delete_node": {
+      const removed = state.present.nodes.find((node) => node.id === action.nodeId);
+      if (!removed) return state;
+      const nodes = state.present.nodes.filter((node) => node.id !== action.nodeId);
+      const edges = state.present.edges.filter(
+        (edge) => edge.source !== action.nodeId && edge.target !== action.nodeId,
+      );
+      // Edges own next/branches/rework. Normalize the remaining payloads too,
+      // or the next property edit could resurrect a deleted connection.
+      const entryNode = workingDefinition(state).entry_node;
+      const definition = graphToDefinition(nodes, edges, {
+        ...state.present.base,
+        entry_node: entryNode === removed.data.node.key
+          ? "" : entryNode,
+      });
+      definition.nodes = definition.nodes.map((node) => ({
+        ...node,
+        join_sources: node.join_sources.filter((key) => key !== removed.data.node.key),
+        ...(node.routing?.from_node === removed.data.node.key
+          ? { routing: { ...node.routing, from_node: "" } }
+          : {}),
+      }));
+      const byKey = new Map(definition.nodes.map((node) => [node.key, node]));
+      const next = commit(state, {
+        base: definition,
+        edges,
+        nodes: nodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            node: byKey.get(node.data.node.key)!,
+            isEntry: node.data.node.key === definition.entry_node,
+          },
+        })),
+      });
+      return {
+        ...next,
+        selectedNodeId: state.selectedNodeId === action.nodeId
+          ? null : state.selectedNodeId,
+      };
+    }
+
+    case "set_entry": {
+      const selected = state.present.nodes.find((node) => node.id === action.nodeId);
+      if (!selected) return state;
+      return commit(state, {
+        ...state.present,
+        base: { ...state.present.base, entry_node: selected.data.node.key },
+        nodes: state.present.nodes.map((node) => ({
+          ...node,
+          data: { ...node.data, isEntry: node.id === selected.id },
+        })),
+      });
+    }
     case "patch_node":
       return commit(state, {
         ...state.present,
@@ -422,6 +498,8 @@ export function workflowEditorReducer(
       return {
         ...state,
         present: previous,
+        selectedNodeId: previous.nodes.some((node) => node.id === state.selectedNodeId)
+          ? state.selectedNodeId : null,
         past: rest,
         future: [state.present, ...state.future].slice(0, HISTORY_LIMIT),
       };
@@ -433,6 +511,8 @@ export function workflowEditorReducer(
       return {
         ...state,
         present: next,
+        selectedNodeId: next.nodes.some((node) => node.id === state.selectedNodeId)
+          ? state.selectedNodeId : null,
         past: [state.present, ...state.past].slice(0, HISTORY_LIMIT),
         future: rest,
       };

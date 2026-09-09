@@ -30,12 +30,13 @@ import { WorkflowCanvas } from "./workflow-canvas";
 const TEST_RESOURCES = { en: { common: enCommon, workflows: enWorkflows } };
 
 function renderCanvas(
-  options: { readOnly?: boolean; selectedEdgeIndex?: number } = {},
+  options: { readOnly?: boolean; selectedEdgeIndex?: number; selectedNodeId?: string } = {},
 ) {
   const { nodes, edges } = definitionToGraph(bugFixDefinition());
   const selectedEdges = edges.map((edge, index) =>
     index === options.selectedEdgeIndex ? { ...edge, selected: true } : edge,
   );
+  const onDeleteNode = vi.fn();
   const onNodesChange = vi.fn();
   const onEdgesChange = vi.fn();
   render(
@@ -43,7 +44,8 @@ function renderCanvas(
       <WorkflowCanvas
         nodes={nodes}
         edges={selectedEdges}
-        selectedNodeId={null}
+        selectedNodeId={options.selectedNodeId ?? null}
+        onDeleteNode={onDeleteNode}
         readOnly={options.readOnly ?? false}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -52,7 +54,7 @@ function renderCanvas(
       />
     </I18nProvider>,
   );
-  return { nodes, edges: selectedEdges, onNodesChange, onEdgesChange };
+  return { nodes, edges: selectedEdges, onNodesChange, onEdgesChange, onDeleteNode };
 }
 
 /** Node cards by xyflow's own per-node test id, so a dropped node is visible. */
@@ -143,7 +145,7 @@ describe("WorkflowCanvas", () => {
     const removed = rendered.edges[1];
     expect(rendered.edges.length).toBeGreaterThan(1);
 
-    fireEvent.keyDown(window, { key: "Delete" });
+    fireEvent.keyDown(document.querySelector(".workflow-canvas")!, { key: "Delete" });
 
     expect(rendered.onEdgesChange).toHaveBeenCalledTimes(1);
     const next = rendered.onEdgesChange.mock.calls[0]?.[0];
@@ -156,9 +158,45 @@ describe("WorkflowCanvas", () => {
   it("ignores keyboard deletion for a selected edge in read-only mode", () => {
     const rendered = renderCanvas({ readOnly: true, selectedEdgeIndex: 1 });
 
-    fireEvent.keyDown(window, { key: "Backspace" });
+    fireEvent.keyDown(document.querySelector(".workflow-canvas")!, { key: "Backspace" });
 
     expect(rendered.onEdgesChange).not.toHaveBeenCalled();
     expect(rendered.onNodesChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("canvas node deletion shortcuts", () => {
+  it.each(["Delete", "Backspace"])("deletes a selected node with %s as one editor action", (key) => {
+    const rendered = renderCanvas({ selectedNodeId: "implement" });
+    fireEvent.keyDown(document.querySelector(".workflow-canvas")!, { key });
+    expect(rendered.onDeleteNode).toHaveBeenCalledExactlyOnceWith("implement");
+    expect(rendered.onEdgesChange).not.toHaveBeenCalled();
+    expect(rendered.onNodesChange).not.toHaveBeenCalled();
+  });
+
+  it("ignores keys outside the canvas and inside editable controls", () => {
+    const rendered = renderCanvas({ selectedNodeId: "implement" });
+    const canvas = document.querySelector(".workflow-canvas")!;
+    fireEvent.keyDown(window, { key: "Delete" });
+    for (const tag of ["input", "textarea", "select"]) {
+      const field = document.createElement(tag);
+      canvas.appendChild(field);
+      fireEvent.keyDown(field, { key: "Backspace" });
+      field.remove();
+    }
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    canvas.appendChild(editable);
+    fireEvent.keyDown(editable, { key: "Delete" });
+    editable.remove();
+    fireEvent.keyDown(canvas, { key: "Delete", repeat: true });
+    fireEvent.keyDown(canvas, { key: "Backspace", ctrlKey: true });
+    expect(rendered.onDeleteNode).not.toHaveBeenCalled();
+  });
+
+  it("does not delete nodes from a read-only template", () => {
+    const rendered = renderCanvas({ selectedNodeId: "implement", readOnly: true });
+    fireEvent.keyDown(document.querySelector(".workflow-canvas")!, { key: "Delete" });
+    expect(rendered.onDeleteNode).not.toHaveBeenCalled();
   });
 });

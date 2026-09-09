@@ -20,7 +20,14 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useReducer } from "react";
+import {
+  initialWorkflowEditorState,
+  workflowEditorReducer,
+  workingDefinition,
+} from "../editor/editor-state";
 import { I18nProvider } from "@multica/core/i18n/react";
 import {
   WorkflowDefinitionSchema,
@@ -221,5 +228,81 @@ describe("input node card", () => {
     // "Intake" rather than "Input": the badge is product language, while the model's
     // type string stays `input`.
     expect(screen.getByText("Intake")).toBeInTheDocument();
+  });
+});
+
+function EditableIntake({ readOnly = false }: { readOnly?: boolean }) {
+  const [state, dispatch] = useReducer(workflowEditorReducer, undefined, () => {
+    const initial = workflowEditorReducer(initialWorkflowEditorState(), {
+      type: "hydrate", templateId: "intake-test", definition: intakeDefinition(),
+    });
+    // jsdom has no layout. Supply dimensions so xyflow exposes node controls
+    // instead of keeping the unmeasured cards visibility:hidden.
+    return {
+      ...initial,
+      present: {
+        ...initial.present,
+        nodes: initial.present.nodes.map((node) => ({ ...node, width: 288, height: 400 })),
+      },
+    };
+  });
+  return (
+    <I18nProvider locale="en" resources={TEST_RESOURCES}>
+      <WorkflowCanvas
+        nodes={state.present.nodes}
+        edges={state.present.edges}
+        selectedNodeId={state.selectedNodeId}
+        readOnly={readOnly}
+        onNodesChange={(nodes) => dispatch({ type: "set_graph", nodes, edges: state.present.edges })}
+        onEdgesChange={(edges) => dispatch({ type: "set_graph", nodes: state.present.nodes, edges })}
+        onSelectNode={(nodeId) => dispatch({ type: "select", nodeId })}
+        onConnect={vi.fn()}
+        onChangeNode={(node) => dispatch({ type: "patch_node", node })}
+        onDeleteNode={(nodeId) => dispatch({ type: "delete_node", nodeId })}
+      />
+      <button onClick={() => dispatch({ type: "undo" })}>Undo edit</button>
+      <button onClick={() => dispatch({ type: "redo" })}>Redo edit</button>
+      <output data-testid="definition">{JSON.stringify(workingDefinition(state))}</output>
+    </I18nProvider>
+  );
+}
+
+describe("inline intake editing", () => {
+  it("keeps focus while typing directly on the node and preserves content through undo and save/reopen", async () => {
+    const view = render(<EditableIntake />);
+    const content = screen.getByRole("textbox", { name: "Key information" });
+    await userEvent.click(content);
+    expect(content).toHaveFocus();
+    await userEvent.type(content, "Background: Windows{enter}Goal: list OS");
+    expect(content).toHaveValue("Background: Windows\nGoal: list OS");
+    fireEvent.keyDown(content, { key: "Backspace" });
+    expect(document.querySelector('[data-id="intake"]')).toBeInTheDocument();
+    const payload = JSON.parse(screen.getByTestId("definition").textContent!) as WorkflowDefinition;
+    expect(payload.nodes[0]?.instruction).toBe("Background: Windows\nGoal: list OS");
+    expect(payload.nodes[0]?.next).toEqual(["analyze"]);
+    fireEvent.click(screen.getByRole("button", { name: "Undo edit" }));
+    expect(content).toHaveValue("Background: Windows\nGoal: list O");
+    fireEvent.click(screen.getByRole("button", { name: "Redo edit" }));
+    expect(content).toHaveValue("Background: Windows\nGoal: list OS");
+    view.unmount();
+    renderCanvas(payload);
+    expect(screen.getByText("Background: Windows Goal: list OS")).toBeInTheDocument();
+  });
+
+  it("updates the node title and field configuration without a side panel", async () => {
+    render(<EditableIntake />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "System details" } });
+    expect(screen.getByText("System details")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Configure fields and image"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Field 1 label" }), { target: { value: "Machine name" } });
+    expect(screen.getByText("Machine name")).toBeInTheDocument();
+    expect(JSON.parse(screen.getByTestId("definition").textContent!).nodes[0].input_fields[0].label).toBe("Machine name");
+  });
+
+  it("shows information without editable controls in read-only mode", () => {
+    render(<EditableIntake readOnly />);
+    expect(screen.queryByRole("textbox", { name: "Key information" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure fields and image")).not.toBeInTheDocument();
+    expect(screen.getByText("No key information yet.")).toBeInTheDocument();
   });
 });

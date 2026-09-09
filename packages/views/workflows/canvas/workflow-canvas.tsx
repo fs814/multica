@@ -33,7 +33,8 @@
  *     drag, because it has no way to know whether the page wants to remember it.
  */
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import type { WorkflowNode } from "@multica/core/workflows";
 import {
   Background,
   BackgroundVariant,
@@ -81,6 +82,8 @@ export function WorkflowCanvas(props: {
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
   onConnect(source: string, target: string): void;
+  onDeleteNode?(nodeId: string): void;
+  onChangeNode?(node: WorkflowNode): void;
 }) {
   // ReactFlowProvider so `<MiniMap />` and `<Controls />` can reach the store.
   // Mounted here rather than at the page level so the page cannot accidentally
@@ -101,6 +104,8 @@ function CanvasInner({
   onEdgesChange,
   onSelectNode,
   onConnect,
+  onDeleteNode,
+  onChangeNode,
 }: {
   nodes: FlowNode[];
   edges: FlowEdge[];
@@ -110,6 +115,8 @@ function CanvasInner({
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
   onConnect(source: string, target: string): void;
+  onDeleteNode?(nodeId: string): void;
+  onChangeNode?(node: WorkflowNode): void;
 }) {
   const { t } = useT("workflows");
   // Selection projected from the prop. New objects only for the nodes whose
@@ -119,9 +126,16 @@ function CanvasInner({
     () =>
       nodes.map((node) => {
         const selected = node.id === selectedNodeId;
+        if (node.data.type === "input") {
+          return {
+            ...node,
+            selected,
+            data: { ...node.data, onChange: readOnly ? undefined : onChangeNode },
+          };
+        }
         return node.selected === selected ? node : { ...node, selected };
       }),
-    [nodes, selectedNodeId],
+    [nodes, selectedNodeId, readOnly, onChangeNode],
   );
 
   const handleNodesChange = useCallback(
@@ -155,31 +169,32 @@ function CanvasInner({
     [edges, onEdgesChange, readOnly],
   );
 
-  useEffect(() => {
-    if (readOnly) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.repeat || (event.key !== "Delete" && event.key !== "Backspace")) {
-        return;
-      }
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.closest("input, textarea, select, [role='textbox']") !== null)
-      ) {
-        return;
-      }
-      const selected = new Set(
-        edges.filter((edge) => edge.selected).map((edge) => edge.id),
-      );
-      if (selected.size === 0) return;
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (
+      readOnly || event.defaultPrevented || event.repeat ||
+      event.ctrlKey || event.metaKey || event.altKey ||
+      (event.key !== "Delete" && event.key !== "Backspace")
+    ) return;
+    const target = event.target;
+    // React portal events still bubble through their React ancestors. Only a
+    // DOM descendant of this canvas may delete its current selection.
+    if (
+      !(target instanceof HTMLElement) || !canvasRef.current?.contains(target) ||
+      target.isContentEditable || target.closest(
+        "input, textarea, select, [role='textbox'], [contenteditable='true']",
+      )
+    ) return;
+    if (selectedNodeId && onDeleteNode) {
       event.preventDefault();
-      onEdgesChange(edges.filter((edge) => !selected.has(edge.id)));
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [edges, onEdgesChange, readOnly]);
-
+      onDeleteNode(selectedNodeId);
+      return;
+    }
+    const selected = new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id));
+    if (selected.size === 0) return;
+    event.preventDefault();
+    onEdgesChange(edges.filter((edge) => !selected.has(edge.id)));
+  };
   const handleConnect = useCallback(
     (connection: Connection) => {
       // A connection with no target is a drag released on empty pane. xyflow
@@ -198,12 +213,19 @@ function CanvasInner({
   const handlePaneClick = useCallback(() => onSelectNode(null), [onSelectNode]);
 
   const handleNodeClick = useCallback<NodeMouseHandler<FlowNode>>(
-    (_event, node) => onSelectNode(node.id),
+    (event, node) => {
+      if (event.target instanceof Element && event.target.closest(".nodrag")) return;
+      onSelectNode(node.id);
+      canvasRef.current?.focus({ preventScroll: true });
+    },
     [onSelectNode],
   );
 
   return (
     <div
+      ref={canvasRef}
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
       className="workflow-canvas relative min-h-0 min-w-0 flex-1"
       data-read-only={readOnly ? "true" : "false"}
     >
@@ -221,14 +243,17 @@ function CanvasInner({
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         onNodeClick={handleNodeClick}
+        onEdgeClick={() => {
+          onSelectNode(null);
+          canvasRef.current?.focus({ preventScroll: true });
+        }}
         onPaneClick={handlePaneClick}
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         edgesReconnectable={!readOnly}
         elementsSelectable
-        // Keep xyflow's broad deletion disabled: it deletes selected nodes and
-        // their incident edges together. The scoped listener above accepts the
-        // same keys only when one or more EDGES are selected.
+        // The canvas handler sends node deletion through the editor reducer
+        // to clean up graph references in one undoable change.
         deleteKeyCode={null}
         fitView
         fitViewOptions={{ padding: FIT_VIEW_PADDING }}

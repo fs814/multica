@@ -1383,6 +1383,20 @@ type WorkflowEvent struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type WorkflowInputInstance struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	TemplateID        pgtype.UUID        `json:"template_id"`
+	Name              string             `json:"name"`
+	Input             []byte             `json:"input"`
+	ProjectID         pgtype.UUID        `json:"project_id"`
+	Revision          int64              `json:"revision"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	TemplateVersionID pgtype.UUID        `json:"template_version_id"`
+	CreatedByID       pgtype.UUID        `json:"created_by_id"`
+}
+
 type WorkflowRun struct {
 	ID                    pgtype.UUID        `json:"id"`
 	WorkspaceID           pgtype.UUID        `json:"workspace_id"`

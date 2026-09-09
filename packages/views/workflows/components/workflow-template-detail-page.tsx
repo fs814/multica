@@ -58,6 +58,8 @@ import {
   useDuplicateWorkflowTemplate,
   useUpdateWorkflowTemplate,
   workflowTemplateDetailOptions,
+  workflowTemplateRunOptions,
+  workflowRunInputDefaults,
 } from "@multica/core/workflows";
 import type { WorkflowDefinition } from "@multica/core/workflows";
 import {
@@ -126,6 +128,14 @@ export function WorkflowTemplateDetailPage({
   const { data, isLoading, refetch } = useQuery(
     workflowTemplateDetailOptions(wsId, templateId),
   );
+
+  const published = useQuery({
+    ...workflowTemplateRunOptions(wsId, templateId, data?.current_version),
+    enabled: Boolean(data?.versions.some((version) => version.status === "published")),
+    // Keep an open form on its immutable graph while a newer publication loads.
+    placeholderData: (previous) =>
+      previous?.id === templateId && previous.workspace_id === wsId ? previous : undefined,
+  });
 
   const [state, dispatch] = useReducer(
     workflowEditorReducer,
@@ -479,7 +489,8 @@ export function WorkflowTemplateDetailPage({
   const hasPublishedVersion = (data.versions ?? []).some(
     (version) => version.status === "published",
   );
-  const runnable = hasPublishedVersion && !archived;
+  const publishedReady = Boolean(published.data?.key);
+  const runnable = hasPublishedVersion && publishedReady && !archived;
   const runRefusal: "unpublished" | "archived" | undefined = archived
     ? "archived"
     : hasPublishedVersion
@@ -565,6 +576,15 @@ export function WorkflowTemplateDetailPage({
               </span>
             </Button>
           ) : null}
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={archived || (hasPublishedVersion && !publishedReady)}
+            onClick={() => setRunOpen(true)}
+            aria-label={t(($) => $.input_instances.save)}
+          >
+            {t(($) => $.input_instances.save)}
+          </Button>
           {/* Run sits next to Publish and is always rendered, disabled when the
               template cannot start one. Withholding it would leave a reader who
               came here to run something with no evidence the action exists;
@@ -636,6 +656,14 @@ export function WorkflowTemplateDetailPage({
         ) : null}
       </div>
 
+      {published.isError && (
+        <div role="alert" className="flex items-center gap-2 px-4 py-2 text-caption text-destructive">
+          {t(($) => $.input_instances.definition_failed)}
+          <Button size="sm" variant="outline" onClick={() => void published.refetch()}>
+            {t(($) => $.page.retry)}
+          </Button>
+        </div>
+      )}
       {problems ? (
         <ProblemsStrip report={problems} onDismiss={() => setProblems(null)} />
       ) : null}
@@ -667,6 +695,12 @@ export function WorkflowTemplateDetailPage({
             }
             onSelectNode={(nodeId) => dispatch({ type: "select", nodeId })}
             onConnect={handleConnect}
+            onChangeNode={(node) => {
+              if (!readOnly) dispatch({ type: "patch_node", node });
+            }}
+            onDeleteNode={(nodeId) => {
+              if (!readOnly) dispatch({ type: "delete_node", nodeId });
+            }}
           />
         )}
 
@@ -675,21 +709,33 @@ export function WorkflowTemplateDetailPage({
           definition={working}
           readOnly={readOnly}
           onChange={(node) => dispatch({ type: "patch_node", node })}
+          onDelete={() => {
+            if (!readOnly && state.selectedNodeId) {
+              dispatch({ type: "delete_node", nodeId: state.selectedNodeId });
+            }
+          }}
+          onSetEntry={() => {
+            if (!readOnly && state.selectedNodeId) {
+              dispatch({ type: "set_entry", nodeId: state.selectedNodeId });
+            }
+          }}
         />
       </div>
 
       <WorkflowRunDialog
         templateId={templateId}
         templateName={data.name}
-        // The FETCHED definition, not the editor's working copy. A run pins the
+        templateVersionId={published.data?.versions.find((version) => version.status === "published" && version.version === published.data?.current_version)?.id}
+        // The published definition, independently fetched from the editor draft. A run pins the
         // published version, so the intake form must be read off the graph a run
         // would actually pin - collecting fields from an unsaved draft would show a
         // form whose values the pinned graph never declared and whose required ones
         // the engine would not check.
-        definition={data.definition}
+        definition={hasPublishedVersion ? published.data?.definition : data.definition}
+        inputDefaults={workflowRunInputDefaults(working, data.name)}
         runnable={runnable}
         refusal={runRefusal}
-        open={runOpen}
+        open={runOpen && (!hasPublishedVersion || publishedReady)}
         onOpenChange={setRunOpen}
       />
 

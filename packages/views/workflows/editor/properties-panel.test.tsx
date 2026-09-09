@@ -75,6 +75,8 @@ function renderPanel(
   options: { readOnly?: boolean; agents?: unknown[] } = {},
 ) {
   const onChange = vi.fn();
+  const onDelete = vi.fn();
+  const onSetEntry = vi.fn();
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -89,10 +91,12 @@ function renderPanel(
         definition={def}
         readOnly={options.readOnly ?? false}
         onChange={onChange}
+        onDelete={onDelete}
+        onSetEntry={onSetEntry}
       />
     </QueryClientProvider>,
   );
-  return { onChange };
+  return { onChange, onDelete, onSetEntry };
 }
 
 describe("WorkflowPropertiesPanel", () => {
@@ -338,5 +342,31 @@ describe("WorkflowPropertiesPanel", () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ acceptance_criteria: [] }),
     );
+  });
+});
+
+describe("node actions", () => {
+  it("offers deletion and entry selection for a selected step", async () => {
+    const first = node({ key: "start", type: "input" });
+    const target = node({ key: "done", type: "end" });
+    const actions = renderPanel(target, definition([first, target]));
+    await userEvent.click(screen.getByRole("button", { name: "Set as entry" }));
+    expect(actions.onSetEntry).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Delete node" }));
+    expect(actions.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains how to repair a missing entry", () => {
+    const target = node({ key: "done", type: "end" });
+    renderPanel(target, { ...definition([target]), entry_node: "" });
+    expect(screen.getByRole("status")).toHaveTextContent("Choose an entry node");
+    expect(screen.getByRole("button", { name: "Set as entry" })).toBeEnabled();
+  });
+
+  it("hides editing actions on read-only templates", () => {
+    const target = node({ key: "done", type: "end" });
+    renderPanel(target, definition([target]), { readOnly: true });
+    expect(screen.queryByRole("button", { name: "Delete node" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set as entry" })).not.toBeInTheDocument();
   });
 });

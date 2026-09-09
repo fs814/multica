@@ -1,0 +1,1 @@
+ALTER TABLE workflow_input_instance ADD CONSTRAINT workflow_input_instance_pkey PRIMARY KEY USING INDEX idx_workflow_input_instance_id;

@@ -46,6 +46,7 @@ export {
   workflowKeys,
   workflowTemplateListOptions,
   workflowTemplateDetailOptions,
+  workflowTemplateRunOptions,
   workflowRunKeys,
   workflowRunListOptions,
   workflowRunDetailOptions,
@@ -71,3 +72,8 @@ export type {
   WorkflowBuilderAgent,
   WorkflowBuilderDraft,
 } from "./builder-protocol";
+
+export * from "./input-instances";
+export * from "./input-instance-schemas";
+
+export { workflowRunInputDefaults } from "./run-input-defaults";

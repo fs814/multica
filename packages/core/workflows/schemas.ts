@@ -649,6 +649,8 @@ export type RunWorkflowTemplateRequest = {
   title: string;
   description: string;
   idempotency_key?: string;
+  /** Pins the published graph displayed when preparing this run. */
+  templateVersionId?: string;
   /** Optional project for the issue the run creates. */
   project_id?: string | null;
 };

@@ -113,6 +113,8 @@ export type EditorNode = {
    * it - which is what keeps unmodelled fields from being dropped on save.
    */
   node: WorkflowNode;
+  /** Canvas-only edit callback; never part of the serialized definition. */
+  onChange?: (node: WorkflowNode) => void;
 };
 
 /**

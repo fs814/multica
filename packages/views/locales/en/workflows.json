@@ -393,6 +393,13 @@
     }
   },
   "canvas": {
+    "input_editor": {
+      "configure": "Configure fields and image",
+      "placeholder": "Enter the background, goals, requirements, or other key information…",
+      "empty": "No key information yet.",
+      "content": "Key information",
+      "name": "Name"
+    },
     "minimap_aria": "Workflow graph overview",
     "entry_badge": "Entry",
     "node_type": {
@@ -616,5 +623,30 @@
       "publish_saved": "Publish the saved graph",
       "save_and_publish": "Save, then publish"
     }
-  }
+  },
+  "input_instances": {
+    "definition_failed": "Unable to load the published workflow inputs. Retry before saving or running.",
+    "changed": "This input instance uses an earlier workflow version. Review the current fields before running or saving changes.",
+    "removed": "Fields no longer in this workflow: {{fields}}. Confirming removes them from this run only.",
+    "review": "Use current fields",
+  "save": "Save as instance",
+  "delete_hint": "Delete this saved input instance? Existing workflow runs will be kept.",
+  "failed": "Unable to save the input instance",
+  "label": "Input instance",
+  "save_as": "Save as new instance",
+  "deleted": "Input instance deleted",
+  "saved": "Input instance saved",
+  "update": "Save changes",
+  "name": "Instance name",
+  "delete": "Delete instance",
+  "new_input": "New input",
+  "load_failed": "Unable to load input instances. Reopen this dialog to try again.",
+  "hint": "Save named inputs and select one each time you run this workflow. Saving does not start a run."
+},
+  "node_actions": {
+  "missing_entry": "Choose an entry node before saving the workflow.",
+  "hint": "Select a node on the canvas and press Delete or Backspace. Use Undo to restore it.",
+  "delete": "Delete node",
+  "set_entry": "Set as entry"
+}
 }
