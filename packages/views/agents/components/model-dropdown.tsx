@@ -39,9 +39,12 @@ export function ModelDropdown({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const modelsQuery = useQuery(
-    runtimeModelsOptions(runtimeOnline ? runtimeId : null),
-  );
+  // Keep the runtime's cache key when it goes offline. Disabling discovery
+  // must not discard models already loaded during this session.
+  const modelsQuery = useQuery({
+    ...runtimeModelsOptions(runtimeId),
+    enabled: runtimeOnline && Boolean(runtimeId),
+  });
 
   const supported = modelsQuery.data?.supported ?? true;
   // Stable reference for the model list — `?? []` would mint a fresh
@@ -75,6 +78,13 @@ export function ModelDropdown({
     }
     return out;
   }, [grouped, search]);
+
+  const discoveryHint =
+    !runtimeOnline && models.length === 0
+      ? t(($) => $.model_dropdown.runtime_offline_manual)
+      : modelsQuery.isError
+        ? t(($) => $.model_dropdown.discovery_failed)
+        : null;
 
   const trimmedSearch = search.trim();
   const exactMatch = models.some(
@@ -119,8 +129,8 @@ export function ModelDropdown({
     <div className="flex flex-col min-w-0">
       <div className="flex h-6 items-center justify-between">
         <Label className="text-caption text-muted-foreground">{t(($) => $.model_dropdown.label)}</Label>
-        {modelsQuery.isError && (
-          <span className="text-caption text-muted-foreground">{t(($) => $.model_dropdown.discovery_failed)}</span>
+        {!disabled && discoveryHint && (
+          <span className="text-caption text-muted-foreground">{discoveryHint}</span>
         )}
       </div>
       <Popover open={open} onOpenChange={setOpen}>

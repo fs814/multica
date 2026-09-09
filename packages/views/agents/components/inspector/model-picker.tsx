@@ -48,9 +48,12 @@ export function ModelPicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const modelsQuery = useQuery(
-    runtimeModelsOptions(runtimeOnline ? runtimeId : null),
-  );
+  // Keep the runtime's cache key when it goes offline. Disabling discovery
+  // must not discard models already loaded during this session.
+  const modelsQuery = useQuery({
+    ...runtimeModelsOptions(runtimeId),
+    enabled: runtimeOnline && Boolean(runtimeId),
+  });
   const supported = modelsQuery.data?.supported ?? true;
   // Memoise the model list so every downstream useMemo gets a stable
   // reference; `?? []` would mint a fresh array on every render and
@@ -68,6 +71,13 @@ export function ModelPicker({
         m.id.toLowerCase().includes(s) || m.label.toLowerCase().includes(s),
     );
   }, [models, search]);
+
+  const discoveryHint =
+    !runtimeOnline && models.length === 0
+      ? t(($) => $.model_dropdown.runtime_offline_manual)
+      : modelsQuery.isError
+        ? t(($) => $.model_dropdown.discovery_failed)
+        : null;
 
   const trimmedSearch = search.trim();
   const exactMatch = models.some(
@@ -196,6 +206,11 @@ export function ModelPicker({
             onChange={(e) => setSearch(e.target.value)}
             className="h-7 text-caption"
           />
+          {discoveryHint && (
+            <p role="status" className="mt-1.5 text-caption text-muted-foreground">
+              {discoveryHint}
+            </p>
+          )}
         </div>
       }
     >
