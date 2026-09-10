@@ -12,7 +12,7 @@
  * this registry for the page case.
  *
  * Icon values are *names*, not React components, so this module stays
- * React-free and safe inside `@multica/core`. The name → component registry
+ * React-free and safe inside `@multica/core`. The name â†’ component registry
  * lives in `packages/views/layout/route-icon-components.tsx`; its
  * `Record<RouteIconName, LucideIcon>` type makes a missing component a compile
  * error.
@@ -54,6 +54,7 @@ export type NavLabelKey =
   | "projects"
   | "autopilots"
   | "workflows"
+  | "workflow_instances"
   | "workflow_runs"
   | "agents"
   | "squads"
@@ -72,6 +73,7 @@ export type WorkspacePageKey =
   | "projects"
   | "autopilots"
   | "workflows"
+  | "workflowInstances"
   | "workflowRuns"
   | "agents"
   | "squads"
@@ -113,6 +115,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   // `Workflow` (a graph you author): the two pages answer different questions -
   // "what can I run" vs "what is running" - and one shared icon would make a
   // runs tab indistinguishable from the editor's in the tab bar.
+  workflowInstances: {segment:"workflow-instances",icon:"Workflow",navKey:"workflow_instances"},
   workflowRuns: {
     segment: "workflow-runs",
     icon: "Play",
@@ -125,7 +128,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
 };
 
-/** Reverse lookup: route segment → page key. */
+/** Reverse lookup: route segment â†’ page key. */
 const PAGE_BY_SEGMENT: Record<string, WorkspacePageKey> = Object.fromEntries(
   (Object.keys(WORKSPACE_PAGES) as WorkspacePageKey[]).map((key) => [
     WORKSPACE_PAGES[key].segment,

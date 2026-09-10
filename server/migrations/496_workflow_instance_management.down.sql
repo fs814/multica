@@ -1,0 +1,2 @@
+ALTER TABLE workflow_run DROP COLUMN input_instance_id, DROP COLUMN input_instance_revision, DROP COLUMN input_instance_name, DROP COLUMN input_source, DROP COLUMN input_project_id;
+ALTER TABLE workflow_input_instance DROP COLUMN description, DROP COLUMN input_node, DROP COLUMN image_attachment_id, DROP COLUMN updated_by_id, DROP COLUMN archived_at, DROP COLUMN idempotency_key, DROP COLUMN request_hash;

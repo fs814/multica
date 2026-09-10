@@ -15,7 +15,7 @@ import {
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { autopilotDetailOptions } from "@multica/core/autopilots/queries";
-import { workflowRunDetailOptions } from "@multica/core/workflows";
+import { workflowInstanceOptions, workflowRunDetailOptions } from "@multica/core/workflows";
 import {
   skillDetailOptions,
   agentListOptions,
@@ -133,6 +133,7 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
   // `enabled: false` on top of the option's own `id !== ""` guard: this is a
   // cache read, and the run detail is a heavy payload (whole trace) that the
   // run page itself is already fetching and keeping fresh through realtime.
+  const workflowInstance=useQuery({...workflowInstanceOptions(wsId,subject.kind==="workflowInstance"?subject.id:""),enabled:false}).data;
   const workflowRun = useQuery({
     ...workflowRunDetailOptions(
       wsId,
@@ -166,6 +167,9 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
       break;
     case "skill":
       if (skill) data.skill = { name: skill.name };
+      break;
+    case "workflowInstance":
+      if(workflowInstance)data.workflowInstance={label:workflowInstance.name};
       break;
     case "workflowRun": {
       // Gated on `status`, not on truthiness: an unreadable detail resolves to

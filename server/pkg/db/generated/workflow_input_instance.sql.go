@@ -11,30 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const createWorkflowInputInstance = `-- name: CreateWorkflowInputInstance :one
-INSERT INTO workflow_input_instance (workspace_id, template_id, name, input, project_id, template_version_id, created_by_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id
+const archiveWorkflowInputInstance = `-- name: ArchiveWorkflowInputInstance :one
+UPDATE workflow_input_instance SET archived_at = CASE WHEN $3::boolean THEN now() ELSE NULL END,
+ revision = revision + 1, updated_at = now(), updated_by_id = $4::uuid
+WHERE workspace_id = $1 AND id = $2 AND revision = $5::bigint
+RETURNING id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash
 `
 
-type CreateWorkflowInputInstanceParams struct {
-	WorkspaceID       pgtype.UUID `json:"workspace_id"`
-	TemplateID        pgtype.UUID `json:"template_id"`
-	Name              string      `json:"name"`
-	Input             []byte      `json:"input"`
-	ProjectID         pgtype.UUID `json:"project_id"`
-	TemplateVersionID pgtype.UUID `json:"template_version_id"`
-	CreatedByID       pgtype.UUID `json:"created_by_id"`
+type ArchiveWorkflowInputInstanceParams struct {
+	WorkspaceID      pgtype.UUID `json:"workspace_id"`
+	ID               pgtype.UUID `json:"id"`
+	Archive          bool        `json:"archive"`
+	UpdatedByID      pgtype.UUID `json:"updated_by_id"`
+	ExpectedRevision int64       `json:"expected_revision"`
 }
 
-func (q *Queries) CreateWorkflowInputInstance(ctx context.Context, arg CreateWorkflowInputInstanceParams) (WorkflowInputInstance, error) {
-	row := q.db.QueryRow(ctx, createWorkflowInputInstance,
+func (q *Queries) ArchiveWorkflowInputInstance(ctx context.Context, arg ArchiveWorkflowInputInstanceParams) (WorkflowInputInstance, error) {
+	row := q.db.QueryRow(ctx, archiveWorkflowInputInstance,
 		arg.WorkspaceID,
-		arg.TemplateID,
-		arg.Name,
-		arg.Input,
-		arg.ProjectID,
-		arg.TemplateVersionID,
-		arg.CreatedByID,
+		arg.ID,
+		arg.Archive,
+		arg.UpdatedByID,
+		arg.ExpectedRevision,
 	)
 	var i WorkflowInputInstance
 	err := row.Scan(
@@ -49,12 +47,218 @@ func (q *Queries) CreateWorkflowInputInstance(ctx context.Context, arg CreateWor
 		&i.UpdatedAt,
 		&i.TemplateVersionID,
 		&i.CreatedByID,
+		&i.Description,
+		&i.InputNode,
+		&i.ImageAttachmentID,
+		&i.UpdatedByID,
+		&i.ArchivedAt,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+	)
+	return i, err
+}
+
+const browseWorkflowInputInstances = `-- name: BrowseWorkflowInputInstances :many
+SELECT i.id, i.workspace_id, i.template_id, i.name, i.input, i.project_id, i.revision, i.created_at, i.updated_at, i.template_version_id, i.created_by_id, i.description, i.input_node, i.image_attachment_id, i.updated_by_id, i.archived_at, i.idempotency_key, i.request_hash, COALESCE(t.name, '')::text AS template_name,
+ COALESCE(v.version, 0)::int AS version_number,
+ COALESCE(u.name, '')::text AS editor_name,
+ COALESCE(recent.id::text, '')::text AS latest_run_id,
+ COALESCE(recent.status, '')::text AS latest_run_status
+FROM workflow_input_instance i
+LEFT JOIN workflow_template t ON t.id=i.template_id AND t.workspace_id=i.workspace_id
+LEFT JOIN workflow_template_version v ON v.id=i.template_version_id AND v.workspace_id=i.workspace_id AND v.template_id=i.template_id
+LEFT JOIN member m ON m.user_id=COALESCE(i.updated_by_id,i.created_by_id) AND m.workspace_id=i.workspace_id
+LEFT JOIN "user" u ON u.id=m.user_id
+LEFT JOIN LATERAL (
+ SELECT r.id,r.status FROM workflow_run r
+ WHERE r.workspace_id=i.workspace_id AND r.input_instance_id=i.id
+ ORDER BY r.created_at DESC,r.id LIMIT 1
+) recent ON true
+WHERE i.workspace_id = $1
+ AND ($2::uuid IS NULL OR i.template_id = $2::uuid)
+ AND ($3::boolean OR i.archived_at IS NULL)
+ AND ($4::text = '' OR i.name ILIKE '%' || $4::text || '%')
+ORDER BY i.updated_at DESC, i.id
+LIMIT $6::int OFFSET $5::int
+`
+
+type BrowseWorkflowInputInstancesParams struct {
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	TemplateID      pgtype.UUID `json:"template_id"`
+	IncludeArchived bool        `json:"include_archived"`
+	Search          string      `json:"search"`
+	OffsetCount     int32       `json:"offset_count"`
+	LimitCount      int32       `json:"limit_count"`
+}
+
+type BrowseWorkflowInputInstancesRow struct {
+	WorkflowInputInstance WorkflowInputInstance `json:"workflow_input_instance"`
+	TemplateName          string                `json:"template_name"`
+	VersionNumber         int32                 `json:"version_number"`
+	EditorName            string                `json:"editor_name"`
+	LatestRunID           string                `json:"latest_run_id"`
+	LatestRunStatus       string                `json:"latest_run_status"`
+}
+
+func (q *Queries) BrowseWorkflowInputInstances(ctx context.Context, arg BrowseWorkflowInputInstancesParams) ([]BrowseWorkflowInputInstancesRow, error) {
+	rows, err := q.db.Query(ctx, browseWorkflowInputInstances,
+		arg.WorkspaceID,
+		arg.TemplateID,
+		arg.IncludeArchived,
+		arg.Search,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BrowseWorkflowInputInstancesRow{}
+	for rows.Next() {
+		var i BrowseWorkflowInputInstancesRow
+		if err := rows.Scan(
+			&i.WorkflowInputInstance.ID,
+			&i.WorkflowInputInstance.WorkspaceID,
+			&i.WorkflowInputInstance.TemplateID,
+			&i.WorkflowInputInstance.Name,
+			&i.WorkflowInputInstance.Input,
+			&i.WorkflowInputInstance.ProjectID,
+			&i.WorkflowInputInstance.Revision,
+			&i.WorkflowInputInstance.CreatedAt,
+			&i.WorkflowInputInstance.UpdatedAt,
+			&i.WorkflowInputInstance.TemplateVersionID,
+			&i.WorkflowInputInstance.CreatedByID,
+			&i.WorkflowInputInstance.Description,
+			&i.WorkflowInputInstance.InputNode,
+			&i.WorkflowInputInstance.ImageAttachmentID,
+			&i.WorkflowInputInstance.UpdatedByID,
+			&i.WorkflowInputInstance.ArchivedAt,
+			&i.WorkflowInputInstance.IdempotencyKey,
+			&i.WorkflowInputInstance.RequestHash,
+			&i.TemplateName,
+			&i.VersionNumber,
+			&i.EditorName,
+			&i.LatestRunID,
+			&i.LatestRunStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countWorkflowInputInstances = `-- name: CountWorkflowInputInstances :one
+SELECT count(*) FROM workflow_input_instance
+WHERE workspace_id = $1
+ AND ($2::uuid IS NULL OR template_id = $2::uuid)
+ AND ($3::boolean OR archived_at IS NULL)
+ AND ($4::text = '' OR name ILIKE '%' || $4::text || '%')
+`
+
+type CountWorkflowInputInstancesParams struct {
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	TemplateID      pgtype.UUID `json:"template_id"`
+	IncludeArchived bool        `json:"include_archived"`
+	Search          string      `json:"search"`
+}
+
+func (q *Queries) CountWorkflowInputInstances(ctx context.Context, arg CountWorkflowInputInstancesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowInputInstances,
+		arg.WorkspaceID,
+		arg.TemplateID,
+		arg.IncludeArchived,
+		arg.Search,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countWorkflowInstanceRuns = `-- name: CountWorkflowInstanceRuns :one
+SELECT count(*) FROM workflow_run WHERE workspace_id = $1 AND input_instance_id = $2
+`
+
+type CountWorkflowInstanceRunsParams struct {
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	InputInstanceID pgtype.UUID `json:"input_instance_id"`
+}
+
+func (q *Queries) CountWorkflowInstanceRuns(ctx context.Context, arg CountWorkflowInstanceRunsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowInstanceRuns, arg.WorkspaceID, arg.InputInstanceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createWorkflowInputInstance = `-- name: CreateWorkflowInputInstance :one
+INSERT INTO workflow_input_instance (workspace_id, template_id, name, input, project_id, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, idempotency_key, request_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8::text, ''), $9::jsonb,
+ $10::text, $7, $11::text, $12::text)
+ON CONFLICT (workspace_id, idempotency_key) WHERE idempotency_key IS NOT NULL
+DO UPDATE SET id = workflow_input_instance.id
+RETURNING id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash
+`
+
+type CreateWorkflowInputInstanceParams struct {
+	WorkspaceID       pgtype.UUID `json:"workspace_id"`
+	TemplateID        pgtype.UUID `json:"template_id"`
+	Name              string      `json:"name"`
+	Input             []byte      `json:"input"`
+	ProjectID         pgtype.UUID `json:"project_id"`
+	TemplateVersionID pgtype.UUID `json:"template_version_id"`
+	CreatedByID       pgtype.UUID `json:"created_by_id"`
+	Description       pgtype.Text `json:"description"`
+	InputNode         []byte      `json:"input_node"`
+	ImageAttachmentID pgtype.Text `json:"image_attachment_id"`
+	IdempotencyKey    pgtype.Text `json:"idempotency_key"`
+	RequestHash       pgtype.Text `json:"request_hash"`
+}
+
+func (q *Queries) CreateWorkflowInputInstance(ctx context.Context, arg CreateWorkflowInputInstanceParams) (WorkflowInputInstance, error) {
+	row := q.db.QueryRow(ctx, createWorkflowInputInstance,
+		arg.WorkspaceID,
+		arg.TemplateID,
+		arg.Name,
+		arg.Input,
+		arg.ProjectID,
+		arg.TemplateVersionID,
+		arg.CreatedByID,
+		arg.Description,
+		arg.InputNode,
+		arg.ImageAttachmentID,
+		arg.IdempotencyKey,
+		arg.RequestHash,
+	)
+	var i WorkflowInputInstance
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Input,
+		&i.ProjectID,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TemplateVersionID,
+		&i.CreatedByID,
+		&i.Description,
+		&i.InputNode,
+		&i.ImageAttachmentID,
+		&i.UpdatedByID,
+		&i.ArchivedAt,
+		&i.IdempotencyKey,
+		&i.RequestHash,
 	)
 	return i, err
 }
 
 const deleteWorkflowInputInstance = `-- name: DeleteWorkflowInputInstance :execrows
-DELETE FROM workflow_input_instance
+UPDATE workflow_input_instance SET archived_at = now(), revision = revision + 1, updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND template_id = $3
 `
 
@@ -72,9 +276,45 @@ func (q *Queries) DeleteWorkflowInputInstance(ctx context.Context, arg DeleteWor
 	return result.RowsAffected(), nil
 }
 
+const getWorkflowInputInstance = `-- name: GetWorkflowInputInstance :one
+SELECT id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash FROM workflow_input_instance WHERE workspace_id = $1 AND id = $2
+`
+
+type GetWorkflowInputInstanceParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) GetWorkflowInputInstance(ctx context.Context, arg GetWorkflowInputInstanceParams) (WorkflowInputInstance, error) {
+	row := q.db.QueryRow(ctx, getWorkflowInputInstance, arg.WorkspaceID, arg.ID)
+	var i WorkflowInputInstance
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Input,
+		&i.ProjectID,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TemplateVersionID,
+		&i.CreatedByID,
+		&i.Description,
+		&i.InputNode,
+		&i.ImageAttachmentID,
+		&i.UpdatedByID,
+		&i.ArchivedAt,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+	)
+	return i, err
+}
+
 const listWorkflowInputInstances = `-- name: ListWorkflowInputInstances :many
-SELECT id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id FROM workflow_input_instance
+SELECT id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash FROM workflow_input_instance
 WHERE workspace_id = $1 AND template_id = $2
+AND archived_at IS NULL
 ORDER BY updated_at DESC, id
 `
 
@@ -104,6 +344,13 @@ func (q *Queries) ListWorkflowInputInstances(ctx context.Context, arg ListWorkfl
 			&i.UpdatedAt,
 			&i.TemplateVersionID,
 			&i.CreatedByID,
+			&i.Description,
+			&i.InputNode,
+			&i.ImageAttachmentID,
+			&i.UpdatedByID,
+			&i.ArchivedAt,
+			&i.IdempotencyKey,
+			&i.RequestHash,
 		); err != nil {
 			return nil, err
 		}
@@ -115,12 +362,114 @@ func (q *Queries) ListWorkflowInputInstances(ctx context.Context, arg ListWorkfl
 	return items, nil
 }
 
+const listWorkflowInstanceRuns = `-- name: ListWorkflowInstanceRuns :many
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run WHERE workspace_id = $1 AND input_instance_id = $2
+ORDER BY created_at DESC, id LIMIT $4::int OFFSET $3::int
+`
+
+type ListWorkflowInstanceRunsParams struct {
+	WorkspaceID     pgtype.UUID `json:"workspace_id"`
+	InputInstanceID pgtype.UUID `json:"input_instance_id"`
+	OffsetCount     int32       `json:"offset_count"`
+	LimitCount      int32       `json:"limit_count"`
+}
+
+func (q *Queries) ListWorkflowInstanceRuns(ctx context.Context, arg ListWorkflowInstanceRunsParams) ([]WorkflowRun, error) {
+	rows, err := q.db.Query(ctx, listWorkflowInstanceRuns,
+		arg.WorkspaceID,
+		arg.InputInstanceID,
+		arg.OffsetCount,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowRun{}
+	for rows.Next() {
+		var i WorkflowRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.IssueID,
+			&i.TemplateID,
+			&i.TemplateVersionID,
+			&i.Status,
+			&i.Source,
+			&i.SourceEventID,
+			&i.IdempotencyKey,
+			&i.AccountableUserID,
+			&i.Input,
+			&i.Context,
+			&i.Policy,
+			&i.BlockedReason,
+			&i.FailureReason,
+			&i.FailureDetail,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RequestHash,
+			&i.CallbackDestinationID,
+			&i.InputInstanceID,
+			&i.InputInstanceRevision,
+			&i.InputInstanceName,
+			&i.InputSource,
+			&i.InputProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockWorkflowInputInstance = `-- name: LockWorkflowInputInstance :one
+SELECT id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash FROM workflow_input_instance WHERE workspace_id = $1 AND id = $2 FOR UPDATE
+`
+
+type LockWorkflowInputInstanceParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ID          pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) LockWorkflowInputInstance(ctx context.Context, arg LockWorkflowInputInstanceParams) (WorkflowInputInstance, error) {
+	row := q.db.QueryRow(ctx, lockWorkflowInputInstance, arg.WorkspaceID, arg.ID)
+	var i WorkflowInputInstance
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.TemplateID,
+		&i.Name,
+		&i.Input,
+		&i.ProjectID,
+		&i.Revision,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.TemplateVersionID,
+		&i.CreatedByID,
+		&i.Description,
+		&i.InputNode,
+		&i.ImageAttachmentID,
+		&i.UpdatedByID,
+		&i.ArchivedAt,
+		&i.IdempotencyKey,
+		&i.RequestHash,
+	)
+	return i, err
+}
+
 const updateWorkflowInputInstance = `-- name: UpdateWorkflowInputInstance :one
 UPDATE workflow_input_instance
-SET name = $4, input = $5, project_id = $6, template_version_id = $7::uuid, revision = revision + 1, updated_at = now()
+SET name = $4, input = $5, project_id = $6, template_version_id = $7::uuid, description = COALESCE($8::text, ''),
+ input_node = $9::jsonb, image_attachment_id = $10::text,
+ updated_by_id = $11::uuid, revision = revision + 1, updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND template_id = $3
-  AND revision = $8::bigint
-RETURNING id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id
+  AND revision = $12::bigint AND archived_at IS NULL
+RETURNING id, workspace_id, template_id, name, input, project_id, revision, created_at, updated_at, template_version_id, created_by_id, description, input_node, image_attachment_id, updated_by_id, archived_at, idempotency_key, request_hash
 `
 
 type UpdateWorkflowInputInstanceParams struct {
@@ -131,6 +480,10 @@ type UpdateWorkflowInputInstanceParams struct {
 	Input             []byte      `json:"input"`
 	ProjectID         pgtype.UUID `json:"project_id"`
 	TemplateVersionID pgtype.UUID `json:"template_version_id"`
+	Description       pgtype.Text `json:"description"`
+	InputNode         []byte      `json:"input_node"`
+	ImageAttachmentID pgtype.Text `json:"image_attachment_id"`
+	UpdatedByID       pgtype.UUID `json:"updated_by_id"`
 	ExpectedRevision  int64       `json:"expected_revision"`
 }
 
@@ -143,6 +496,10 @@ func (q *Queries) UpdateWorkflowInputInstance(ctx context.Context, arg UpdateWor
 		arg.Input,
 		arg.ProjectID,
 		arg.TemplateVersionID,
+		arg.Description,
+		arg.InputNode,
+		arg.ImageAttachmentID,
+		arg.UpdatedByID,
 		arg.ExpectedRevision,
 	)
 	var i WorkflowInputInstance
@@ -158,6 +515,13 @@ func (q *Queries) UpdateWorkflowInputInstance(ctx context.Context, arg UpdateWor
 		&i.UpdatedAt,
 		&i.TemplateVersionID,
 		&i.CreatedByID,
+		&i.Description,
+		&i.InputNode,
+		&i.ImageAttachmentID,
+		&i.UpdatedByID,
+		&i.ArchivedAt,
+		&i.IdempotencyKey,
+		&i.RequestHash,
 	)
 	return i, err
 }

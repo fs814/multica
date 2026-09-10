@@ -528,6 +528,10 @@ export const EMPTY_WORKFLOW_TEMPLATE_DETAIL: WorkflowTemplateDetail = {
 /** Summary row for the runs list. Enriched with the template's identity so the
  *  list renders without a second fetch per row. */
 export type WorkflowRun = {
+  input_instance_id?:string|null;
+  input_instance_revision?:number|null;
+  input_instance_name?:string|null;
+  input_source?:string|null;
   id: string;
   workspace_id: string;
   /** null until/unless the run is attached to an issue. */
@@ -561,6 +565,7 @@ export type WorkflowRun = {
 
 /** The structured block an agent returns to close a step. */
 export type WorkflowSubmission = {
+  raw_result?: string | null;
   /** "pass" | "fail" | "blocked" - lenient, and `""` when unreadable. Never
    *  defaulted to a passing value; see the section header. */
   verdict: string;
@@ -672,6 +677,10 @@ export type DecideWorkflowAcceptanceRequest = {
 
 export const WorkflowRunSchema = z
   .object({
+    input_instance_id:z.string().nullable().optional(),
+    input_instance_revision:z.number().nullable().optional(),
+    input_instance_name:z.string().nullable().optional(),
+    input_source:z.string().nullable().optional(),
     id: z.string(),
     workspace_id: z.string().optional().default(""),
     issue_id: z.string().nullable().optional().default(null),
@@ -700,6 +709,7 @@ export const WorkflowRunSchema = z
 
 export const WorkflowSubmissionSchema = z
   .object({
+    raw_result: z.string().nullable().optional().default(null),
     // Defaults to "" - the unknown verdict - never to "pass". See the section
     // header: the server's rule is that nothing but an explicit pass counts as
     // one, and a lenient default here would be a client-side way around it.

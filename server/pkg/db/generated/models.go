@@ -1395,6 +1395,13 @@ type WorkflowInputInstance struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	TemplateVersionID pgtype.UUID        `json:"template_version_id"`
 	CreatedByID       pgtype.UUID        `json:"created_by_id"`
+	Description       string             `json:"description"`
+	InputNode         []byte             `json:"input_node"`
+	ImageAttachmentID pgtype.Text        `json:"image_attachment_id"`
+	UpdatedByID       pgtype.UUID        `json:"updated_by_id"`
+	ArchivedAt        pgtype.Timestamptz `json:"archived_at"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	RequestHash       pgtype.Text        `json:"request_hash"`
 }
 
 type WorkflowRun struct {
@@ -1420,6 +1427,11 @@ type WorkflowRun struct {
 	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
 	RequestHash           pgtype.Text        `json:"request_hash"`
 	CallbackDestinationID pgtype.UUID        `json:"callback_destination_id"`
+	InputInstanceID       pgtype.UUID        `json:"input_instance_id"`
+	InputInstanceRevision pgtype.Int8        `json:"input_instance_revision"`
+	InputInstanceName     pgtype.Text        `json:"input_instance_name"`
+	InputSource           pgtype.Text        `json:"input_source"`
+	InputProjectID        pgtype.UUID        `json:"input_project_id"`
 }
 
 type WorkflowStepInstance struct {

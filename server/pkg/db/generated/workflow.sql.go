@@ -160,7 +160,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type CancelWorkflowRunParams struct {
@@ -194,6 +194,11 @@ func (q *Queries) CancelWorkflowRun(ctx context.Context, arg CancelWorkflowRunPa
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -265,7 +270,7 @@ UPDATE workflow_run SET
     completed_at = now(),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status = 'running'
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type CompleteWorkflowRunParams struct {
@@ -302,6 +307,11 @@ func (q *Queries) CompleteWorkflowRun(ctx context.Context, arg CompleteWorkflowR
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -582,15 +592,16 @@ const createWorkflowRun = `-- name: CreateWorkflowRun :one
 INSERT INTO workflow_run (
     workspace_id, issue_id, template_id, template_version_id, status, source,
     source_event_id, idempotency_key, accountable_user_id, input, context, policy,
-    request_hash, callback_destination_id
+    request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 ) VALUES (
     $1, $5, $2, $3, 'pending', $4,
     $6, $7::text,
     $8,
     $9::jsonb, $10::jsonb, $11::jsonb,
-    $12, $13
+    $12, $13, $14::uuid,
+    $15::bigint, $16::text, $17::text, $18::uuid
 )
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type CreateWorkflowRunParams struct {
@@ -607,6 +618,11 @@ type CreateWorkflowRunParams struct {
 	Policy                []byte      `json:"policy"`
 	RequestHash           pgtype.Text `json:"request_hash"`
 	CallbackDestinationID pgtype.UUID `json:"callback_destination_id"`
+	InputInstanceID       pgtype.UUID `json:"input_instance_id"`
+	InputInstanceRevision pgtype.Int8 `json:"input_instance_revision"`
+	InputInstanceName     pgtype.Text `json:"input_instance_name"`
+	InputSource           pgtype.Text `json:"input_source"`
+	InputProjectID        pgtype.UUID `json:"input_project_id"`
 }
 
 func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunParams) (WorkflowRun, error) {
@@ -624,6 +640,11 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		arg.Policy,
 		arg.RequestHash,
 		arg.CallbackDestinationID,
+		arg.InputInstanceID,
+		arg.InputInstanceRevision,
+		arg.InputInstanceName,
+		arg.InputSource,
+		arg.InputProjectID,
 	)
 	var i WorkflowRun
 	err := row.Scan(
@@ -649,6 +670,11 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -983,7 +1009,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type FailWorkflowRunParams struct {
@@ -1024,6 +1050,11 @@ func (q *Queries) FailWorkflowRun(ctx context.Context, arg FailWorkflowRunParams
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -1282,7 +1313,7 @@ func (q *Queries) GetWorkflowAcceptance(ctx context.Context, arg GetWorkflowAcce
 }
 
 const getWorkflowRun = `-- name: GetWorkflowRun :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -1317,12 +1348,17 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, arg GetWorkflowRunParams) 
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
 
 const getWorkflowRunByIdempotencyKey = `-- name: GetWorkflowRunByIdempotencyKey :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE workspace_id = $1 AND idempotency_key = $2
 `
 
@@ -1359,12 +1395,17 @@ func (q *Queries) GetWorkflowRunByIdempotencyKey(ctx context.Context, arg GetWor
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
 
 const getWorkflowRunForUpdate = `-- name: GetWorkflowRunForUpdate :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE id = $1 AND workspace_id = $2
 FOR UPDATE
 `
@@ -1402,6 +1443,11 @@ func (q *Queries) GetWorkflowRunForUpdate(ctx context.Context, arg GetWorkflowRu
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -1701,7 +1747,7 @@ func (q *Queries) ListActiveAgentTaskIDsForWorkflowRun(ctx context.Context, arg 
 }
 
 const listActiveWorkflowRunsForIssue = `-- name: ListActiveWorkflowRunsForIssue :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE issue_id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
 ORDER BY created_at DESC
@@ -1745,6 +1791,11 @@ func (q *Queries) ListActiveWorkflowRunsForIssue(ctx context.Context, arg ListAc
 			&i.UpdatedAt,
 			&i.RequestHash,
 			&i.CallbackDestinationID,
+			&i.InputInstanceID,
+			&i.InputInstanceRevision,
+			&i.InputInstanceName,
+			&i.InputSource,
+			&i.InputProjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -1866,7 +1917,7 @@ func (q *Queries) ListAutopilotWorkflowRunsAwaitingSync(ctx context.Context, lim
 }
 
 const listStaleActiveWorkflowRuns = `-- name: ListStaleActiveWorkflowRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
   AND updated_at < now() - make_interval(secs => $1::float)
 ORDER BY updated_at ASC
@@ -1914,6 +1965,11 @@ func (q *Queries) ListStaleActiveWorkflowRuns(ctx context.Context, arg ListStale
 			&i.UpdatedAt,
 			&i.RequestHash,
 			&i.CallbackDestinationID,
+			&i.InputInstanceID,
+			&i.InputInstanceRevision,
+			&i.InputInstanceName,
+			&i.InputSource,
+			&i.InputProjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -2012,7 +2068,7 @@ func (q *Queries) ListWorkflowEventsForRun(ctx context.Context, arg ListWorkflow
 }
 
 const listWorkflowRuns = `-- name: ListWorkflowRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
 WHERE workspace_id = $1
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::uuid IS NULL OR template_id = $3::uuid)
@@ -2066,6 +2122,11 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 			&i.UpdatedAt,
 			&i.RequestHash,
 			&i.CallbackDestinationID,
+			&i.InputInstanceID,
+			&i.InputInstanceRevision,
+			&i.InputInstanceName,
+			&i.InputSource,
+			&i.InputProjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -2448,7 +2509,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type MarkWorkflowRunBlockedParams struct {
@@ -2489,6 +2550,11 @@ func (q *Queries) MarkWorkflowRunBlocked(ctx context.Context, arg MarkWorkflowRu
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -2501,7 +2567,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type MarkWorkflowRunRunningParams struct {
@@ -2537,6 +2603,11 @@ func (q *Queries) MarkWorkflowRunRunning(ctx context.Context, arg MarkWorkflowRu
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }
@@ -2546,7 +2617,7 @@ UPDATE workflow_run SET
     status = 'waiting_acceptance',
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status = 'running'
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 `
 
 type MarkWorkflowRunWaitingAcceptanceParams struct {
@@ -2580,6 +2651,11 @@ func (q *Queries) MarkWorkflowRunWaitingAcceptance(ctx context.Context, arg Mark
 		&i.UpdatedAt,
 		&i.RequestHash,
 		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
 	)
 	return i, err
 }

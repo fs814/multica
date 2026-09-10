@@ -130,6 +130,7 @@ vi.mock("@multica/core/paths", async (importOriginal) => ({
     projects: () => "/acme/projects",
     autopilots: () => "/acme/autopilots",
     workflows: () => "/acme/workflows",
+    workflowInstances: () => "/acme/workflow-instances",
     workflowRuns: () => "/acme/workflow-runs",
     agents: () => "/acme/agents",
     squads: () => "/acme/squads",
@@ -431,4 +432,14 @@ describe("personal nav — Chat", () => {
     const { container } = render(<AppSidebar />);
     expect(chatBadge(container)).toHaveAttribute("aria-label", "5");
   });
+});
+
+it("places workflow instances immediately below workflows and highlights instance details", () => {
+  navigation.current.pathname = "/acme/workflow-instances/instance-a";
+  const { container } = render(<AppSidebar />);
+  const destinations = Array.from(container.querySelectorAll("button[data-href]"));
+  const workflows = destinations.findIndex((item) => item.getAttribute("data-href") === "/acme/workflows");
+  expect(destinations[workflows + 1]).toHaveAttribute("data-href", "/acme/workflow-instances");
+  expect(destinations[workflows + 1]).toHaveAttribute("data-active", "true");
+  expect(destinations[workflows]).not.toHaveAttribute("data-active");
 });

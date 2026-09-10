@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,10 +12,24 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 type workflowInputInstanceResponse struct {
+	TemplateName    string `json:"template_name"`
+	VersionNumber   int32  `json:"version_number"`
+	EditorName      string `json:"editor_name"`
+	LatestRunID     string `json:"latest_run_id"`
+	LatestRunStatus string `json:"latest_run_status"`
+
+	Description       string          `json:"description"`
+	InputNode         json.RawMessage `json:"input_node"`
+	ImageAttachmentID *string         `json:"image_attachment_id"`
+	UpdatedByID       *string         `json:"updated_by_id"`
+	ArchivedAt        *string         `json:"archived_at"`
+
 	TemplateVersionID *string         `json:"template_version_id"`
 	CreatedByID       *string         `json:"created_by_id"`
 	CreatedAt         string          `json:"created_at"`
@@ -32,7 +48,7 @@ func inputInstanceResponse(row db.WorkflowInputInstance) workflowInputInstanceRe
 		id := uuidToString(row.ProjectID)
 		projectID = &id
 	}
-	return workflowInputInstanceResponse{TemplateVersionID: uuidToPtr(row.TemplateVersionID), CreatedByID: uuidToPtr(row.CreatedByID), CreatedAt: timestampToString(row.CreatedAt), ID: uuidToString(row.ID), TemplateID: uuidToString(row.TemplateID), Name: row.Name, Input: row.Input, ProjectID: projectID, Revision: row.Revision, UpdatedAt: timestampToString(row.UpdatedAt)}
+	return workflowInputInstanceResponse{Description: row.Description, InputNode: row.InputNode, ImageAttachmentID: textToPtr(row.ImageAttachmentID), UpdatedByID: uuidToPtr(row.UpdatedByID), ArchivedAt: timestampToPtr(row.ArchivedAt), TemplateVersionID: uuidToPtr(row.TemplateVersionID), CreatedByID: uuidToPtr(row.CreatedByID), CreatedAt: timestampToString(row.CreatedAt), ID: uuidToString(row.ID), TemplateID: uuidToString(row.TemplateID), Name: row.Name, Input: row.Input, ProjectID: projectID, Revision: row.Revision, UpdatedAt: timestampToString(row.UpdatedAt)}
 }
 
 func (h *Handler) loadInputInstanceTemplate(w http.ResponseWriter, r *http.Request) (db.WorkflowTemplate, bool) {
@@ -62,7 +78,7 @@ func (h *Handler) ListWorkflowInputInstances(w http.ResponseWriter, r *http.Requ
 }
 
 // Saving an instance does not start a run. Inputs are revalidated against the
-// currently published graph when the user later runs the selected instance.
+// pinned published graph when the user later runs the selected instance.
 func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Request) {
 	tpl, ok := h.loadInputInstanceTemplate(w, r)
 	if !ok {
@@ -73,6 +89,10 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
+		Description       string             `json:"description"`
+		InputNode         *workflow.Node     `json:"input_node"`
+		ImageAttachmentID *string            `json:"image_attachment_id"`
+		IdempotencyKey    string             `json:"idempotency_key"`
 		TemplateVersionID *string            `json:"template_version_id"`
 		Name              string             `json:"name"`
 		Input             map[string]*string `json:"input"`
@@ -116,6 +136,35 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	params.CreatedByID = creatorID
+	params.Description = pgtype.Text{String: req.Description, Valid: true}
+	if utf8.RuneCountInString(req.Description) > 20000 || len(req.IdempotencyKey) > 200 {
+		writeError(w, 400, "description or idempotency key is too long")
+		return
+	}
+	if req.InputNode != nil {
+		if req.InputNode.Type != workflow.NodeTypeInput {
+			writeError(w, 400, "input_node must be an input node")
+			return
+		}
+		params.InputNode, _ = json.Marshal(req.InputNode)
+	}
+	if req.ImageAttachmentID != nil {
+		if err := workflow.ValidateInstanceImage(r.Context(), h.Queries, tpl.WorkspaceID, *req.ImageAttachmentID); err != nil {
+			h.writeWorkflowEngineError(w, r, err, "ValidateInstanceImage")
+			return
+		}
+		params.ImageAttachmentID = pgtype.Text{String: *req.ImageAttachmentID, Valid: true}
+	}
+	if req.IdempotencyKey != "" {
+		params.IdempotencyKey = pgtype.Text{String: req.IdempotencyKey, Valid: true}
+		raw, _ := json.Marshal(struct {
+			Template string
+			User     string
+			Body     any
+		}{uuidToString(tpl.ID), userID, req})
+		sum := sha256.Sum256(raw)
+		params.RequestHash = pgtype.Text{String: hex.EncodeToString(sum[:]), Valid: true}
+	}
 	if req.TemplateVersionID != nil && *req.TemplateVersionID != "" {
 		versionID, ok := parseUUIDOrBadRequest(w, *req.TemplateVersionID, "template version id")
 		if !ok {
@@ -133,6 +182,19 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 		if version.TemplateID != tpl.ID || version.Status != "published" {
 			writeError(w, 409, "input instances must reference a published version of this workflow")
 			return
+		}
+		def, err := workflow.ParseDefinition(version.Definition)
+		if err != nil {
+			writeError(w, 409, "published input declaration is unavailable")
+			return
+		}
+		entry, _ := def.EntryInputNode()
+		if req.InputNode != nil && !workflow.SameInputSchema(req.InputNode, entry) {
+			writeError(w, 409, "input declaration differs from the selected published version; save without a version binding or review the upgrade")
+			return
+		}
+		if req.InputNode == nil && entry != nil {
+			params.InputNode, _ = json.Marshal(entry)
 		}
 		params.TemplateVersionID = version.ID
 	}
@@ -162,7 +224,7 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 			writeError(w, 400, "revision is required for updates")
 			return
 		}
-		row, err = h.Queries.UpdateWorkflowInputInstance(r.Context(), db.UpdateWorkflowInputInstanceParams{ID: id, WorkspaceID: tpl.WorkspaceID, TemplateID: tpl.ID, Name: req.Name, Input: input, ProjectID: params.ProjectID, TemplateVersionID: params.TemplateVersionID, ExpectedRevision: req.Revision})
+		row, err = h.Queries.UpdateWorkflowInputInstance(r.Context(), db.UpdateWorkflowInputInstanceParams{ID: id, WorkspaceID: tpl.WorkspaceID, TemplateID: tpl.ID, Name: req.Name, Input: input, ProjectID: params.ProjectID, TemplateVersionID: params.TemplateVersionID, ExpectedRevision: req.Revision, Description: params.Description, InputNode: params.InputNode, ImageAttachmentID: params.ImageAttachmentID, UpdatedByID: creatorID})
 		status = http.StatusOK
 	} else {
 		row, err = h.Queries.CreateWorkflowInputInstance(r.Context(), params)
@@ -173,6 +235,10 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 	}
 	if err != nil {
 		writeError(w, 500, "failed to save input instance")
+		return
+	}
+	if chi.URLParam(r, "instanceID") == "" && params.IdempotencyKey.Valid && row.RequestHash != params.RequestHash {
+		writeError(w, 409, "idempotency key was already used with different instance data")
 		return
 	}
 	writeJSON(w, status, inputInstanceResponse(row))

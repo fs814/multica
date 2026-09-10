@@ -118,6 +118,7 @@ type NavKey =
   | "projects"
   | "autopilots"
   | "workflows"
+  | "workflowInstances"
   | "workflowRuns"
   | "agents"
   | "squads"
@@ -137,6 +138,7 @@ type NavLabelKey =
   | "projects"
   | "autopilots"
   | "workflows"
+  | "workflow_instances"
   | "workflow_runs"
   | "agents"
   | "squads"
@@ -163,7 +165,8 @@ const workspaceNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   // surfaces: Autopilot fires one agent on a trigger, Workflows coordinates
   // several across a pinned graph with acceptance and bounded rework.
   { key: "workflows", labelKey: "workflows" },
-  // Runs sits directly under Workflows: authoring a graph and watching one
+  { key: "workflowInstances", labelKey: "workflow_instances" },
+  // Runs follows the saved instances: authoring a graph and watching one
   // execute are the two halves of the same surface, and a run that blocks on
   // `routing_no_candidate` or opens an acceptance gate needs a person - so the
   // page where that shows up has to be one click away, not buried in a template.

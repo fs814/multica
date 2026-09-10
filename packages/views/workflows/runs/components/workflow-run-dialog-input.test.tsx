@@ -616,25 +616,10 @@ describe("declared title + description must not change the submitted body", () =
 });
 
  describe("saved workflow input instances", () => {
-  it("saves the current input without running and reloads the chosen instance", async () => {
-    const user = userEvent.setup();
-    instanceFixtures.rows = [
-      { id: "a", templateId: "wft-1", name: "Scenario A", input: { title: "Task A", description: "Description A" }, projectId: null, revision: 1 },
-      { id: "b", templateId: "wft-1", name: "Scenario B", input: { title: "Task B", description: "Description B" }, projectId: null, revision: 1 },
-    ];
-    saveInstanceMock.mockResolvedValue({ ...instanceFixtures.rows[0], name: "Saved inputs" });
+  it("keeps instance creation out of the run dialog", () => {
     renderDialog();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Input instance" })).not.toBeDisabled());
-    await user.click(screen.getByRole("combobox", { name: "Input instance" }));
-    await user.click(await screen.findByRole("option", { name: "Scenario B" }));
-    expect(screen.getByPlaceholderText("One line naming the work")).toHaveValue("Task B");
-    expect(screen.getByPlaceholderText("What happened, how to reproduce it, and what done looks like")).toHaveValue("Description B");
-    fireEvent.change(screen.getByRole("textbox", { name: "Instance name" }), { target: { value: "Saved inputs" } });
-    await user.click(screen.getByRole("button", { name: "Save as new instance" }));
-    await waitFor(() => expect(saveInstanceMock).toHaveBeenCalledWith({ name: "Saved inputs", input: { title: "Task B", description: "Description B" }, projectId: null }));
-    expect(runTemplateMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(runTemplateMock).toHaveBeenCalledWith(expect.objectContaining({ title: "Task B", description: "Description B", idempotency_key: expect.any(String) })));
+    expect(screen.queryByRole("textbox",{name:"Instance name"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button",{name:"Save as instance"})).not.toBeInTheDocument();
   });
 
   it("uses a new run key when the same inputs are run again", async () => {
@@ -703,23 +688,7 @@ describe("input node content as run defaults", () => {
     expect(screen.getByRole("combobox", { name: "Severity" })).toBeInTheDocument();
   });
 
-  it("saves the prefilled content as an instance and prioritizes a selected instance", async () => {
-    instanceFixtures.rows = [{ id: "a", templateId: "wft-1", name: "Windows", input: { title: "Windows machine", description: "List Windows build" }, projectId: null, revision: 1 }];
-    saveInstanceMock.mockResolvedValue({ ...instanceFixtures.rows[0], name: "Node input" });
-    renderDialog({ definition: authoredInput() });
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Input instance" })).toBeEnabled());
-    type("Instance name", "Node input");
-    fireEvent.click(screen.getByRole("button", { name: "Save as instance" }));
-    await waitFor(() => expect(saveInstanceMock).toHaveBeenCalledWith(expect.objectContaining({
-      input: { title: "List system version", description: "Machine: MacBook\nReport the OS version and architecture." },
-    })));
-    await userEvent.click(screen.getByRole("combobox", { name: "Input instance" }));
-    await userEvent.click(await screen.findByRole("option", { name: "Windows" }));
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(runTemplateMock).toHaveBeenCalledWith(expect.objectContaining({
-      title: "Windows machine", description: "List Windows build",
-    })));
-  });
+
 });
 it("starts a reopened Run dialog from the latest node content without carrying edits to another template", () => {
   const view = renderDialog({ inputDefaults: { title: "Original", description: "Node content" } });
@@ -731,86 +700,6 @@ it("starts a reopened Run dialog from the latest node content without carrying e
   type("Description", "Another temporary override");
   view.updateProps({ templateId: "another-template", inputDefaults: { title: "Other workflow", description: "Other content" } });
   expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("Other content");
-});
-describe("input instance reuse safeguards", () => {
-  const instance = (input: Record<string, string>, templateVersionId?: string) => ({
-    id: "saved", templateId: "wft-1", name: "Saved scenario", input,
-    projectId: null, revision: 1, templateVersionId,
-  });
-  async function selectSaved() {
-    const user = userEvent.setup();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Input instance" })).toBeEnabled());
-    await user.click(screen.getByRole("combobox", { name: "Input instance" }));
-    await user.click(await screen.findByRole("option", { name: "Saved scenario" }));
-  }
-  it("loads missing and empty values without mixing in current node defaults", async () => {
-    instanceFixtures.rows = [instance({ description: "" })];
-    renderDialog({ inputDefaults: { title: "New default", description: "New instructions" } });
-    await selectSaved();
-    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("");
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
-  });
-  it("runs temporary edits without updating the saved instance, then explicitly saves changes", async () => {
-    instanceFixtures.rows = [instance({ title: "A", description: "Input A" })];
-    runTemplateMock.mockRejectedValueOnce(new Error("Temporary failure"));
-    saveInstanceMock.mockResolvedValue({ ...instanceFixtures.rows[0], revision: 2 });
-    renderDialog();
-    await selectSaved();
-    type("Description", "Input B");
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(runTemplateMock).toHaveBeenCalledWith(expect.objectContaining({ description: "Input B" })));
-    expect(saveInstanceMock).not.toHaveBeenCalled();
-    expect(instanceFixtures.rows[0]!.input.description).toBe("Input A");
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saveInstanceMock).toHaveBeenCalledWith(expect.objectContaining({
-      id: "saved", revision: 1, input: { title: "A", description: "Input B" },
-    })));
-  });
-  it("requires explicit review before removing fields from an older instance", async () => {
-    instanceFixtures.rows = [instance({ title: "A", description: "Input A", removed: "Keep this evidence" }, "v1")];
-    renderDialog({ templateVersionId: "v2" });
-    await selectSaved();
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
-    expect(screen.getByText(/Fields no longer in this workflow: removed/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Use current fields" }));
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(runTemplateMock).toHaveBeenCalledWith(expect.objectContaining({ templateVersionId: "v2", title: "A", description: "Input A" })));
-    expect(runTemplateMock.mock.calls[0]![0]).not.toHaveProperty("removed");
-    expect(instanceFixtures.rows[0]!.input.removed).toBe("Keep this evidence");
-    expect(saveInstanceMock).not.toHaveBeenCalled();
-  });
-  it("requires review when a publication changes even if the input keys still match", async () => {
-    instanceFixtures.rows = [instance({ title: "A", description: "Input A" }, "v1")];
-    renderDialog({ templateVersionId: "v2" });
-    await selectSaved();
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "Use current fields" }));
-    expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
-  });
-  it("keeps the loaded revision across refetches and retains edits when saving fails", async () => {
-    instanceFixtures.rows = [instance({ title: "A", description: "Input A" })];
-    saveInstanceMock.mockRejectedValue(new Error("revision conflict"));
-    renderDialog();
-    await selectSaved();
-    instanceFixtures.rows = [{ ...instanceFixtures.rows[0]!, revision: 2 }];
-    type("Description", "My unsaved edit");
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(saveInstanceMock).toHaveBeenCalledWith(expect.objectContaining({ revision: 1 })));
-    expect(screen.getByRole("textbox", { name: "Description" })).toHaveValue("My unsaved edit");
-  });
-  it("guards repeated save clicks while a request is in flight", async () => {
-    let finish!: (value: unknown) => void;
-    saveInstanceMock.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
-    renderDialog({ inputDefaults: { title: "Draft" } });
-    type("Instance name", "Partial input");
-    const button = screen.getByRole("button", { name: "Save as instance" });
-    fireEvent.click(button);
-    fireEvent.click(button);
-    expect(saveInstanceMock).toHaveBeenCalledTimes(1);
-    finish(instance({ title: "Draft" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeVisible());
-  });
 });
 
 it("keeps edits and requires review if the publication changes while the form is open", () => {

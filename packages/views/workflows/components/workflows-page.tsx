@@ -1,4 +1,5 @@
 "use client";
+import { AppLink } from "../../navigation";
 
 import { useState } from "react";
 import { AlertCircle, Plus, Workflow } from "lucide-react";
@@ -166,6 +167,7 @@ export function WorkflowsPage() {
         }
       />
 
+      <div className="border-b px-4 py-2"><AppLink href={wsPaths.workflowInstances()}>{t($=>$.instances.all)}</AppLink></div>
       {listError ? (
         <CollectionPageState
           role="alert"

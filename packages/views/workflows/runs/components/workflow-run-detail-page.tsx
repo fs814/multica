@@ -160,9 +160,23 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
 
   return (
     <div className="flex h-full flex-col">
+      {run.input_instance_id && (
+        <div className="border-b px-4 py-2 text-caption">
+          {t(($) => $.instances.source)}:{" "}
+          <AppLink href={wsPaths.workflowInstanceDetail(run.input_instance_id)}>
+            {run.input_instance_name || t(($) => $.instances.all)}
+          </AppLink>{" "}
+          · {t(($) => $.instances.revision)} {run.input_instance_revision} ·{" "}
+          {run.input_source === "temporary"
+            ? t(($) => $.instances.source_temporary)
+            : run.input_source === "history"
+              ? t(($) => $.instances.source_history)
+              : t(($) => $.instances.source_saved)}
+        </div>
+      )}
       <BreadcrumbHeader
         segments={[
-          { href: wsPaths.workflowRuns(), label: t(($) => $.runs.page.title) }
+          { href: wsPaths.workflowRuns(), label: t(($) => $.runs.page.title) },
         ]}
         leaf={
           <>
@@ -504,7 +518,9 @@ function StepRow({
   return (
     <div className="rounded-lg border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-caption font-medium">{step.node_key}</span>
+        <span className="font-mono text-caption font-medium">
+          {step.node_key}
+        </span>
         <Badge variant="outline">{step.node_type}</Badge>
         <WorkflowStepStatusBadge status={step.status} />
         {/* Attempt 1 is unremarkable; a second attempt is the whole story of a
@@ -624,6 +640,16 @@ function StepRow({
               {JSON.stringify(submission.artifact, null, 2)}
             </pre>
           ) : null}
+          {submission.raw_result && (
+            <details className="rounded-md border p-3" open={Boolean(submission.validation_errors?.length)}>
+              <summary className="cursor-pointer text-caption font-medium">
+                {t(($) => $.runs.detail.submission_raw_result)}
+              </summary>
+              <pre className="mt-2 whitespace-pre-wrap break-words text-caption">
+                {submission.raw_result}
+              </pre>
+            </details>
+          )}
           {submission.validation_errors &&
           submission.validation_errors.length > 0 ? (
             <div>

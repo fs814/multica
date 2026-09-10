@@ -37,6 +37,11 @@ import (
 // the two progress signals the list needs; the full trace lives on the detail
 // response because it is unbounded in the number of rework attempts.
 type WorkflowRunResponse struct {
+	InputInstanceID       *string `json:"input_instance_id"`
+	InputInstanceRevision *int64  `json:"input_instance_revision"`
+	InputInstanceName     *string `json:"input_instance_name"`
+	InputSource           *string `json:"input_source"`
+
 	ID          string `json:"id"`
 	WorkspaceID string `json:"workspace_id"`
 	// IssueID is null for a Run started without an Issue. The Run endpoint
@@ -83,6 +88,7 @@ type WorkflowRunResponse struct {
 // contract rejected, and it is exactly the evidence a human needs to see why an
 // otherwise-correct agent's step blocked.
 type WorkflowSubmissionResponse struct {
+	RawResult        *string         `json:"raw_result"`
 	Verdict          string          `json:"verdict"`
 	Artifact         json.RawMessage `json:"artifact"`
 	Rationale        string          `json:"rationale"`
@@ -250,7 +256,12 @@ type runSummary struct {
 }
 
 func workflowRunToResponse(run db.WorkflowRun, sum runSummary) WorkflowRunResponse {
-	resp := WorkflowRunResponse{
+	var revision *int64
+	if run.InputInstanceRevision.Valid {
+		revision = &run.InputInstanceRevision.Int64
+	}
+
+	resp := WorkflowRunResponse{InputInstanceID: uuidToPtr(run.InputInstanceID), InputInstanceRevision: revision, InputInstanceName: textToPtr(run.InputInstanceName), InputSource: textToPtr(run.InputSource),
 		ID:                uuidToString(run.ID),
 		WorkspaceID:       uuidToString(run.WorkspaceID),
 		IssueID:           uuidToPtr(run.IssueID),
@@ -280,6 +291,7 @@ func workflowRunToResponse(run db.WorkflowRun, sum runSummary) WorkflowRunRespon
 
 func workflowSubmissionToResponse(s db.WorkflowSubmission) WorkflowSubmissionResponse {
 	resp := WorkflowSubmissionResponse{
+		RawResult:   textToPtr(s.RawResult),
 		Verdict:     s.Verdict,
 		Artifact:    json.RawMessage(`{}`),
 		Rationale:   s.Rationale,

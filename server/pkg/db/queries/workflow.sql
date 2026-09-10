@@ -140,13 +140,14 @@ WHERE workspace_id = $1 AND status = $2;
 INSERT INTO workflow_run (
     workspace_id, issue_id, template_id, template_version_id, status, source,
     source_event_id, idempotency_key, accountable_user_id, input, context, policy,
-    request_hash, callback_destination_id
+    request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
 ) VALUES (
     $1, sqlc.narg('issue_id'), $2, $3, 'pending', $4,
     sqlc.narg('source_event_id'), sqlc.arg('idempotency_key')::text,
     sqlc.narg('accountable_user_id'),
     sqlc.arg('input')::jsonb, sqlc.arg('context')::jsonb, sqlc.arg('policy')::jsonb,
-    sqlc.narg('request_hash'), sqlc.narg('callback_destination_id')
+    sqlc.narg('request_hash'), sqlc.narg('callback_destination_id'), sqlc.narg('input_instance_id')::uuid,
+    sqlc.narg('input_instance_revision')::bigint, sqlc.narg('input_instance_name')::text, sqlc.narg('input_source')::text, sqlc.narg('input_project_id')::uuid
 )
 RETURNING *;
 

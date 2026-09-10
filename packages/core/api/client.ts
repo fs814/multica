@@ -1,3 +1,5 @@
+import type { z } from "zod";
+import { WorkflowInstanceRunListSchema, WorkflowInstancePageSchema, WorkflowInstanceValidationSchema, WorkflowInstanceVersionSchema, type WorkflowInstanceFilters, type RunWorkflowInstance } from "../workflows/input-instance-schemas";
 import { WorkflowInputInstanceSchema, WorkflowInputInstanceListSchema, type SaveWorkflowInputInstance, type WorkflowInputInstance } from "../workflows/input-instance-schemas";
 import type {
   Issue,
@@ -3665,6 +3667,50 @@ export class ApiClient {
    *  when the pinned graph fails validation; both are thrown as ApiError rather
    *  than degraded, because "your run did not start" is not something a fallback
    *  can represent. */
+  async browseWorkflowInstances(filters:WorkflowInstanceFilters = {}) {
+    const query = new URLSearchParams();
+    for (const [key,value] of Object.entries(filters)) if(value!==undefined) query.set(key,String(value));
+    const raw = await this.fetch<unknown>(`/api/workflow-instances?${query}`);
+    const parsed = parseWithFallback<z.output<typeof WorkflowInstancePageSchema> | null>(raw, WorkflowInstancePageSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async getWorkflowInstance(id:string) {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${encodeURIComponent(id)}`);
+    const parsed = parseWithFallback<z.output<typeof WorkflowInputInstanceSchema> | null>(raw, WorkflowInputInstanceSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async validateWorkflowInstance(id:string) {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${encodeURIComponent(id)}/validate`);
+    const parsed = parseWithFallback<z.output<typeof WorkflowInstanceValidationSchema> | null>(raw, WorkflowInstanceValidationSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async archiveWorkflowInstance(id:string,revision:number,archive:boolean) {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${encodeURIComponent(id)}/archive`,{method:"POST",body:JSON.stringify({revision,archive})});
+    const parsed = parseWithFallback<z.output<typeof WorkflowInputInstanceSchema> | null>(raw, WorkflowInputInstanceSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async getWorkflowInstanceVersion(templateId:string,versionId:string) {
+    const raw = await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}`);
+    const parsed = parseWithFallback<z.output<typeof WorkflowInstanceVersionSchema> | null>(raw, WorkflowInstanceVersionSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async listWorkflowInstanceRuns(id:string,offset=0) {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${encodeURIComponent(id)}/runs?offset=${offset}&limit=30`);
+    const parsed = parseWithFallback<z.output<typeof WorkflowInstanceRunListSchema> | null>(raw, WorkflowInstanceRunListSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
+  async runWorkflowInstance(id:string,body:RunWorkflowInstance):Promise<WorkflowRunDetail> {
+    const raw = await this.fetch<unknown>(`/api/workflow-instances/${encodeURIComponent(id)}/run`,{method:"POST",body:JSON.stringify(body)});
+    const parsed = parseWithFallback<z.output<typeof WorkflowRunDetailSchema> | null>(raw, WorkflowRunDetailSchema.nullable(), null, {endpoint:"workflow instance API"});
+    if (!parsed) throw new Error("Unable to read workflow instance response. Please reload.");
+    return parsed;
+  }
   async listWorkflowInputInstances(templateId: string) {
     const raw = await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(templateId)}/input-instances`);
     const parsed = parseWithFallback<{ instances: WorkflowInputInstance[] } | null>(raw, WorkflowInputInstanceListSchema.nullable(), null, { endpoint: "GET /api/workflow-templates/:id/input-instances" });
@@ -3676,7 +3722,7 @@ export class ApiClient {
     const path = `/api/workflow-templates/${encodeURIComponent(templateId)}/input-instances${id ? `/${encodeURIComponent(id)}` : ""}`;
     const raw = await this.fetch<unknown>(path, {
       method: id ? "PUT" : "POST",
-      body: JSON.stringify({ name: body.name, input: body.input, project_id: body.projectId, revision: body.revision, template_version_id: body.templateVersionId }),
+      body: JSON.stringify({ name: body.name, description:body.description,input_node:body.inputNode,image_attachment_id:body.imageAttachmentId,idempotency_key:body.idempotencyKey,input: body.input, project_id: body.projectId, revision: body.revision, template_version_id: body.templateVersionId }),
     });
     const parsed = parseWithFallback<WorkflowInputInstance | null>(raw, WorkflowInputInstanceSchema.nullable(), null, { endpoint: "save workflow input instance" });
     if (!parsed) throw new Error("The saved input instance response could not be read. Reload before saving again.");

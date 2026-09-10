@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { WorkflowInputInstances } from "./workflow-input-instances";
 import { ChevronDown, ChevronRight, FolderKanban, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -374,21 +373,6 @@ function WorkflowRunDialogForm({
         )}
 
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4">
-          <WorkflowInputInstances
-            key={templateId}
-            templateId={templateId}
-            templateVersionId={templateVersionId}
-            values={values}
-            projectId={projectId}
-            disabled={refusal === "archived" || runTemplate.isPending || needsReview}
-            onLoad={(input, project, versionId) => {
-              setUseDefaults(input === null);
-              setLoadedVersion(input === null ? templateVersionId : versionId ?? null);
-              setValues(input ?? {});
-              setProjectId(project);
-              setTouched({});
-            }}
-          />
           {needsReview && (
             <div role="alert" className="flex flex-col gap-2 rounded-md border p-3 text-caption">
               <p>{t(($) => $.input_instances.changed)}</p>
@@ -651,7 +635,7 @@ function selectedProjectOf<T extends { id: string }>(
  * still answer and the run can still start, where refusing to render would make a
  * template the server considers valid unrunnable.
  */
-function RunFormControl({
+export function RunFormControl({
   field,
   value,
   disabled,

@@ -27,25 +27,37 @@ To expose the same seven actions over MCP stdio, run `multica workflow mcp serve
 
 ## Saved input instances (web and desktop)
 
-The Run dialog supports named input instances per workspace and template. Save,
-update, select or delete an instance without starting a run. Instances store the
-input field values, optional project, creator, timestamps, and the displayed
-published version ID. The editor's **Save as instance** button opens these controls
-with unsaved Input text; incomplete inputs can be saved before publishing.
-Loading replaces values exactly, without merging missing keys with node defaults.
-A different publication or removed fields requires explicit review; confirming
-changes only the current form until **Save changes** is chosen. New runs pin the
-displayed published version through the optional X-Workflow-Template-Version-ID
-HTTP header, preventing a concurrent publication from changing the submitted
-form's graph. The server checks workspace/template ownership and published status.
-Required fields, project access, and image references are revalidated before runs.
-Edits use the instance revision to reject concurrent overwrites. Existing runs
-retain their own input when a saved instance changes or is deleted.
+**Save as instance** opens a dedicated create dialog with Cancel / Create instance.
+It captures current unsaved Input text, the declared form and instance-level image
+reference. Saving never creates an issue, run or agent task. Incomplete inputs and
+unpublished declarations can be saved; the latter remain pending version binding.
 
-The UI starts each new run with a fresh idempotency key, retaining that key for
-retries of the same submission. These instance CRUD endpoints are UI HTTP APIs
-under `/api/workflow-templates/{id}/input-instances`, not workflow action names.
-See `references/input-instances-source-map.md` for implementation evidence.
+Use **Workflow instances** in the workflow area, or the workflow detail's
+Canvas / Instances / Run history tabs. Instances have durable URLs at
+/{workspace}/workflow-instances/{id}. Their detail page edits inputs, explicitly
+saves changes, duplicates, archives/restores and lists independent run history.
+
+**Run saved inputs** sends only instance identity, expected revision and a retry
+key; the engine locks and reads the saved snapshot in its StartRun transaction.
+**Run these edits only** sends the complete temporary snapshot without updating
+the instance. **Rerun this snapshot** uses that historical run's version, input
+and resource references. Each new execution gets a fresh key; network retries
+reuse it. Historical input and provenance never change with instance updates.
+
+An instance stays on its original published version after a new publication.
+Upgrading is explicit: review old/new fields and input mode, preserve or explicitly
+remove obsolete values, then save the version binding. Unknown fields, incomplete
+required input, invalid options and inaccessible resources block execution.
+Image uploads store attachment IDs, never signed URLs. Instance updates use
+revision compare-and-swap; conflicts preserve the editor's values.
+Archiving stops new starts and preserves history, without cancelling existing runs.
+
+The workspace-scoped UI APIs are /api/workflow-instances (list, detail,
+validation, run, history, archive/restore), with create/update under
+/api/workflow-templates/{id}/input-instances and immutable version reads under
+/api/workflow-templates/{id}/versions/{versionID}. These are HTTP UI endpoints,
+not new workflow action names. See references/input-instances-source-map.md.
+
 ## Editing workflow nodes (web and desktop)
 
 Select a canvas node and use **Delete node** in its properties panel, or press
@@ -63,12 +75,17 @@ the template draft. Opening Run reuses the input name as its title (or the templ
 name when blank), and key information as its description. The editor passes its
 current input text, so it need not be typed or saved again to submit that run.
 The run still pins the published graph and uses its declared fields; this does not
-publish draft graph changes. Manual edits and selected input instances override
-node defaults. Required custom fields still need values. Saved instances include
+publish draft graph changes. Manual edits in the Run dialog override node defaults. Instance pages use their
+own saved inputs without merging node defaults. Required custom fields still need values. Saved instances include
 the prefilled title and description, and each new dialog starts from node defaults.
 The card preserves multiline content and shows it in read-only templates too.
 Expand **Configure fields and image** on the card to edit its field declaration or
 image. Inline edits use the same undo/redo and Save flow as other graph edits.
+The workspace sidebar places **Workflow instances** directly below **Workflows**.
+The workspace instance page groups each page of results by parent workflow ID,
+with links to both the parent workflow and individual instances. Search, workflow
+filtering, archive visibility and pagination remain available. The template's
+own instance list remains scoped to that workflow.
 
 Codex workflow steps use a step-bound JSON Schema for their final response.
 Return the submission JSON object directly when the runtime requests structured

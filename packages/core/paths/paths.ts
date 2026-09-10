@@ -36,6 +36,8 @@ function workspaceScoped(slug: string) {
     // notification or a shared link with no template in hand, so nesting it
     // under a template id would force every one of those callers to look up an
     // id they do not need.
+    workflowInstances: () => `${ws}/workflow-instances`,
+    workflowInstanceDetail: (id:string) => `${ws}/workflow-instances/${encode(id)}`,
     workflowRuns: () => `${ws}/workflow-runs`,
     workflowRunDetail: (id: string) => `${ws}/workflow-runs/${encode(id)}`,
     agents: () => `${ws}/agents`,

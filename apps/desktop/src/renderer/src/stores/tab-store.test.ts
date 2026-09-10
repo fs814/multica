@@ -1163,3 +1163,60 @@ describe("mergePersistedTabs (rehydration, MUL-4370)", () => {
     expect(group.recentTabIds).toEqual([]);
   });
 });
+
+describe("unsaved workflow instance navigation", () => {
+  it("keeps a tab open when its leave event is cancelled", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const instanceId = store.addTab(
+      "/acme/workflow-instances/example",
+      "Instance",
+    );
+    const prevent = (event: Event) => event.preventDefault();
+    window.addEventListener("multica:before-navigate", prevent);
+    try {
+      store.closeTab(instanceId);
+      expect(
+        useTabStore
+          .getState()
+          .byWorkspace.acme.tabs.some((tab) => tab.id === instanceId),
+      ).toBe(true);
+    } finally {
+      window.removeEventListener("multica:before-navigate", prevent);
+    }
+    store.closeTab(instanceId);
+    expect(
+      useTabStore
+        .getState()
+        .byWorkspace.acme.tabs.some((tab) => tab.id === instanceId),
+    ).toBe(false);
+  });
+
+  it("keeps the active instance when switching tabs is cancelled", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const instanceId = store.addTab(
+      "/acme/workflow-instances/example",
+      "Instance",
+    );
+    store.setActiveTab(instanceId);
+    const prevent = (event: Event) => {
+      expect((event as CustomEvent).detail.pathname).toBe(
+        "/acme/workflow-instances/example",
+      );
+      event.preventDefault();
+    };
+    window.addEventListener("multica:before-navigate", prevent);
+    try {
+      store.setActiveTab(issuesId);
+      expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(
+        instanceId,
+      );
+    } finally {
+      window.removeEventListener("multica:before-navigate", prevent);
+    }
+    store.setActiveTab(issuesId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(issuesId);
+  });
+});

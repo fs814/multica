@@ -156,7 +156,7 @@ function LoadingSkeleton() {
   );
 }
 
-export function WorkflowRunsPage() {
+export function WorkflowRunsPage({templateId}:{templateId?:string}={}) {
   const { t, i18n } = useT("workflows");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
@@ -167,7 +167,7 @@ export function WorkflowRunsPage() {
     isLoading,
     error: listError,
     refetch,
-  } = useQuery(workflowRunListOptions(wsId));
+  } = useQuery(workflowRunListOptions(wsId, {template_id:templateId}));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

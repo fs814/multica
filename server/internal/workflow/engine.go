@@ -376,6 +376,7 @@ const (
 
 // StartRunInput describes a new Run.
 type StartRunInput struct {
+	Instance    *InstanceStart
 	WorkspaceID pgtype.UUID
 	TemplateID  pgtype.UUID
 	// TemplateVersionID pins the graph. Zero means "resolve the template's
@@ -471,6 +472,10 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 	var result StartRunResult
 	effects := &txEffects{}
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
+		instance, err := e.resolveInstanceStart(ctx, q, &in)
+		if err != nil {
+			return err
+		}
 		version, err := e.resolveVersion(ctx, q, in.WorkspaceID, in.TemplateID, in.TemplateVersionID)
 		if err != nil {
 			return err
@@ -518,11 +523,15 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 				return err
 			}
 			if entry.EffectiveInputMode() == InputModeImage {
+				imageID := entry.ImageAttachmentID
+				if in.Instance != nil && in.Instance.ImageAttachmentID != nil {
+					imageID = *in.Instance.ImageAttachmentID
+				}
 				imageAttachment, err = resolveWorkflowImageAttachment(
 					ctx,
 					q,
 					in.WorkspaceID,
-					entry.ImageAttachmentID,
+					imageID,
 				)
 				if err != nil {
 					return err
@@ -626,7 +635,20 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
 			}
 		}
 
+		var instanceID pgtype.UUID
+		var instanceRevision pgtype.Int8
+		var instanceName, inputSource pgtype.Text
+		var inputProject pgtype.UUID
+		if instance != nil {
+			instanceID = instance.ID
+			instanceRevision = pgtype.Int8{Int64: instance.Revision, Valid: true}
+			instanceName = textOrNull(instance.Name)
+			inputSource = textOrNull(in.Instance.Mode)
+			inputProject = in.Issue.ProjectID
+		}
 		run, err := q.CreateWorkflowRun(ctx, db.CreateWorkflowRunParams{
+			InputInstanceID: instanceID, InputInstanceRevision: instanceRevision,
+			InputInstanceName: instanceName, InputSource: inputSource, InputProjectID: inputProject,
 			WorkspaceID:           in.WorkspaceID,
 			TemplateID:            in.TemplateID,
 			TemplateVersionID:     version.ID,
@@ -732,7 +754,7 @@ func (e *Engine) resolveVersion(ctx context.Context, q *db.Queries, workspaceID,
 		}
 		// Only a published version may execute: a draft is still mutable, and a
 		// Run pinned to it could observe its graph change mid-flight.
-		if v.Status != "published" {
+		if v.Status != "published" || v.TemplateID != templateID {
 			return db.WorkflowTemplateVersion{}, newEngineError(ErrCodeInvalidDefinition,
 				fmt.Sprintf("template version %d is %s, not published", v.Version, v.Status))
 		}

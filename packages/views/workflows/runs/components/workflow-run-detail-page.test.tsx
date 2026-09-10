@@ -464,6 +464,7 @@ describe("trace", () => {
             rationale: "",
             confidence: null,
             root_cause: null,
+            raw_result: "Which connection rules should change? <script>untrusted</script>",
             validation_errors: ['artifact.summary: expected string, got number'],
             submitted_at: "2026-06-01T10:05:00Z",
           },
@@ -476,6 +477,9 @@ describe("trace", () => {
         "artifact.summary: expected string, got number",
       ),
     ).toBeInTheDocument();
+    const original = screen.getByText("Which connection rules should change? <script>untrusted</script>");
+    expect(original.closest("details")).toHaveAttribute("open");
+    expect(original.querySelector("script")).toBeNull();
   });
 
   it("does not stringify a structured artifact summary as prose", async () => {

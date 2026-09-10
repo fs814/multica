@@ -446,7 +446,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// Lark's long-conn protocol over gorilla/websocket and wraps
 				// every read with a ctx-cancel watchdog so lease loss /
 				// shutdown breaks the blocking ReadMessage in bounded time —
-				// the invariant §4.4 leans on. If the endpoint fetcher fails
+				// the invariant `4.4 leans on. If the endpoint fetcher fails
 				// to initialize (bad MULTICA_LARK_CALLBACK_BASE_URL or
 				// similar), buildLarkConnector logs and falls back to the
 				// NoopConnector so the lease / supervisor lifecycle still runs
@@ -1575,6 +1575,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// graph and budget every future Run pins, running an
 					// already-published process is the ordinary use of it.
 					r.Post("/run", h.RunWorkflowTemplate)
+					r.Get("/versions/{versionID}", h.GetWorkflowInstanceVersion)
 					r.Get("/input-instances", h.ListWorkflowInputInstances)
 					r.Post("/input-instances", h.SaveWorkflowInputInstance)
 					r.Put("/input-instances/{instanceID}", h.SaveWorkflowInputInstance)
@@ -1589,6 +1590,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// runaway Run at 3am is rarely the one who started it, and the
 			// engine independently pins accountability on the Run's
 			// accountable_user_id for routing.
+			r.Route("/api/workflow-instances", func(r chi.Router) {
+				r.Get("/", h.BrowseWorkflowInstances)
+				r.Route("/{instanceID}", func(r chi.Router) {
+					r.Get("/", h.GetWorkflowInstance)
+					r.Post("/archive", h.ArchiveWorkflowInstance)
+					r.Get("/validate", h.ValidateWorkflowInstance)
+					r.Get("/runs", h.ListWorkflowInstanceRuns)
+					r.Post("/run", h.RunWorkflowInstance)
+				})
+			})
 			r.Route("/api/workflow-runs", func(r chi.Router) {
 				r.Get("/", h.ListWorkflowRuns)
 				r.Route("/{id}", func(r chi.Router) {
@@ -1883,7 +1894,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 // to /callback/ws/endpoint directly with app_id/app_secret. The
 // connector wraps every read with a ctx-cancel watchdog so lease loss /
 // shutdown breaks the blocking ReadMessage in bounded time — the
-// invariant §4.4 leans on. A single connector instance serves every
+// invariant `4.4 leans on. A single connector instance serves every
 // installation; its Run is parameterized by the installation, so the
 // feishuChannel hands it the per-installation row.
 //

@@ -22,8 +22,10 @@ export function NavigationProvider({
   const wrapped = useMemo<NavigationAdapter>(
     () => ({
       ...value,
-      push: (path: string) => startTransition(() => value.push(path)),
-      replace: (path: string) => startTransition(() => value.replace(path)),
+      push: (path: string) => {if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))startTransition(() => value.push(path));},
+      replace: (path: string) => {if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))startTransition(() => value.replace(path));},
+      back:()=>{if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))value.back();},
+      forward:()=>{if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))value.forward?.();},
     }),
     [value],
   );

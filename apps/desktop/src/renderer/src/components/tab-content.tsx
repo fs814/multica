@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { RouterProvider } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ScrollRestorationProvider } from "@multica/views/platform";
@@ -33,14 +33,11 @@ export function TabContent() {
   const generation = useTabStore((s) => s.mountGeneration);
   const qc = useQueryClient();
 
-  // Wire the Coordinator before the first host mount so the router already
-  // projects the active session's URL when RouterProvider first renders.
-  // useState's initializer is the earliest once-per-tree hook slot; the call
-  // is idempotent.
-  useState(() => {
-    initTabCoordinator();
-    return true;
-  });
+  // Ensure the current Coordinator is connected before rendering its router.
+  // Fast Refresh preserves hook state while replacing the Coordinator module,
+  // so a useState initializer would leave the replacement unsubscribed.
+  // The call is idempotent and does no work once connected.
+  initTabCoordinator();
 
   useEffect(() => {
     registerCoordinatorQueryClient(qc);

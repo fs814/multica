@@ -1,3 +1,5 @@
+import { WorkflowInstancesPage } from "@multica/views/workflows/components";
+import { WorkflowInstanceDetailPage } from "./pages/workflow-instance-detail-page";
 import { useEffect } from "react";
 import { createMemoryRouter, Outlet, useMatches } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
@@ -186,6 +188,16 @@ export const appRoutes: RouteObject[] = [
           // Runs are a top-level segment rather than `workflows/:id/runs/:runId`
           // — a run is reached from an issue or a shared link with no template
           // in hand. See the paths module.
+          {
+            path: "workflow-instances",
+            element: <WorkflowInstancesPage />,
+            handle: { title: "Workflow instances" },
+          },
+          {
+            path: "workflow-instances/:id",
+            element: <WorkflowInstanceDetailPage />,
+            handle: { title: "Workflow instance" },
+          },
           {
             path: "workflow-runs",
             element: <WorkflowRunsPage />,

@@ -624,6 +624,16 @@ export const useTabStore = create<TabStore>()(
         const hit = findTabLocation(byWorkspace, tabId);
         if (!hit) return;
         const { slug, group, index } = hit;
+        if (
+          typeof window !== "undefined" &&
+          !window.dispatchEvent(
+            new CustomEvent("multica:before-navigate", {
+              cancelable: true,
+              detail: { pathname: group.tabs[index]!.url.split(/[?#]/)[0] },
+            }),
+          )
+        )
+          return;
 
         if (group.tabs.length === 1) {
           // Last tab in this workspace — reseed a default so the workspace
@@ -666,6 +676,24 @@ export const useTabStore = create<TabStore>()(
         if (!hit) return;
         const { slug, group } = hit;
         if (slug === activeWorkspaceSlug && group.activeTabId === tabId) return;
+        const activeGroup = activeWorkspaceSlug
+          ? byWorkspace[activeWorkspaceSlug]
+          : undefined;
+        const activeTab = activeGroup?.tabs.find(
+          (tab) => tab.id === activeGroup.activeTabId,
+        );
+        if (
+          activeTab &&
+          typeof window !== "undefined" &&
+          !window.dispatchEvent(
+            new CustomEvent("multica:before-navigate", {
+              cancelable: true,
+              detail: { pathname: activeTab.url.split(/[?#]/)[0] },
+            }),
+          )
+        )
+          return;
+
         set({
           activeWorkspaceSlug: slug,
           byWorkspace: {

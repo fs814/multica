@@ -97,6 +97,9 @@ import {
 import { WorkflowEditorToolbar } from "../editor/editor-toolbar";
 import { WorkflowJsonView } from "../editor/json-view";
 import { WorkflowPropertiesPanel } from "../editor/properties-panel";
+import { CreateInstanceDialog } from "../instances/create-instance-dialog";
+import { WorkflowInstancesPage } from "../instances/workflow-instances-page";
+import { WorkflowRunsPage } from "../runs/components/workflow-runs-page";
 import { WorkflowRunDialog } from "../runs/components/workflow-run-dialog";
 import { WorkflowStatusBadge } from "./workflow-status-badge";
 
@@ -146,6 +149,8 @@ export function WorkflowTemplateDetailPage({
   const [validating, setValidating] = useState(false);
   const [publishPrompt, setPublishPrompt] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [instanceOpen,setInstanceOpen] = useState(false);
+  const [section,setSection] = useState<"canvas"|"instances"|"runs">("canvas");
   const [saveConflict, setSaveConflict] = useState<WorkflowDefinition | null>(
     null,
   );
@@ -580,7 +585,7 @@ export function WorkflowTemplateDetailPage({
             size="sm"
             variant="outline"
             disabled={archived || (hasPublishedVersion && !publishedReady)}
-            onClick={() => setRunOpen(true)}
+            onClick={() => setInstanceOpen(true)}
             aria-label={t(($) => $.input_instances.save)}
           >
             {t(($) => $.input_instances.save)}
@@ -668,7 +673,14 @@ export function WorkflowTemplateDetailPage({
         <ProblemsStrip report={problems} onDismiss={() => setProblems(null)} />
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <nav className="flex gap-2 border-b px-4 py-2" aria-label={t($=>$.page.title)}>
+        <Button variant={section==="canvas"?"secondary":"ghost"} onClick={()=>setSection("canvas")}>{t($=>$.instances.canvas)}</Button>
+        <Button variant={section==="instances"?"secondary":"ghost"} onClick={()=>setSection("instances")}>{t($=>$.instances.all)}</Button>
+        <Button variant={section==="runs"?"secondary":"ghost"} onClick={()=>setSection("runs")}>{t($=>$.instances.history)}</Button>
+      </nav>
+      {section==="instances"&&<WorkflowInstancesPage templateId={templateId}/>}
+      {section==="runs"&&<WorkflowRunsPage templateId={templateId}/>}
+      <div className={section==="canvas"?"flex min-h-0 flex-1":"hidden"}>
         {state.jsonOpen ? (
           // The JSON view replaces the canvas rather than sitting beside it: both
           // are full editors for the same graph, and two live editors for one
@@ -722,6 +734,10 @@ export function WorkflowTemplateDetailPage({
         />
       </div>
 
+      <CreateInstanceDialog templateId={templateId} templateName={data.name}
+        definition={working} publishedDefinition={published.data?.definition}
+        versionId={published.data?.versions.find(v=>v.status==="published"&&v.version===published.data?.current_version)?.id}
+        open={instanceOpen} onOpenChange={setInstanceOpen}/>
       <WorkflowRunDialog
         templateId={templateId}
         templateName={data.name}

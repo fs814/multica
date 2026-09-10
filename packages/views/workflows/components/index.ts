@@ -9,3 +9,6 @@ export {
   WorkflowRunDetailPage,
   WorkflowRunDialog,
 } from "../runs/components";
+
+export { WorkflowInstancesPage } from "../instances/workflow-instances-page";
+export { WorkflowInstanceDetailPage } from "../instances/workflow-instance-detail-page";

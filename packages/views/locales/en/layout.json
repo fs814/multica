@@ -14,7 +14,8 @@
     "usage": "Analytics",
     "runtimes": "Runtimes",
     "skills": "Skills",
-    "settings": "Settings"
+    "settings": "Settings",
+    "workflow_instances": "Workflow instances"
   },
   "tab": {
     "issue": "Issue",
@@ -29,7 +30,8 @@
     "runtime": "Runtime",
     "attachment": "Attachment",
     "create_agent": "Create Agent",
-    "unknown": "Unknown page"
+    "unknown": "Unknown page",
+    "workflow_instance": "Workflow instance"
   },
   "help": {
     "trigger": "Help",

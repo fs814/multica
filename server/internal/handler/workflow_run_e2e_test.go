@@ -853,6 +853,9 @@ func TestWorkflowRunProseReplyBlocksTheStep(t *testing.T) {
 	if blocked.Submission == nil {
 		t.Fatalf("the refused reply was not recorded; a human has nothing to inspect")
 	}
+	if blocked.Submission.RawResult == nil || !strings.Contains(*blocked.Submission.RawResult, "I reproduced the issue") {
+		t.Fatal("rejected agent reply is missing from the run detail API")
+	}
 	if blocked.Submission.Verdict != "blocked" {
 		t.Fatalf("recorded verdict = %q, want blocked", blocked.Submission.Verdict)
 	}
@@ -873,5 +876,33 @@ func TestWorkflowRunProseReplyBlocksTheStep(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("analyze has %d attempts after a blocked step, want 1", attempts)
+	}
+}
+
+func TestWorkflowStructuredClarificationRecordsBlockedVerdict(t *testing.T) {
+	withWorkflowEngineForTest(t)
+	env := newWorkflowE2EEnv(t, "structured_clarification")
+	ctx := context.Background()
+	run := decodeWorkflowRunDetail(t, env.startRun(t, "Change workflow connections", "Analyze the requested visual changes"), "start")
+	step, _ := findWorkflowStep(run.Steps, "analyze")
+	claimed := env.claimNextTask(t)
+	if _, err := testHandler.TaskService.StartTask(ctx, parseUUID(claimed.ID)); err != nil {
+		t.Fatal(err)
+	}
+	reply, _ := json.Marshal(map[string]any{"schema_version": 1, "step_instance_id": step.ID, "verdict": "blocked", "artifact": map[string]any{"type": "analysis", "summary": "Need clarification", "references": []string{}}, "rationale": "Should connection changes affect execution order?"})
+	envelope, _ := json.Marshal(map[string]any{"task_id": claimed.ID, "output": string(reply)})
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID), envelope, "", "", false, ""); err != nil {
+		t.Fatal(err)
+	}
+	after := env.getRun(t, run.ID)
+	blocked, _ := findWorkflowStep(after.Steps, "analyze")
+	if after.BlockedReason == nil || *after.BlockedReason != workflow.ReasonAgentVerdictBlocked {
+		t.Fatalf("wrong reason: %+v", after.BlockedReason)
+	}
+	if blocked.Submission == nil || blocked.Submission.Rationale != "Should connection changes affect execution order?" || blocked.Submission.RawResult == nil {
+		t.Fatalf("clarification lost: %+v", blocked.Submission)
+	}
+	if _, ok := findWorkflowStep(after.Steps, "implement"); ok {
+		t.Fatal("clarification must not advance the workflow")
 	}
 }

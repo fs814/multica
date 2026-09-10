@@ -9,7 +9,7 @@
  * It is pure and React-free: the visual is a descriptor (rendered by
  * `@multica/views`' `ResourceLeadingVisual`) and the title is a spec that is
  * either literal text or a localization key (localized by the view layer).
- * Keeping it pure makes the whole "URL + data → icon + title" matrix unit
+ * Keeping it pure makes the whole "URL + data â†’ icon + title" matrix unit
  * testable without React, which is exactly what the tab behavior needs guarded.
  *
  * Missing entity data is a first-class state: a resource whose data has not
@@ -40,6 +40,7 @@ export type TabLabelKey =
   | "issue"
   | "project"
   | "autopilot"
+  | "workflow_instance"
   | "workflow_run"
   | "agent"
   | "member"
@@ -84,6 +85,7 @@ export interface TabEntityData {
    * composes one from the template name plus the input title - which is what a
    * reader with four run tabs open actually needs to tell them apart.
    */
+  workflowInstance?:{label:string};
   workflowRun?: { label: string };
   /** Resolved display name for an actor subject. */
   actorName?: string;
@@ -111,7 +113,7 @@ const ACTOR_LABEL: Record<TabActorType, TabLabelKey> = {
   squad: "squad",
 };
 
-// Extension → file-type icon. The preview URL only carries the filename, so the
+// Extension â†’ file-type icon. The preview URL only carries the filename, so the
 // extension is the available signal; anything unrecognized uses the generic
 // File glyph.
 const EXTENSION_ICON: Record<string, RouteIconName> = {};
@@ -176,6 +178,8 @@ export function resolveTabPresentation(
         visual: { kind: "icon", icon: "Zap" },
         title: textOr(data.autopilot?.title, "autopilot"),
       };
+    case "workflowInstance":
+      return {visual:{kind:"icon",icon:"Workflow"},title:textOr(data.workflowInstance?.label,"workflow_instance")};
     case "workflowRun":
       // `Play`, matching the runs page - a run tab is an execution, and the
       // editor's `Workflow` glyph on it would read as "the graph".
