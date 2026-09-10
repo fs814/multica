@@ -109,7 +109,8 @@ export function CreateWorkflowDialog({
       name: trimmedName,
       description: description.trim(),
       definition: {
-        schema_version: 1,
+        schema_version: 2,
+        data_edges: [],
         entry_node: "input",
         nodes: [
           {
@@ -117,6 +118,8 @@ export function CreateWorkflowDialog({
             type: "input",
             name: t(($) => $.page.create.default_input_name),
             next: ["end"],
+            next_ids: ["input-end"],
+            output_ports: [{id:"title",type:"string"},{id:"description",type:"string"}],
             input_fields: [],
           },
           {
@@ -124,6 +127,7 @@ export function CreateWorkflowDialog({
             type: "end",
             name: t(($) => $.page.create.default_end_name),
             next: [],
+            next_ids: [],
           },
         ],
       },

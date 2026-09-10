@@ -21,6 +21,7 @@ import { WorkflowEdge } from "./workflow-edge";
 // One component for all three kinds - it reads the kind out of `data` and picks
 // its stroke from a table. See workflow-edge.tsx on why that is one file.
 export const workflowEdgeTypes = {
+  data: WorkflowEdge,
   next: WorkflowEdge,
   branch: WorkflowEdge,
   rework: WorkflowEdge,

@@ -700,5 +700,24 @@
     "source_saved": "保存済み入力",
     "source_temporary": "今回のみの入力",
     "source_history": "過去の入力"
+  },
+  "graph_v2": {
+    "ports": "ポート",
+    "inputs": "入力",
+    "outputs": "出力",
+    "port_id": "ポート ID",
+    "port_type": "データ型",
+    "required": "必須",
+    "collection": "コレクション",
+    "remove_port": "ポートを削除",
+    "add_port": "ポートを追加",
+    "attempts": "最大試行回数（初回を含む）",
+    "compare_input": "比較する入力",
+    "verdict": "結果／デフォルト",
+    "equals": "等しい値（JSON）",
+    "priority": "優先度を上げる",
+    "wait_active": "有効な先行ノードをすべて待機",
+    "reject": "却下",
+    "rejected": "却下しました。依存する処理はスキップされます。"
   }
 }

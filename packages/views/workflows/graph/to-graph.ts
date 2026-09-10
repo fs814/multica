@@ -75,6 +75,7 @@ function definitionNodes(def: WorkflowDefinition): FlowNode[] {
         nodeKey: node.key,
         type: toEditorNodeType(node.type),
         isEntry: node.key === def.entry_node && node.key !== "",
+        schemaVersion: def.schema_version,
         node,
       },
     });
@@ -99,6 +100,26 @@ function definitionEdges(def: WorkflowDefinition): FlowEdge[] {
   for (const node of def.nodes) {
     edges.push(...nodeEdges(node));
   }
+  for (const edge of def.data_edges ?? []) {
+    const port = def.nodes
+      .find((n) => n.key === edge.source)
+      ?.output_ports?.find((p) => p.id === edge.source_port);
+    edges.push({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: `out:${edge.source_port}`,
+      targetHandle: `in:${edge.target_port}`,
+      type: "data",
+      data: {
+        kind: "data",
+        sourceKey: edge.source,
+        targetKey: edge.target,
+        dataType: port?.type ?? "any",
+        order: edge.order,
+      },
+    });
+  }
 
   return edges;
 }
@@ -116,11 +137,15 @@ export function nodeEdges(node: WorkflowNode): FlowEdge[] {
   const edges: FlowEdge[] = [];
 
   node.next.forEach((target, index) => {
-    edges.push(makeEdge("next", node, index, target));
+    const edge = makeEdge("next", node, index, target);
+    if (node.next_ids?.[index]) edge.id = node.next_ids[index];
+    edges.push(edge);
   });
 
   node.branches.forEach((branch, index) => {
     const edge = makeEdge("branch", node, index, branch.target);
+    edge.sourceHandle = `branch-${index}`;
+    if (branch.id) edge.id = branch.id;
     edge.data = {
       ...edge.data!,
       verdict: branch.when_verdict,

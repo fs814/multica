@@ -18,6 +18,8 @@ export {
   UNREADABLE_WORKFLOW_VALIDATION_RESULT,
 } from "./schemas";
 export type {
+  WorkflowPort,
+  WorkflowDataEdge,
   WorkflowNode,
   WorkflowNodeInput,
   WorkflowInputField,
@@ -77,3 +79,5 @@ export * from "./input-instances";
 export * from "./input-instance-schemas";
 
 export { workflowRunInputDefaults } from "./run-input-defaults";
+
+export { validateGraphV2, defaultOutputPorts } from "./graph-v2";

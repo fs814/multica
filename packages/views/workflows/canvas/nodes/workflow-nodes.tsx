@@ -305,7 +305,7 @@ export const JoinNode = memo(function JoinNode({
       typeLabel={t(($) => $.canvas.node_type.join)}
       summary={
         <WorkflowNodeSummary icon={Merge}>
-          {t(($) => $.canvas.summary.join_sources, { count })}
+          {data.schemaVersion === 2 ? t(($) => $.graph_v2.wait_active) : t(($) => $.canvas.summary.join_sources, { count })}
         </WorkflowNodeSummary>
       }
     />

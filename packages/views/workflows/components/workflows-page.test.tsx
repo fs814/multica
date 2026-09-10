@@ -85,10 +85,12 @@ vi.mock("@multica/core/hooks", () => ({
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
     workflowDetail: (id: string) => `/acme/workflows/${id}`,
+    workflowInstances: () => "/acme/workflow-instances",
   }),
 }));
 
 vi.mock("../../navigation", () => ({
+  AppLink: ({href,children}: {href:string;children:ReactNode}) => <a href={href}>{children}</a>,
   useNavigation: () => ({ push: mocks.push }),
   useRowLink: () => () => ({}),
 }));
@@ -244,7 +246,8 @@ describe("WorkflowsPage creation", () => {
         name: "Release Review",
         description: "Validate the release candidate.",
         definition: {
-          schema_version: 1,
+          schema_version: 2,
+          data_edges: [],
           entry_node: "input",
           nodes: [
             {
@@ -252,6 +255,8 @@ describe("WorkflowsPage creation", () => {
               type: "input",
               name: "Input",
               next: ["end"],
+              next_ids: ["input-end"],
+              output_ports: [{id:"title",type:"string"},{id:"description",type:"string"}],
               input_fields: [],
             },
             {
@@ -259,6 +264,7 @@ describe("WorkflowsPage creation", () => {
               type: "end",
               name: "End",
               next: [],
+              next_ids: [],
             },
           ],
         },

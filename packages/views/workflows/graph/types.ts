@@ -107,6 +107,7 @@ export type EditorNode = {
    * than being read back off the base definition.
    */
   isEntry: boolean;
+  schemaVersion?: number;
   /**
    * The complete source node, verbatim. Renderers read badge/key/name/routing
    * from here, the properties panel edits it, and `graphToDefinition` spreads
@@ -135,7 +136,7 @@ export type FlowNode = Node<EditorNode, EditorNodeType>;
 // Edge kinds
 // ---------------------------------------------------------------------------
 
-export const EDGE_KINDS = ["next", "branch", "rework"] as const;
+export const EDGE_KINDS = ["next", "branch", "rework", "data"] as const;
 
 /**
  * - `next`   - a node's `next[]`: the forward spine.
@@ -152,6 +153,8 @@ export function isForwardEdgeKind(kind: EdgeKind): boolean {
 
 export type EditorEdge = {
   kind: EdgeKind;
+  dataType?: string;
+  order?: number;
   /** Source node key (== xyflow `source`), repeated for renderer convenience. */
   sourceKey: string;
   /** Target node key (== xyflow `target`). */

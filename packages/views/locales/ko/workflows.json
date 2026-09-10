@@ -700,5 +700,24 @@
     "source_saved": "저장된 입력",
     "source_temporary": "이번 실행의 임시 입력",
     "source_history": "이전 실행의 입력"
+  },
+  "graph_v2": {
+    "ports": "포트",
+    "inputs": "입력",
+    "outputs": "출력",
+    "port_id": "포트 ID",
+    "port_type": "데이터 유형",
+    "required": "필수",
+    "collection": "컬렉션",
+    "remove_port": "포트 삭제",
+    "add_port": "포트 추가",
+    "attempts": "최대 시도 횟수 (첫 시도 포함)",
+    "compare_input": "비교 입력",
+    "verdict": "결과 / 기본값",
+    "equals": "같은 값 (JSON)",
+    "priority": "우선순위 높이기",
+    "wait_active": "활성 선행 노드를 모두 기다립니다",
+    "reject": "거부",
+    "rejected": "거부되었습니다. 종속 작업은 건너뜁니다."
   }
 }

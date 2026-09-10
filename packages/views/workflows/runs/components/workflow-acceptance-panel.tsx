@@ -4,10 +4,7 @@ import { useState } from "react";
 import { CircleCheck, ScrollText, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { useDecideWorkflowAcceptance } from "@multica/core/workflows";
-import type {
-  WorkflowAcceptance,
-  WorkflowStep,
-} from "@multica/core/workflows";
+import type { WorkflowAcceptance, WorkflowStep } from "@multica/core/workflows";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   Select,
@@ -72,9 +69,12 @@ export function WorkflowAcceptancePanel({
   const [target, setTarget] = useState("");
 
   const targets = acceptance.rework_targets;
-  const canReject = targets.length > 0;
+  const canReject =
+    targets.length > 0 || acceptance.can_reject_without_rework === true;
   const canConfirmReject =
-    reason.trim().length > 0 && target !== "" && !decide.isPending;
+    reason.trim().length > 0 &&
+    (target !== "" || acceptance.can_reject_without_rework === true) &&
+    !decide.isPending;
 
   const handleAccept = async () => {
     try {
@@ -98,7 +98,11 @@ export function WorkflowAcceptancePanel({
         reason: reason.trim(),
         rework_target: target,
       });
-      toast.success(t(($) => $.runs.acceptance.toast_rejected));
+      toast.success(
+        acceptance.can_reject_without_rework
+          ? t(($) => $.graph_v2.rejected)
+          : t(($) => $.runs.acceptance.toast_rejected),
+      );
       // Only cleared on success. A failed submit keeps the reviewer's text: it
       // is the most expensive thing on this panel to retype, and the failure is
       // usually transport, not content.
@@ -125,7 +129,10 @@ export function WorkflowAcceptancePanel({
       className="rounded-lg border border-primary/40 bg-primary/5 p-4"
     >
       <h2 className="flex items-center gap-2 text-body font-medium">
-        <CircleCheck className="size-4 shrink-0 text-primary" aria-hidden="true" />
+        <CircleCheck
+          className="size-4 shrink-0 text-primary"
+          aria-hidden="true"
+        />
         {t(($) => $.runs.acceptance.title)}
       </h2>
 
@@ -208,36 +215,38 @@ export function WorkflowAcceptancePanel({
               </span>
             </label>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-caption font-medium">
-                {t(($) => $.runs.acceptance.target_label)}
-              </span>
-              <Select<string>
-                items={targets.map((node) => ({ value: node, label: node }))}
-                value={target}
-                onValueChange={(next) => {
-                  if (next === null) return;
-                  setTarget(next);
-                }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  aria-label={t(($) => $.runs.acceptance.target_label)}
-                  className="w-full min-w-0"
+            {targets.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-caption font-medium">
+                  {t(($) => $.runs.acceptance.target_label)}
+                </span>
+                <Select<string>
+                  items={targets.map((node) => ({ value: node, label: node }))}
+                  value={target}
+                  onValueChange={(next) => {
+                    if (next === null) return;
+                    setTarget(next);
+                  }}
                 >
-                  <SelectValue
-                    placeholder={t(($) => $.runs.acceptance.target_unset)}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {targets.map((node) => (
-                    <SelectItem key={node} value={node}>
-                      {node}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                  <SelectTrigger
+                    size="sm"
+                    aria-label={t(($) => $.runs.acceptance.target_label)}
+                    className="w-full min-w-0"
+                  >
+                    <SelectValue
+                      placeholder={t(($) => $.runs.acceptance.target_unset)}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targets.map((node) => (
+                      <SelectItem key={node} value={node}>
+                        {node}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2">
               <Button
@@ -256,7 +265,9 @@ export function WorkflowAcceptancePanel({
               >
                 {decide.isPending
                   ? t(($) => $.runs.acceptance.rejecting)
-                  : t(($) => $.runs.acceptance.reject)}
+                  : acceptance.can_reject_without_rework
+                    ? t(($) => $.graph_v2.reject)
+                    : t(($) => $.runs.acceptance.reject)}
               </Button>
             </div>
           </div>
@@ -279,7 +290,9 @@ export function WorkflowAcceptancePanel({
                 onClick={() => setRejecting(true)}
               >
                 <Undo2 className="mr-1 size-3.5" aria-hidden="true" />
-                {t(($) => $.runs.acceptance.reject)}
+                {acceptance.can_reject_without_rework
+                  ? t(($) => $.graph_v2.reject)
+                  : t(($) => $.runs.acceptance.reject)}
               </Button>
             ) : (
               // Stated rather than silently absent: a reviewer who expects a

@@ -51,9 +51,10 @@ func (e *Engine) requestAcceptance(ctx context.Context, q *db.Queries, in activa
 	}
 
 	acceptanceCtx := map[string]any{
-		"criteria": in.Node.AcceptanceCriteria,
-		"evidence": evidence,
-		"targets":  in.Node.ReworkTargets,
+		"can_reject_without_rework": in.Def.SchemaVersion == GraphSchemaVersion,
+		"criteria":                  in.Node.AcceptanceCriteria,
+		"evidence":                  evidence,
+		"targets":                   in.Node.ReworkTargets,
 	}
 
 	if _, err := q.CreateWorkflowAcceptance(ctx, db.CreateWorkflowAcceptanceParams{
@@ -253,6 +254,10 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 			if err != nil {
 				return fmt.Errorf("block step on invalid submission: %w", err)
 			}
+			if def.SchemaVersion == GraphSchemaVersion {
+				out = blocked
+				return e.advanceGraphV2(ctx, q, run, def, effects, in.ActorType, in.ActorID)
+			}
 			if err := e.blockRun(ctx, q, run, step, ReasonSubmissionContractInvalid, joinProblems(problems), in.ActorType, in.ActorID); err != nil {
 				return err
 			}
@@ -409,6 +414,9 @@ func (e *Engine) resolveSubmittedStep(
 		return db.WorkflowStepInstance{}, err
 	}
 
+	if def.SchemaVersion == GraphSchemaVersion {
+		return terminal, e.advanceGraphV2(ctx, q, run, def, effects, actorType, actorID)
+	}
 	if terminal.ParentStepID.Valid {
 		if err := e.progressJoinFromChild(ctx, q, run, def, terminal, node, effects, actorType, actorID); err != nil {
 			return db.WorkflowStepInstance{}, err
@@ -462,6 +470,9 @@ func (e *Engine) applyFailurePolicy(
 	actorType string,
 	actorID pgtype.UUID,
 ) error {
+	if def.SchemaVersion == GraphSchemaVersion {
+		return e.advanceGraphV2(ctx, q, run, def, effects, actorType, actorID)
+	}
 	switch node.EffectiveOnFailure() {
 	case FailurePolicyFail:
 		if _, err := q.FailWorkflowRun(ctx, db.FailWorkflowRunParams{
@@ -547,6 +558,9 @@ func (e *Engine) advanceToNext(
 	actorType string,
 	actorID pgtype.UUID,
 ) error {
+	if def.SchemaVersion == GraphSchemaVersion {
+		return e.advanceGraphV2(ctx, q, run, def, effects, actorType, actorID)
+	}
 	if len(node.Next) == 0 {
 		// Only End legitimately has no successor, and End completes the Run in
 		// completeAtEnd rather than arriving here.
@@ -875,10 +889,10 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 			status = "rejected"
 			// The target must be one the graph permits: an arbitrary target would
 			// let a reviewer reroute work in ways the author never validated.
-			if in.ReworkTarget == "" {
+			if in.ReworkTarget == "" && def.SchemaVersion != GraphSchemaVersion {
 				return newEngineError(ErrCodeAcceptanceConflict, "a rejection requires a rework target")
 			}
-			if !node.AllowsReworkTo(in.ReworkTarget) {
+			if !node.AllowsReworkTo(in.ReworkTarget) && def.SchemaVersion != GraphSchemaVersion {
 				return newEngineError(ErrCodeAcceptanceConflict,
 					fmt.Sprintf("%q is not a permitted rework target for node %q", in.ReworkTarget, node.Key))
 			}
@@ -949,6 +963,9 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 			return fmt.Errorf("fail rejected acceptance step: %w", err)
 		}
 
+		if def.SchemaVersion == GraphSchemaVersion {
+			return e.advanceGraphV2(ctx, q, run, def, effects, "member", in.ReviewerUserID)
+		}
 		limits := e.limitsFor(run, def)
 		exhausted, err := e.reworkRoundLimitReached(ctx, q, run, limits)
 		if err != nil {

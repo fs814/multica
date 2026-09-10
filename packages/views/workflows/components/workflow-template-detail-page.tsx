@@ -1,4 +1,5 @@
 "use client";
+import { connectWorkflow } from "../graph/connect";
 
 /**
  * The workflow graph editor page.
@@ -80,8 +81,6 @@ import { useT } from "../../i18n";
 import { WorkflowCanvas } from "../canvas/workflow-canvas";
 import {
   clientValidateGraph,
-  editorEdgeId,
-  type FlowEdge,
   type WorkflowNodeType,
 } from "../graph";
 import { AddNodeToolbar } from "../editor/add-node-toolbar";
@@ -178,8 +177,8 @@ export function WorkflowTemplateDetailPage({
   // window takes the unsaved graph with it and there is nothing to recover from.
   // The page already treats losing unsaved work as serious enough to warrant a
   // dialog before publishing; a tab close loses strictly more, so it gets the
-  // browser's own confirmation. In-app navigation is not covered here — the
-  // router would have to own that — but this catches the destructive cases the
+  // browser's own confirmation. In-app navigation is not covered here â€” the
+  // router would have to own that â€” but this catches the destructive cases the
   // page can actually intercept (tab close, reload, desktop window close).
   useEffect(() => {
     if (!dirty) return;
@@ -414,33 +413,11 @@ export function WorkflowTemplateDetailPage({
   }, []);
 
   const handleConnect = useCallback(
-    (source: string, target: string) => {
-      // A dragged connection is a `next` edge. The alternatives would both be
-      // guesses the author did not make: `rework` would invent a bounded cycle,
-      // and `branch` would invent a verdict. The properties panel is where a
-      // verdict or a rework target is declared, and the canvas re-derives those
-      // edges from the node once it is.
-      //
-      // The id embeds the source's current out-degree so two edges out of the
-      // same node cannot collide - xyflow drops duplicate ids, which would hide
-      // the second edge from the author *and* from the validator's complaint.
-      const index = state.present.edges.filter(
-        (edge) => edge.source === source,
-      ).length;
-      const edge: FlowEdge = {
-        id: editorEdgeId("next", source, index, target),
-        source,
-        target,
-        type: "next",
-        data: { kind: "next", sourceKey: source, targetKey: target },
-      };
-      dispatch({
-        type: "set_graph",
-        nodes: state.present.nodes,
-        edges: [...state.present.edges, edge],
-      });
-    },
-    [state.present.edges, state.present.nodes],
+    (source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string) => {
+      const result = connectWorkflow(state.present.nodes, state.present.edges, state.present.base, source, target, sourceHandle, targetHandle, replacing);
+      if (result.error) { toast.error(result.error); return; }
+      dispatch({type:"set_graph",nodes:state.present.nodes,edges:result.edges});
+    }, [state.present],
   );
 
   // ---- render -------------------------------------------------------------
@@ -469,7 +446,7 @@ export function WorkflowTemplateDetailPage({
   // Publishability is a property of the VERSION list, not of the template's
   // status. `workflow_template.status` goes draft -> published and never back
   // (no query in workflow.sql returns it), while PATCH deliberately opens a NEW
-  // draft version when every existing version is published — that is how a
+  // draft version when every existing version is published â€” that is how a
   // published template is meant to evolve. Gating on `status === "draft"` would
   // therefore strand exactly that work: the edit saves, and the button that
   // could ship it never appears again.
@@ -480,7 +457,7 @@ export function WorkflowTemplateDetailPage({
 
   // Runnability is a property of the VERSION list too, and for the mirror-image
   // reason publishability is: a Run pins a *published* version, so what matters
-  // is whether one exists — not `status`, which a template reaches once and
+  // is whether one exists â€” not `status`, which a template reaches once and
   // never leaves, and not `current_version`, which the summary schema defaults
   // to null when it cannot be read (that default would hide a runnable
   // template's Run button on a transient contract drift, whereas an absent

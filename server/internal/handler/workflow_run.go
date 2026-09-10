@@ -136,10 +136,11 @@ type WorkflowStepResponse struct {
 // Reading them live would let a template edit change what an in-flight review is
 // judging, or offer a target the engine will then refuse.
 type WorkflowAcceptanceResponse struct {
-	ID     string  `json:"id"`
-	StepID string  `json:"step_id"`
-	Status string  `json:"status"`
-	Reason *string `json:"reason"`
+	CanRejectWithoutRework bool    `json:"can_reject_without_rework"`
+	ID                     string  `json:"id"`
+	StepID                 string  `json:"step_id"`
+	Status                 string  `json:"status"`
+	Reason                 *string `json:"reason"`
 	// ReworkTargetNodeKey is the target a rejection chose. Null while pending.
 	ReworkTargetNodeKey *string `json:"rework_target_node_key"`
 	// Criteria and ReworkTargets are always non-nil arrays so a client can
@@ -349,15 +350,20 @@ func workflowStepToResponse(step db.WorkflowStepInstance, agentName string, sub 
 // the UI offer a target the engine then refuses, which reads to a reviewer as a
 // broken button rather than as a graph that never allowed it.
 func workflowAcceptanceToResponse(a db.WorkflowAcceptance, node *workflow.Node) WorkflowAcceptanceResponse {
+	var acceptanceContext struct {
+		CanRejectWithoutRework bool `json:"can_reject_without_rework"`
+	}
+	_ = json.Unmarshal(a.Context, &acceptanceContext)
 	resp := WorkflowAcceptanceResponse{
-		ID:                  uuidToString(a.ID),
-		StepID:              uuidToString(a.StepID),
-		Status:              a.Status,
-		Reason:              textToPtr(a.Reason),
-		ReworkTargetNodeKey: textToPtr(a.ReworkTargetNodeKey),
-		Criteria:            []string{},
-		ReworkTargets:       []string{},
-		CreatedAt:           timestampToString(a.CreatedAt),
+		CanRejectWithoutRework: acceptanceContext.CanRejectWithoutRework,
+		ID:                     uuidToString(a.ID),
+		StepID:                 uuidToString(a.StepID),
+		Status:                 a.Status,
+		Reason:                 textToPtr(a.Reason),
+		ReworkTargetNodeKey:    textToPtr(a.ReworkTargetNodeKey),
+		Criteria:               []string{},
+		ReworkTargets:          []string{},
+		CreatedAt:              timestampToString(a.CreatedAt),
 	}
 	if node != nil {
 		if len(node.AcceptanceCriteria) > 0 {

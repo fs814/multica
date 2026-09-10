@@ -52,6 +52,7 @@ import {
   type FlowNode,
   type WorkflowNodeType,
 } from "../graph";
+import { defaultOutputPorts } from "@multica/core/workflows";
 import type { WorkflowDefinition, WorkflowNode } from "@multica/core/workflows";
 
 /** One point in time: the canvas plus the envelope the canvas does not model. */
@@ -149,7 +150,9 @@ export function initialWorkflowEditorState(): WorkflowEditorState {
 }
 
 /** The graph a save would send. Cheap enough to call on every render. */
-export function workingDefinition(state: WorkflowEditorState): WorkflowDefinition {
+export function workingDefinition(
+  state: WorkflowEditorState,
+): WorkflowDefinition {
   return graphToDefinition(
     state.present.nodes,
     state.present.edges,
@@ -210,9 +213,8 @@ function commit(
   next: EditorSnapshot,
 ): WorkflowEditorState {
   const changed =
-    serialize(
-      graphToDefinition(next.nodes, next.edges, next.base),
-    ) !== serialize(workingDefinition(state));
+    serialize(graphToDefinition(next.nodes, next.edges, next.base)) !==
+    serialize(workingDefinition(state));
 
   if (!changed) return { ...state, present: next };
 
@@ -259,15 +261,29 @@ function replaceNode(nodes: FlowNode[], node: WorkflowNode): FlowNode[] {
  */
 function resyncNodeEdges(edges: FlowEdge[], node: WorkflowNode): FlowEdge[] {
   const id = editorNodeId(node.key);
-  const untouched = edges.filter((edge) => edge.source !== id);
+  const untouched = edges
+    .filter((edge) => edge.source !== id || edge.data?.kind === "data")
+    .map((edge) => {
+      if (edge.source !== id || edge.data?.kind !== "data") return edge;
+      const port = node.output_ports?.find(
+        (p) => `out:${p.id}` === edge.sourceHandle,
+      );
+      return port
+        ? { ...edge, data: { ...edge.data, dataType: port.type } }
+        : edge;
+    });
   const rebuilt = nodeEdges(node);
   // Preserve the grouped-by-source ordering `definitionEdges` produces: splice
   // the rebuilt run back in where this node's edges used to start, so a save does
   // not reorder unrelated nodes' lists.
   const at = edges.findIndex((edge) => edge.source === id);
   if (at < 0) return [...untouched, ...rebuilt];
-  const before = untouched.filter((edge) => edges.indexOf(edge) < at);
-  const after = untouched.filter((edge) => edges.indexOf(edge) > at);
+  const before = untouched.filter(
+    (edge) => edges.findIndex((original) => original.id === edge.id) < at,
+  );
+  const after = untouched.filter(
+    (edge) => edges.findIndex((original) => original.id === edge.id) >= at,
+  );
   return [...before, ...rebuilt, ...after];
 }
 
@@ -280,7 +296,10 @@ function resyncNodeEdges(edges: FlowEdge[], node: WorkflowNode): FlowEdge[] {
  * The `type_n` shape matches the built-in graphs' `step_1` / `condition_1`
  * convention so a hand-written and a toolbar-added node read the same.
  */
-function freshNodeKey(nodes: readonly FlowNode[], type: WorkflowNodeType): string {
+function freshNodeKey(
+  nodes: readonly FlowNode[],
+  type: WorkflowNodeType,
+): string {
   const taken = new Set(nodes.map((node) => node.data.node.key));
   const stem = type === "agent" ? "step" : type;
   for (let index = 1; ; index++) {
@@ -297,7 +316,10 @@ function freshNodeKey(nodes: readonly FlowNode[], type: WorkflowNodeType): strin
  * of the entry node. Placing it past the end of the graph means the author can
  * see what they just added and drag an edge to it.
  */
-function nextNodePosition(nodes: readonly FlowNode[]): { x: number; y: number } {
+function nextNodePosition(nodes: readonly FlowNode[]): {
+  x: number;
+  y: number;
+} {
   if (nodes.length === 0) return { x: 0, y: 0 };
   let x = -Infinity;
   let y = 0;
@@ -361,7 +383,11 @@ export function workflowEditorReducer(
       }
       // Inline and panel editors spread node payloads. Keep their outgoing
       // references current so typing after a connection edit cannot undo it.
-      const definition = graphToDefinition(action.nodes, action.edges, state.present.base);
+      const definition = graphToDefinition(
+        action.nodes,
+        action.edges,
+        state.present.base,
+      );
       const byKey = new Map(definition.nodes.map((node) => [node.key, node]));
       return commit(state, {
         ...state.present,
@@ -376,6 +402,12 @@ export function workflowEditorReducer(
     case "add_node": {
       const key = freshNodeKey(state.present.nodes, action.nodeType);
       const node = blankWorkflowNode(key, action.nodeType);
+      if (state.present.base.schema_version === 2) {
+        node.next_ids = [];
+        node.input_ports = [];
+        node.output_ports = defaultOutputPorts(action.nodeType);
+        node.on_failure = "fail";
+      }
       const id = editorNodeId(key);
       const flowNode: FlowNode = {
         id,
@@ -386,6 +418,7 @@ export function workflowEditorReducer(
           nodeKey: key,
           type: action.nodeType,
           isEntry: state.present.nodes.length === 0,
+          schemaVersion: state.present.base.schema_version,
           node,
         },
       };
@@ -396,32 +429,39 @@ export function workflowEditorReducer(
         ...commit(state, {
           ...state.present,
           nodes: [...state.present.nodes, flowNode],
-          base: state.present.nodes.length === 0
-            ? { ...state.present.base, entry_node: key }
-            : state.present.base,
+          base:
+            state.present.nodes.length === 0
+              ? { ...state.present.base, entry_node: key }
+              : state.present.base,
         }),
         selectedNodeId: id,
       };
     }
 
     case "delete_node": {
-      const removed = state.present.nodes.find((node) => node.id === action.nodeId);
+      const removed = state.present.nodes.find(
+        (node) => node.id === action.nodeId,
+      );
       if (!removed) return state;
-      const nodes = state.present.nodes.filter((node) => node.id !== action.nodeId);
+      const nodes = state.present.nodes.filter(
+        (node) => node.id !== action.nodeId,
+      );
       const edges = state.present.edges.filter(
-        (edge) => edge.source !== action.nodeId && edge.target !== action.nodeId,
+        (edge) =>
+          edge.source !== action.nodeId && edge.target !== action.nodeId,
       );
       // Edges own next/branches/rework. Normalize the remaining payloads too,
       // or the next property edit could resurrect a deleted connection.
       const entryNode = workingDefinition(state).entry_node;
       const definition = graphToDefinition(nodes, edges, {
         ...state.present.base,
-        entry_node: entryNode === removed.data.node.key
-          ? "" : entryNode,
+        entry_node: entryNode === removed.data.node.key ? "" : entryNode,
       });
       definition.nodes = definition.nodes.map((node) => ({
         ...node,
-        join_sources: node.join_sources.filter((key) => key !== removed.data.node.key),
+        join_sources: node.join_sources.filter(
+          (key) => key !== removed.data.node.key,
+        ),
         ...(node.routing?.from_node === removed.data.node.key
           ? { routing: { ...node.routing, from_node: "" } }
           : {}),
@@ -441,13 +481,15 @@ export function workflowEditorReducer(
       });
       return {
         ...next,
-        selectedNodeId: state.selectedNodeId === action.nodeId
-          ? null : state.selectedNodeId,
+        selectedNodeId:
+          state.selectedNodeId === action.nodeId ? null : state.selectedNodeId,
       };
     }
 
     case "set_entry": {
-      const selected = state.present.nodes.find((node) => node.id === action.nodeId);
+      const selected = state.present.nodes.find(
+        (node) => node.id === action.nodeId,
+      );
       if (!selected) return state;
       return commit(state, {
         ...state.present,
@@ -458,14 +500,33 @@ export function workflowEditorReducer(
         })),
       });
     }
-    case "patch_node":
+    case "patch_node": {
+      const edges = resyncNodeEdges(state.present.edges, action.node).filter(
+        (edge) => {
+          if (edge.data?.kind !== "data") return true;
+          if (
+            edge.source === action.node.key &&
+            !action.node.output_ports?.some(
+              (p) => `out:${p.id}` === edge.sourceHandle,
+            )
+          )
+            return false;
+          if (
+            edge.target === action.node.key &&
+            !action.node.input_ports?.some(
+              (p) => `in:${p.id}` === edge.targetHandle,
+            )
+          )
+            return false;
+          return true;
+        },
+      );
       return commit(state, {
         ...state.present,
         nodes: replaceNode(state.present.nodes, action.node),
-        // The panel owns `branches` / `rework_targets` on the node, but the save
-        // path reads them off the edge list — so both have to move together.
-        edges: resyncNodeEdges(state.present.edges, action.node),
+        edges,
       });
+    }
 
     case "apply_definition": {
       // A wholesale replacement, so the graph is re-expanded from scratch: the
@@ -498,8 +559,11 @@ export function workflowEditorReducer(
       return {
         ...state,
         present: previous,
-        selectedNodeId: previous.nodes.some((node) => node.id === state.selectedNodeId)
-          ? state.selectedNodeId : null,
+        selectedNodeId: previous.nodes.some(
+          (node) => node.id === state.selectedNodeId,
+        )
+          ? state.selectedNodeId
+          : null,
         past: rest,
         future: [state.present, ...state.future].slice(0, HISTORY_LIMIT),
       };
@@ -511,8 +575,11 @@ export function workflowEditorReducer(
       return {
         ...state,
         present: next,
-        selectedNodeId: next.nodes.some((node) => node.id === state.selectedNodeId)
-          ? state.selectedNodeId : null,
+        selectedNodeId: next.nodes.some(
+          (node) => node.id === state.selectedNodeId,
+        )
+          ? state.selectedNodeId
+          : null,
         past: [state.present, ...state.past].slice(0, HISTORY_LIMIT),
         future: rest,
       };

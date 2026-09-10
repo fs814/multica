@@ -138,6 +138,7 @@ describe("WorkflowEdge", () => {
     // legal bounded loop and an illegal forward cycle identically.
     expect(Object.keys(workflowEdgeTypes).sort()).toEqual([
       "branch",
+      "data",
       "next",
       "rework",
     ]);

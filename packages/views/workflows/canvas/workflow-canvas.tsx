@@ -81,7 +81,7 @@ export function WorkflowCanvas(props: {
   onNodesChange(next: FlowNode[]): void;
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
-  onConnect(source: string, target: string): void;
+  onConnect(source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string): void;
   onDeleteNode?(nodeId: string): void;
   onChangeNode?(node: WorkflowNode): void;
 }) {
@@ -114,7 +114,7 @@ function CanvasInner({
   onNodesChange(next: FlowNode[]): void;
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
-  onConnect(source: string, target: string): void;
+  onConnect(source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string): void;
   onDeleteNode?(nodeId: string): void;
   onChangeNode?(node: WorkflowNode): void;
 }) {
@@ -202,9 +202,10 @@ function CanvasInner({
       // and inventing an edge to nowhere would produce a dangling edge the
       // author never drew.
       if (!connection.source || !connection.target) return;
-      onConnect(connection.source, connection.target);
+      if (readOnly) return;
+      onConnect(connection.source, connection.target, connection.sourceHandle, connection.targetHandle);
     },
-    [onConnect],
+    [onConnect, readOnly],
   );
 
   // Clicking empty pane clears the selection, which is what puts the properties
@@ -242,6 +243,7 @@ function CanvasInner({
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
+        onReconnect={(edge, connection) => { if (!readOnly) onConnect(connection.source, connection.target, connection.sourceHandle, connection.targetHandle, edge.id); }}
         onNodeClick={handleNodeClick}
         onEdgeClick={() => {
           onSelectNode(null);

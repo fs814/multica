@@ -706,5 +706,24 @@
     "source_saved": "Saved inputs",
     "source_temporary": "Temporary inputs",
     "source_history": "Historical inputs"
+  },
+  "graph_v2": {
+    "ports": "Ports",
+    "inputs": "Inputs",
+    "outputs": "Outputs",
+    "port_id": "Port ID",
+    "port_type": "Data type",
+    "required": "Required",
+    "collection": "Collection",
+    "remove_port": "Remove port",
+    "add_port": "Add port",
+    "attempts": "Maximum attempts (including first)",
+    "compare_input": "Compare input",
+    "verdict": "Use verdict / default",
+    "equals": "Equals (JSON value)",
+    "priority": "Higher priority",
+    "wait_active": "Waits for all active predecessors",
+    "reject": "Reject",
+    "rejected": "Rejected; dependent work will be skipped."
   }
 }

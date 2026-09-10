@@ -616,6 +616,18 @@ describe("acceptance gate", () => {
     );
   });
 
+  it("rejects v2 acceptance with a reason and no rework target", async () => {
+    runRef.current = gate({ rework_targets: [], can_reject_without_rework: true });
+    renderRun();
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    const confirm = screen.getByRole("button", { name: "Reject" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Criteria not met" } });
+    expect(screen.queryByRole("combobox", { name: "Send the work back to" })).not.toBeInTheDocument();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(decideMock).toHaveBeenCalledWith({ runId: "wfr-1", accept: false, reason: "Criteria not met", rework_target: "" }));
+  });
+
   it("is accept-only when the gate permits no rework", async () => {
     // `rework_targets` defaults to [] on a parse failure, so a permissive
     // reading would turn contract drift into a stream of 422s. Empty means

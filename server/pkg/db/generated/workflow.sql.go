@@ -3314,6 +3314,7 @@ func (q *Queries) UpdateWorkflowTemplate(ctx context.Context, arg UpdateWorkflow
 const updateWorkflowTemplateVersionDefinition = `-- name: UpdateWorkflowTemplateVersionDefinition :one
 UPDATE workflow_template_version SET
     definition = $3::jsonb,
+    schema_version = COALESCE(($3::jsonb->>'schema_version')::int, 1),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status = 'draft'
 RETURNING id, workspace_id, template_id, version, definition, schema_version, status, published_by_type, published_by_id, published_at, created_at, updated_at

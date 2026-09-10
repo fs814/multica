@@ -29,13 +29,26 @@ import (
 func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) error {
 	v := &ValidationErrors{}
 
-	if d.SchemaVersion != 0 && d.SchemaVersion != SchemaVersion {
+	if d.SchemaVersion != 0 && d.SchemaVersion != SchemaVersion && d.SchemaVersion != GraphSchemaVersion {
 		v.add("schema_version", fmt.Sprintf("unsupported schema_version %d (this server understands %d)", d.SchemaVersion, SchemaVersion))
 		// A version mismatch makes every other check unreliable: node semantics
 		// may differ. Stop here rather than emit a cascade of misleading errors.
 		return v
 	}
 
+	if d.SchemaVersion != GraphSchemaVersion {
+		hasV2 := len(d.DataEdges) > 0
+		for _, node := range d.Nodes {
+			hasV2 = hasV2 || len(node.NextIDs) > 0 || len(node.InputPorts) > 0 || len(node.OutputPorts) > 0
+			for _, branch := range node.Branches {
+				hasV2 = hasV2 || branch.Predicate != nil
+			}
+		}
+		if hasV2 {
+			v.add("schema_version", "typed ports and graph v2 edges require schema_version 2")
+			return v
+		}
+	}
 	if len(d.Nodes) == 0 {
 		v.add("nodes", "definition has no nodes")
 		return v
@@ -123,6 +136,9 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 		}
 
+		if d.SchemaVersion == GraphSchemaVersion && policy.MaxAttemptsPerNode > 0 && n.MaxAttempts > policy.MaxAttemptsPerNode {
+			v.add(field+".max_attempts", "max_attempts exceeds workspace policy")
+		}
 		if n.MaxAttempts < 0 {
 			v.add(field+".max_attempts", fmt.Sprintf("node %q has negative max_attempts", n.Key))
 		}
@@ -149,7 +165,7 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			// hands the run to one first step. Zero would stall the Run at intake
 			// with nowhere to go; more than one would be an undeclared fan-out,
 			// and the engine's passthrough advances to Next[0] only.
-			if len(n.Next) != 1 {
+			if len(n.Next) != 1 && (d.SchemaVersion != GraphSchemaVersion || len(n.Next) == 0) {
 				v.add(field+".next", fmt.Sprintf("Input node %q must have exactly one outgoing edge, got %d", n.Key, len(n.Next)))
 			}
 			// No routing: an input node is a human's contribution, not an agent's.
@@ -185,7 +201,7 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 
 		case NodeTypeAgent:
-			if len(n.Next) != 1 {
+			if len(n.Next) != 1 && (d.SchemaVersion != GraphSchemaVersion || len(n.Next) == 0) {
 				v.add(field+".next", fmt.Sprintf("Agent node %q must have exactly one outgoing edge, got %d", n.Key, len(n.Next)))
 			}
 			validateRouting(v, n, byKey, field)
@@ -199,7 +215,7 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 
 		case NodeTypeAcceptance:
-			if len(n.Next) != 1 {
+			if len(n.Next) != 1 && (d.SchemaVersion != GraphSchemaVersion || len(n.Next) == 0) {
 				v.add(field+".next", fmt.Sprintf("Acceptance node %q must have exactly one outgoing edge, got %d", n.Key, len(n.Next)))
 			}
 			if n.Routing != nil {
@@ -207,7 +223,7 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 			// A reviewer who rejects must have somewhere to send the work;
 			// otherwise rejection is indistinguishable from failure.
-			if len(n.ReworkTargets) == 0 {
+			if len(n.ReworkTargets) == 0 && d.SchemaVersion != GraphSchemaVersion {
 				v.add(field+".rework_targets", fmt.Sprintf("Acceptance node %q must declare at least one rework target so a rejection can route somewhere", n.Key))
 			}
 
@@ -225,6 +241,9 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 				}
 				switch b.WhenVerdict {
 				case "":
+					if b.Predicate != nil && d.SchemaVersion == GraphSchemaVersion {
+						continue
+					}
 					if seenDefault {
 						v.add(bf+".when_verdict", fmt.Sprintf("Condition node %q has more than one default branch", n.Key))
 					}
@@ -237,7 +256,7 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 
 		case NodeTypeFanOut:
-			if len(n.Next) != 1 {
+			if len(n.Next) != 1 && (d.SchemaVersion != GraphSchemaVersion || len(n.Next) == 0) {
 				v.add(field+".next", fmt.Sprintf("FanOut node %q must have exactly one outgoing edge (the node to expand), got %d", n.Key, len(n.Next)))
 			}
 			if n.FanOutMax < 0 {
@@ -245,12 +264,12 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 			}
 
 		case NodeTypeJoin:
-			if len(n.Next) != 1 {
+			if len(n.Next) != 1 && (d.SchemaVersion != GraphSchemaVersion || len(n.Next) == 0) {
 				v.add(field+".next", fmt.Sprintf("Join node %q must have exactly one outgoing edge, got %d", n.Key, len(n.Next)))
 			}
 			// "Publishing rejects ... unmatched Join": a Join that waits on
 			// nothing would either pass instantly or hang forever.
-			if len(n.JoinSources) == 0 {
+			if len(n.JoinSources) == 0 && d.SchemaVersion != GraphSchemaVersion {
 				v.add(field+".join_sources", fmt.Sprintf("Join node %q declares no join_sources", n.Key))
 			}
 			for j, src := range n.JoinSources {
@@ -315,6 +334,9 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 		v.add("nodes", fmt.Sprintf("definition declares %d input nodes; a Run has one input, collected at the entry node, so at most one input node is meaningful", inputCount))
 	}
 
+	if d.SchemaVersion == GraphSchemaVersion {
+		validateGraphV2(v, d, byKey)
+	}
 	validateLimits(v, d, policy)
 
 	// Reachability and acyclicity need a well-formed edge set; running them on a

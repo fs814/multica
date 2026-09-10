@@ -13,6 +13,7 @@ import { Textarea } from "@multica/ui/components/ui/textarea";
 import { isWorkflowNodeType, legalReworkTargetNodes } from "../graph";
 import { useT } from "../../i18n";
 import { AgentRoutingSection } from "./agent-routing-fields";
+import { PortsSection, PredicateFields } from "./ports-section";
 import { InputFieldsSection } from "./input-fields-section";
 import {
   PanelCheckList,
@@ -181,7 +182,7 @@ function PanelBody({
   const known = isWorkflowNodeType(node.type);
 
   const showRouting = node.type === "agent";
-  const showFailure = FAILABLE_TYPES.has(node.type);
+  const showFailure = definition.schema_version !== 2 && FAILABLE_TYPES.has(node.type);
   // Rework targets are surfaced exactly where the validator can demand them, so
   // the control appears in the same moment the requirement does.
   const showReworkTargets =
@@ -198,6 +199,7 @@ function PanelBody({
         onChange={onChange}
       />
 
+      {known && definition.schema_version === 2 ? <PortsSection node={node} readOnly={readOnly} onChange={onChange} /> : null}
       {!known ? (
         <PanelNotice
           title={t(($) => $.panel.unknown.title, { type: node.type })}
@@ -595,7 +597,7 @@ function BranchesSection({
   const branches = node.branches;
 
   const replace = (next: WorkflowBranch[]) =>
-    onChange({ ...node, branches: next });
+    onChange({ ...node, branches: definition.schema_version === 2 ? next.map(b => ({...b,id:b.id ?? crypto.randomUUID()})) : next });
 
   const verdictLabels: Record<(typeof VERDICTS)[number], string> = {
     pass: t(($) => $.panel.branches.verdict_pass),
@@ -604,7 +606,7 @@ function BranchesSection({
   };
 
   const defaultCount = branches.filter(
-    (branch) => branch.when_verdict === "",
+    (branch) => branch.when_verdict === "" && !branch.predicate,
   ).length;
 
   const targetOptions = (target: string): PanelOption[] => {
@@ -714,6 +716,7 @@ function BranchesSection({
                     index: index + 1,
                   })}
                 />
+                {definition.schema_version === 2 ? <PredicateFields node={node} branch={branch} index={index} readOnly={readOnly} onChange={patch} onMoveUp={() => { const next=[...branches]; [next[index-1],next[index]]=[next[index]!,next[index-1]!]; replace(next); }} /> : null}
                 {branch.target === "" ? (
                   <PanelProblem>
                     {t(($) => $.panel.branches.target_required)}

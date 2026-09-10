@@ -30,7 +30,8 @@
  *     and what a rework loop produces) would otherwise be unreadable.
  */
 
-import { Handle, Position } from "@xyflow/react";
+import { useEffect, useRef } from "react";
+import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../../i18n";
 import { NODE_ACCENT } from "../node-accent";
@@ -74,6 +75,17 @@ export function WorkflowNodeCard({
   className?: string;
 }) {
   const { t } = useT("workflows");
+  const updateNodeInternals = useUpdateNodeInternals();
+  const portLayout = JSON.stringify([data.node.input_ports, data.node.output_ports, data.node.branches]);
+  const previousPortLayout = useRef(portLayout);
+  useEffect(() => {
+    // Initial measurement belongs to xyflow's ResizeObserver and fit-view.
+    // Updating a partially measured graph on mount can fit only its first node.
+    if (previousPortLayout.current !== portLayout) {
+      previousPortLayout.current = portLayout;
+      updateNodeInternals(data.id);
+    }
+  }, [data.id, portLayout, updateNodeInternals]);
   const accent = NODE_ACCENT[data.type];
   const Icon = accent.icon;
 
@@ -83,15 +95,17 @@ export function WorkflowNodeCard({
         // Fixed width so a layer of cards lines up: COL_GAP (320) is chosen
         // against this, and a content-sized card would make the gap between
         // columns vary with the length of a step's name.
-        "relative w-60 rounded-lg border border-l-4 bg-card text-card-foreground shadow-sm transition-shadow",
+        "workflow-node relative w-60 rounded-lg border bg-card text-card-foreground shadow-sm transition-shadow",
         accent.border,
         selected
-          ? "ring-2 ring-ring ring-offset-2 ring-offset-background"
+          ? "workflow-node-selected ring-2 ring-info"
           : "hover:shadow-md",
         className,
       )}
     >
-      {targetHandle ?? <Handle type="target" position={Position.Left} />}
+      {targetHandle ?? (
+        <Handle type="target" position={Position.Left} style={{ top: 22 }} />
+      )}
 
       <div className="flex flex-col gap-1.5 px-3 py-2.5">
         <div className="flex items-center gap-1.5">
@@ -131,9 +145,57 @@ export function WorkflowNodeCard({
         ) : null}
 
         {body ?? null}
+        {data.node.input_ports?.map((port) => (
+          <div
+            key={`in:${port.id}`}
+            className="relative flex min-h-6 items-center gap-1 border-t border-border/40 pt-1 text-micro"
+            title={`${port.id}: ${port.type}`}
+          >
+            <Handle
+              id={`in:${port.id}`}
+              type="target"
+              position={Position.Left}
+              style={{
+                left: -13,
+                top: "50%",
+                background: `var(--wf-data-${port.type}, var(--info))`,
+              }}
+            />
+            <span className="min-w-0 break-all">
+              {port.id}
+              {port.required ? " *" : ""}
+            </span>
+            <code className="ml-auto text-muted-foreground">
+              {port.type}
+              {port.multiple ? "[]" : ""}
+            </code>
+          </div>
+        ))}
+        {data.node.output_ports?.map((port) => (
+          <div
+            key={`out:${port.id}`}
+            className="relative flex min-h-6 items-center justify-end gap-1 border-t border-border/40 pt-1 text-micro"
+            title={`${port.id}: ${port.type}`}
+          >
+            <code className="text-muted-foreground">{port.type}</code>
+            <span className="min-w-0 break-all">{port.id}</span>
+            <Handle
+              id={`out:${port.id}`}
+              type="source"
+              position={Position.Right}
+              style={{
+                right: -13,
+                top: "50%",
+                background: `var(--wf-data-${port.type}, var(--info))`,
+              }}
+            />
+          </div>
+        ))}
       </div>
 
-      {sourceHandles ?? <Handle type="source" position={Position.Right} />}
+      {sourceHandles ?? (
+        <Handle type="source" position={Position.Right} style={{ top: 22 }} />
+      )}
     </div>
   );
 }

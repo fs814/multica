@@ -25,6 +25,9 @@ import (
 // server rather than silently misinterpreting unknown node semantics.
 const SchemaVersion = 1
 
+// GraphSchemaVersion adds typed bindings and activation-aware DAG scheduling.
+const GraphSchemaVersion = 2
+
 // NodeType enumerates the node kinds of the first release. Condition, FanOut,
 // and Join are part of the contract now — the validator accepts and checks them
 // so published graphs stay forward-compatible — but only Agent, Acceptance,
@@ -200,10 +203,11 @@ const (
 // that bound a Run. Edges live on the nodes themselves (Next) rather than in a
 // separate list, which makes a dangling edge a local, checkable property.
 type Definition struct {
-	SchemaVersion int    `json:"schema_version"`
-	EntryNode     string `json:"entry_node"`
-	Nodes         []Node `json:"nodes"`
-	Limits        Limits `json:"limits"`
+	SchemaVersion int        `json:"schema_version"`
+	EntryNode     string     `json:"entry_node"`
+	Nodes         []Node     `json:"nodes"`
+	Limits        Limits     `json:"limits"`
+	DataEdges     []DataEdge `json:"data_edges,omitempty"`
 }
 
 // Node is one vertex. Only the fields meaningful for its Type are read; the
@@ -218,7 +222,10 @@ type Node struct {
 
 	// Next holds the outgoing edges. Agent/Acceptance/Join/FanOut nodes have
 	// exactly one successor in the first release; Condition nodes branch.
-	Next []string `json:"next,omitempty"`
+	Next        []string `json:"next,omitempty"`
+	NextIDs     []string `json:"next_ids,omitempty"`
+	InputPorts  []Port   `json:"input_ports,omitempty"`
+	OutputPorts []Port   `json:"output_ports,omitempty"`
 
 	// Routing is required on Agent nodes.
 	Routing *Routing `json:"routing,omitempty"`
@@ -286,6 +293,8 @@ type Node struct {
 // language in the first release: it selects on the upstream verdict, which is
 // the only routing input the Submission contract guarantees.
 type Branch struct {
+	ID        string     `json:"id,omitempty"`
+	Predicate *Predicate `json:"predicate,omitempty"`
 	// WhenVerdict matches "pass", "fail", or "blocked"; empty means default.
 	WhenVerdict string `json:"when_verdict,omitempty"`
 	Target      string `json:"target"`

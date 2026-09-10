@@ -66,3 +66,12 @@ if (typeof document.elementFromPoint !== "function") {
 if (typeof Element.prototype.scrollIntoView !== "function") {
   Element.prototype.scrollIntoView = () => {};
 }
+
+// xyflow reads the viewport zoom when dynamically declared ports change.
+// jsdom has no layout; real port geometry is verified in browser tests.
+if (typeof window.DOMMatrixReadOnly !== "function") {
+  Object.defineProperty(window, "DOMMatrixReadOnly", {
+    configurable: true,
+    value: class DOMMatrixReadOnly { m22 = 1; },
+  });
+}

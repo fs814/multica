@@ -700,5 +700,24 @@
     "source_saved": "已保存输入",
     "source_temporary": "本次临时输入",
     "source_history": "历史输入"
+  },
+  "graph_v2": {
+    "ports": "端口",
+    "inputs": "输入",
+    "outputs": "输出",
+    "port_id": "端口标识",
+    "port_type": "数据类型",
+    "required": "必填",
+    "collection": "集合输入",
+    "remove_port": "移除端口",
+    "add_port": "添加端口",
+    "attempts": "最多尝试次数（含首次）",
+    "compare_input": "比较输入",
+    "verdict": "使用结果／默认出口",
+    "equals": "等于（JSON 值）",
+    "priority": "提高优先级",
+    "wait_active": "等待全部已激活前驱",
+    "reject": "拒绝",
+    "rejected": "已拒绝；依赖此节点的任务将跳过。"
   }
 }

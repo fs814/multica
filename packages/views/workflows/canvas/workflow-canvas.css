@@ -59,10 +59,18 @@
      opaque - a solid fill would hide the part of the graph the minimap exists
      to let you navigate to. */
   --xy-minimap-background-color: var(--card);
-  --xy-minimap-mask-background-color: color-mix(in oklab, var(--muted) 55%, transparent);
+  --xy-minimap-mask-background-color: color-mix(
+    in oklab,
+    var(--muted) 55%,
+    transparent
+  );
   --xy-minimap-node-background-color: var(--muted-foreground);
 
-  --xy-selection-background-color: color-mix(in oklab, var(--ring) 12%, transparent);
+  --xy-selection-background-color: color-mix(
+    in oklab,
+    var(--ring) 12%,
+    transparent
+  );
   --xy-selection-border: 1px dotted var(--ring);
 
   /* The attribution sits bottom-LEFT here (see workflow-canvas.tsx) so it cannot
@@ -152,3 +160,55 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
+
+.workflow-canvas {
+  --xy-background-color: var(--app-shell);
+  --xy-background-pattern-color: color-mix(
+    in oklab,
+    var(--muted-foreground) 35%,
+    transparent
+  );
+  --wf-edge-pass: var(--muted-foreground);
+  --wf-data-string: var(--info);
+  --wf-data-number: var(--warning);
+  --wf-data-boolean: var(--success);
+  --wf-data-object: var(--brand);
+  --wf-data-array: var(--destructive);
+  --wf-data-any: var(--muted-foreground);
+}
+.workflow-canvas .workflow-node {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.workflow-canvas .workflow-node-selected {
+  border-color: var(--info);
+  background: color-mix(in oklab, var(--info) 6%, var(--surface));
+}
+.workflow-canvas:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.dark .workflow-canvas {
+  --xy-background-color: color-mix(in oklab, var(--background) 85%, white);
+  --wf-edge-pass: var(--muted-foreground);
+}
+.dark .workflow-canvas .workflow-node {
+  background: color-mix(in oklab, var(--background) 90%, black);
+}
+.dark .workflow-canvas .workflow-node-selected {
+  background: color-mix(in oklab, var(--info) 9%, var(--background));
+}
+
+/* The input renderer shares a name with xyflow's built-in node. Remove its
+   wrapper decoration so the themed card supplies the only surface. */
+.workflow-canvas .react-flow__node-input {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  width: auto;
+  border-radius: var(--radius-lg);
+}
+
+/* Selected edge actions must stay clickable where a curve crosses a card. */
+.workflow-canvas .react-flow__edgelabel-renderer { z-index: 1001; }

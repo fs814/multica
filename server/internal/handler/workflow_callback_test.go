@@ -481,7 +481,12 @@ func TestWorkflowCallbackDeliverySignsRetriesAndReplays(t *testing.T) {
 	}
 	realtimeEvents := make(chan events.Event, 32)
 	testHandler.Bus.Subscribe(protocol.EventWorkflowEvent, func(event events.Event) {
-		realtimeEvents <- event
+		// The shared test bus outlives this test; later workflow events must
+		// not block after this test stops draining its observation channel.
+		select {
+		case realtimeEvents <- event:
+		default:
+		}
 	})
 
 	intake := httptest.NewRecorder()

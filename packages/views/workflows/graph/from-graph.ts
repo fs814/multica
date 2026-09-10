@@ -71,6 +71,10 @@ export function graphToDefinition(
       // (possibly stale) xyflow id.
       ...source,
       next: (own?.next ?? []).map((edge) => resolve(edge.target)),
+      ...(base.schema_version === 2 &&
+      (source.next_ids !== undefined || (own?.next.length ?? 0) > 0)
+        ? { next_ids: (own?.next ?? []).map((edge) => edge.id) }
+        : {}),
       branches: (own?.branch ?? []).map((edge) => toBranch(edge, resolve)),
       rework_targets: (own?.rework ?? []).map((edge) => resolve(edge.target)),
     } satisfies WorkflowNode;
@@ -92,6 +96,22 @@ export function graphToDefinition(
     ...base,
     entry_node: resolveEntryNode(ordered, base),
     nodes: definitionNodes,
+    ...(base.schema_version === 2 &&
+    (base.data_edges !== undefined ||
+      edges.some((e) => e.data?.kind === "data"))
+      ? {
+          data_edges: edges
+            .filter((e) => e.data?.kind === "data")
+            .map((e) => ({
+              id: e.id,
+              source: resolve(e.source),
+              target: resolve(e.target),
+              source_port: e.sourceHandle?.replace(/^out:/, "") ?? "",
+              target_port: e.targetHandle?.replace(/^in:/, "") ?? "",
+              order: e.data?.order ?? 0,
+            })),
+        }
+      : {}),
   };
 }
 
@@ -110,6 +130,7 @@ function toBranch(
     ...(edge.data?.branch ?? {}),
     when_verdict: edge.data?.verdict ?? "",
     target: resolve(edge.target),
+    ...(edge.data?.branch?.id ? { id: edge.id } : {}),
   };
 }
 
@@ -117,6 +138,7 @@ type OutgoingEdges = {
   next: FlowEdge[];
   branch: FlowEdge[];
   rework: FlowEdge[];
+  data: FlowEdge[];
 };
 
 /**
@@ -132,7 +154,7 @@ function groupEdgesBySource(
   for (const edge of edges) {
     let bucket = bySource.get(edge.source);
     if (!bucket) {
-      bucket = { next: [], branch: [], rework: [] };
+      bucket = { next: [], branch: [], rework: [], data: [] };
       bySource.set(edge.source, bucket);
     }
     // An untagged edge is treated as a forward `next` edge: xyflow creates edges

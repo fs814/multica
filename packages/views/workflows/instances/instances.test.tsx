@@ -335,7 +335,7 @@ describe("instance detail execution", () => {
 });
 
 it("organizes workspace instances under their parent workflow with working detail links", async () => {
-  vi.mocked(api.listWorkflowTemplates).mockResolvedValue([]);
+  vi.mocked(api.listWorkflowTemplates).mockResolvedValue({ templates: [], total: 0 });
   vi.mocked(api.browseWorkflowInstances).mockResolvedValue({
     instances: [
       { ...row(), id: "a1", name: "Input A1", templateId: "workflow-a", templateName: "Workflow A" },

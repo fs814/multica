@@ -224,6 +224,8 @@ function visualRole(kind: EdgeKind, verdict: string | undefined): EdgeVisualRole
  */
 function useEdgeLabel(data: EditorEdge | undefined): string {
   const { t } = useT("workflows");
+  if (data?.kind === "data") return `${data.dataType ?? "any"} · ${data.sourceKey} → ${data.targetKey}`;
+  if (data?.branch?.predicate) return `${data.branch.predicate.input_port} = ${JSON.stringify(data.branch.predicate.equals)}`;
   if (!data || data.kind === "next") return t(($) => $.graph.edge.next);
   if (data.kind === "rework") return t(($) => $.graph.edge.rework);
   if (!data.verdict) return t(($) => $.graph.edge.default);
@@ -272,14 +274,14 @@ export const WorkflowEdge = memo(function WorkflowEdge({
     <>
       <BaseEdge
         path={path}
-        markerEnd={`url(#${visual.marker})`}
+        markerEnd={data?.kind === "data" ? undefined : `url(#${visual.marker})`}
         style={{
-          stroke: visual.stroke,
+          stroke: data?.kind === "data" ? `var(--wf-data-${data.dataType}, var(--info))` : visual.stroke,
           // A selected edge thickens rather than changing colour: the colour is
           // the edge's meaning, so selection must not be able to make a rework
           // edge read as a success path.
           strokeWidth: selected ? 2.5 : 1.5,
-          strokeDasharray: visual.dashed ? "6 4" : undefined,
+          strokeDasharray: data?.kind === "data" ? "3 5" : visual.dashed ? "6 4" : undefined,
         }}
       />
       <EdgeLabelRenderer>
@@ -289,6 +291,7 @@ export const WorkflowEdge = memo(function WorkflowEdge({
           // instead of selecting the edge under it.
           className={cn(
             "nodrag nopan pointer-events-none absolute flex items-center gap-1 rounded-full border border-border bg-card px-1.5 py-0.5 text-micro leading-none font-medium text-card-foreground shadow-sm",
+            !selected && (data?.kind === "data" || data?.kind === "next") && "opacity-0",
           )}
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,

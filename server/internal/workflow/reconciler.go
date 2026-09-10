@@ -190,6 +190,9 @@ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUI
 				return e.blockRun(ctx, q, run, step, ReasonInvariantViolation, "active agent step has no task", "system", pgtype.UUID{})
 			}
 		}
+		if def.SchemaVersion == GraphSchemaVersion {
+			return e.advanceGraphV2(ctx, q, run, def, effects, "system", pgtype.UUID{})
+		}
 		if len(active) > 0 {
 			return nil
 		}

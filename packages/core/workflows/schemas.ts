@@ -44,7 +44,12 @@ export type WorkflowRouting = {
 };
 
 /** One condition edge. An empty `when_verdict` is the default branch. */
+export type WorkflowPort = { id: string; type: string; required?: boolean; multiple?: boolean };
+export type WorkflowDataEdge = { id: string; source: string; source_port: string; target: string; target_port: string; order: number };
+
 export type WorkflowBranch = {
+  id?: string;
+  predicate?: { input_port: string; equals: unknown };
   when_verdict: string;
   target: string;
 };
@@ -87,6 +92,9 @@ export type WorkflowNode = {
   instruction: string;
   /** Outgoing edges. Edges live on the node so a dangling edge is local. */
   next: string[];
+  next_ids?: string[];
+  input_ports?: WorkflowPort[];
+  output_ports?: WorkflowPort[];
   routing?: WorkflowRouting | null;
   submission_schema: string;
   acceptance_criteria: string[];
@@ -130,6 +138,7 @@ export type WorkflowDefinition = {
   entry_node: string;
   nodes: WorkflowNode[];
   limits: WorkflowLimits;
+  data_edges?: WorkflowDataEdge[];
 };
 
 const WorkflowRoutingSchema = z
@@ -142,8 +151,13 @@ const WorkflowRoutingSchema = z
   })
   .loose();
 
+const WorkflowPortSchema = z.object({ id: z.string(), type: z.string(), required: z.boolean().optional(), multiple: z.boolean().optional() }).loose();
+const WorkflowDataEdgeSchema = z.object({ id: z.string(), source: z.string(), source_port: z.string(), target: z.string(), target_port: z.string(), order: z.number().int() }).loose();
+
 const WorkflowBranchSchema = z
   .object({
+    id: z.string().optional(),
+    predicate: z.object({ input_port: z.string(), equals: z.unknown() }).optional(),
     when_verdict: z.string().optional().default(""),
     target: z.string().optional().default(""),
   })
@@ -169,6 +183,9 @@ export const WorkflowNodeSchema = z
     name: z.string().optional().default(""),
     instruction: z.string().optional().default(""),
     next: z.array(z.string()).optional().default([]),
+    next_ids: z.array(z.string()).optional(),
+    input_ports: z.array(WorkflowPortSchema).optional(),
+    output_ports: z.array(WorkflowPortSchema).optional(),
     // Only agent nodes carry routing; the server omits it elsewhere, and an
     // older/newer server may send null rather than omitting it.
     routing: WorkflowRoutingSchema.nullable().optional(),
@@ -236,6 +253,7 @@ export const WorkflowDefinitionSchema = z
     // Defaults to the only schema version that exists today so a definition
     // written before the field was emitted still renders.
     schema_version: z.number().optional().default(1),
+    data_edges: z.array(WorkflowDataEdgeSchema).optional(),
     entry_node: z.string().optional().default(""),
     nodes: z.array(WorkflowNodeSchema).optional().default([]),
     limits: WorkflowLimitsSchema.optional().default(zeroLimits),
@@ -316,6 +334,7 @@ export type WorkflowNodeInput = { key: string; type: string } & Partial<
 
 /** Graph shape a caller may author. See {@link WorkflowNodeInput}. */
 export type WorkflowDefinitionInput = {
+  data_edges?: WorkflowDataEdge[];
   entry_node: string;
   nodes: WorkflowNodeInput[];
   schema_version?: number;
@@ -612,6 +631,7 @@ export type WorkflowStep = {
 
 /** The open (or decided) human gate on a run. */
 export type WorkflowAcceptance = {
+  can_reject_without_rework?: boolean;
   id: string;
   step_id: string;
   /** "pending" | "accepted" | "rejected" - lenient. */
@@ -763,6 +783,7 @@ export const WorkflowStepSchema = z
 
 export const WorkflowAcceptanceSchema = z
   .object({
+    can_reject_without_rework: z.boolean().optional(),
     id: z.string(),
     step_id: z.string().optional().default(""),
     status: z.string().optional().default(""),

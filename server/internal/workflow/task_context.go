@@ -53,7 +53,8 @@ const TaskContextType = "workflow_step"
 //     submission block. See SubmissionContractInstructions for why this is not
 //     optional.
 type TaskContext struct {
-	Type string `json:"type"`
+	BoundInputs map[string]any `json:"bound_inputs,omitempty"`
+	Type        string         `json:"type"`
 
 	// RunID / StepInstanceID / NodeKey identify the workflow position. The agent
 	// echoes StepInstanceID in its submission.
@@ -461,6 +462,11 @@ func (tc TaskContext) RenderPrompt() string {
 	}
 	b.WriteString("\n\n")
 
+	if len(tc.BoundInputs) > 0 {
+		b.WriteString("## Connected inputs\n\n")
+		b.Write(mustJSON(tc.BoundInputs))
+		b.WriteString("\n\n")
+	}
 	b.WriteString("## Your task\n\n")
 	if strings.TrimSpace(tc.Instruction) != "" {
 		b.WriteString(tc.Instruction)

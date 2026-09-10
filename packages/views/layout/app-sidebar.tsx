@@ -1,4 +1,5 @@
 "use client";
+import { ThemeToggle } from "./theme-toggle";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@multica/ui/lib/utils";
@@ -896,6 +897,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
               right-aligned once the Discord link is dismissed. */}
           <div className="flex items-center justify-end gap-1">
             <JoinDiscordCard />
+            <ThemeToggle />
             <HelpLauncher />
           </div>
         </SidebarFooter>

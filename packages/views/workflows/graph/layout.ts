@@ -60,11 +60,14 @@ export function autoLayout(
   // stays visually balanced around its spine instead of hanging below it.
   const positioned = new Map<string, { x: number; y: number }>();
   for (const [rank, members] of byRank) {
-    const height = (members.length - 1) * ROW_GAP;
+    const gap = Math.max(ROW_GAP, ...members.map(node => node.data.schemaVersion === 2
+      ? (node.measured?.height ?? (100 + 28 * ((node.data.node.input_ports?.length ?? 0) + (node.data.node.output_ports?.length ?? 0)) + (node.data.type === "input" ? 250 : 0))) + 32
+      : ROW_GAP));
+    const height = (members.length - 1) * gap;
     members.forEach((node, slot) => {
       positioned.set(node.id, {
         x: rank * COL_GAP,
-        y: slot * ROW_GAP - height / 2,
+        y: slot * gap - height / 2,
       });
     });
   }

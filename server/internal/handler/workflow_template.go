@@ -153,7 +153,7 @@ const (
 	// workflowTemplateBodyLimit caps the request body on every workflow write.
 	// Migration 232 bounds a STORED definition at 256KB via a CHECK, but that
 	// only fires after the whole body has been read and decoded, so it is not a
-	// defence against an oversized upload — and /validate never writes at all, so
+	// defence against an oversized upload â€” and /validate never writes at all, so
 	// no CHECK protects it. 512KB leaves generous headroom over the storage
 	// bound (the graph plus name/description JSON overhead) while keeping a
 	// single request from buffering unboundedly. Mirrors the http.MaxBytesReader
@@ -177,7 +177,7 @@ func workflowTemplateToResponse(t db.WorkflowTemplate, nodeCount int) WorkflowTe
 		// Provenance comes from the row the seeder actually wrote, NOT from the
 		// key string. Deriving it from the key would let a member POST a template
 		// under key "bug_fix" and have the UI label their arbitrary graph
-		// "platform-provided" — and, because the archive guard used the same
+		// "platform-provided" â€” and, because the archive guard used the same
 		// predicate, leave them unable to delete their own mistake.
 		IsBuiltin: isBuiltinWorkflowTemplateRow(t),
 		NodeCount: nodeCount,
@@ -386,7 +386,7 @@ func parseAndValidateWorkflowDefinition(w http.ResponseWriter, raw []byte) (*wor
 		})
 		return nil, false
 	}
-	if err := workflow.Validate(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
+	if err := workflow.ValidateDraft(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
 			Error:    "invalid workflow definition",
 			Messages: workflowValidationMessages(err),
@@ -441,7 +441,7 @@ func (h *Handler) ListWorkflowTemplates(w http.ResponseWriter, r *http.Request) 
 // Atomicity is the whole point. The seeder writes four rows (template, version,
 // publish, set-current-version) and runs on the request context of a GET, so any
 // client disconnect, timeout, or pod restart mid-sequence would otherwise commit
-// a template with no version — status 'draft', current_version NULL. That state
+// a template with no version â€” status 'draft', current_version NULL. That state
 // is permanently wedged and unreachable by every repair path: the seeder itself
 // short-circuits on "the row exists", publish finds no draft version (409), and
 // archive refuses built-ins (409). The user would see a "Bug Fix" row with no
@@ -671,7 +671,7 @@ func (h *Handler) CreateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
 		WorkspaceID:   wsUUID,
 		TemplateID:    tpl.ID,
 		Definition:    definition,
-		SchemaVersion: int32(workflow.SchemaVersion),
+		SchemaVersion: workflowDefinitionSchemaVersion(definition),
 	}); err != nil {
 		if isCheckViolation(err) {
 			// The only CHECK a validated graph can still trip is the 256KB
@@ -1231,7 +1231,7 @@ func (h *Handler) saveWorkflowTemplateDraftDefinition(
 		WorkspaceID:   tpl.WorkspaceID,
 		TemplateID:    tpl.ID,
 		Definition:    definition,
-		SchemaVersion: int32(workflow.SchemaVersion),
+		SchemaVersion: workflowDefinitionSchemaVersion(definition),
 	}); err != nil {
 		if isCheckViolation(err) {
 			writeError(w, http.StatusUnprocessableEntity, "definition is too large")
@@ -1249,4 +1249,15 @@ func (h *Handler) saveWorkflowTemplateDraftDefinition(
 		return false
 	}
 	return true
+}
+
+func workflowDefinitionSchemaVersion(raw json.RawMessage) int32 {
+	var header struct {
+		SchemaVersion int32 `json:"schema_version"`
+	}
+	_ = json.Unmarshal(raw, &header)
+	if header.SchemaVersion == 0 {
+		return 1
+	}
+	return header.SchemaVersion
 }

@@ -30,6 +30,7 @@ import { legalReworkTargetNodes } from "./rework-targets";
 
 /** The only definition format any current server understands. */
 const SCHEMA_VERSION = 1;
+import { validateGraphV2 } from "@multica/core/workflows";
 
 /** Mirrors `DefaultSchemaRegistry` in the workflow package. */
 const KNOWN_SUBMISSION_SCHEMAS = new Set([
@@ -83,9 +84,9 @@ const VALID_INPUT_FIELD_TYPES = new Set(["", "text", "textarea", "select"]);
  * real error.
  */
 export function clientValidateGraph(def: WorkflowDefinition): string[] {
-  const problems: string[] = [];
+  const problems: string[] = def.schema_version === 2 ? validateGraphV2(def) : [];
 
-  if (def.schema_version !== 0 && def.schema_version !== SCHEMA_VERSION) {
+  if (def.schema_version !== 0 && def.schema_version !== SCHEMA_VERSION && def.schema_version !== 2) {
     // A version mismatch makes every other check unreliable - node semantics may
     // differ - so stop rather than emit a cascade of misleading errors.
     return [
@@ -156,7 +157,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
     }
 
     const single = SINGLE_SUCCESSOR_TYPES[node.type];
-    if (single !== undefined && node.next.length !== 1) {
+    if (single !== undefined && node.next.length !== 1 && (def.schema_version !== 2 || node.next.length === 0)) {
       problems.push(
         node.type === "fan_out"
           ? `FanOut node "${node.key}" must have exactly one outgoing edge (the node to expand), got ${node.next.length}`
@@ -250,7 +251,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
         }
         // A reviewer who rejects must have somewhere to send the work; otherwise
         // rejection is indistinguishable from failure.
-        if (node.rework_targets.length === 0) {
+        if (node.rework_targets.length === 0 && def.schema_version !== 2) {
           problems.push(
             `Acceptance node "${node.key}" must declare at least one rework target so a rejection can route somewhere`,
           );
@@ -258,7 +259,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
         break;
 
       case "condition":
-        checkBranches(problems, node, byKey);
+        checkBranches(problems, node, byKey, def.schema_version === 2);
         break;
 
       case "fan_out":
@@ -268,7 +269,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
         break;
 
       case "join":
-        checkJoin(problems, node, byKey);
+        checkJoin(problems, node, byKey, def.schema_version === 2);
         break;
     }
 
@@ -500,6 +501,7 @@ function checkBranches(
   problems: string[],
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
+  graphV2 = false,
 ): void {
   if (node.branches.length === 0) {
     problems.push(`Condition node "${node.key}" has no branches`);
@@ -513,6 +515,7 @@ function checkBranches(
         `Condition node "${node.key}" branches to undeclared node "${branch.target}"`,
       );
     }
+    if (graphV2 && branch.predicate) continue;
     if (branch.when_verdict === "") {
       // An empty verdict is the fallthrough. Two of them would make the engine's
       // choice depend on array order, which is not a decision an author made.
@@ -535,8 +538,9 @@ function checkJoin(
   problems: string[],
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
+  graphV2 = false,
 ): void {
-  if (node.join_sources.length === 0) {
+  if (node.join_sources.length === 0 && !graphV2) {
     problems.push(`Join node "${node.key}" declares no join_sources`);
   }
   for (const source of node.join_sources) {

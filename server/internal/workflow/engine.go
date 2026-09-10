@@ -835,10 +835,12 @@ func (t *txEffects) flush(ctx context.Context, n Notifier) {
 }
 
 type activateInput struct {
-	Run     db.WorkflowRun
-	Def     *Definition
-	Node    *Node
-	Attempt int32
+	GraphManaged  bool
+	GraphDecision GraphDecision
+	Run           db.WorkflowRun
+	Def           *Definition
+	Node          *Node
+	Attempt       int32
 	// ReworkContext is injected into the step input on a rework attempt so the
 	// Agent sees why the previous attempt was rejected.
 	ReworkContext map[string]any
@@ -862,6 +864,9 @@ type activateInput struct {
 // and bind it to the Step — all before commit, which is what guarantees the
 // "at most one active Task per attempt" invariant survives a crash at any point.
 func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInput) (db.WorkflowStepInstance, error) {
+	if in.Def.SchemaVersion == GraphSchemaVersion && !in.GraphManaged {
+		return e.driveGraphV2(ctx, q, in)
+	}
 	run := in.Run
 	limits := e.limitsFor(run, in.Def)
 
@@ -902,6 +907,9 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 	runInput := ParseRunInputFor(run.Input, entryInput)
 	imageAttachment := imageAttachmentFromRunContext(run.Context)
 	upstream, err := e.latestSubmissionForRun(ctx, q, run)
+	if in.Def.SchemaVersion == GraphSchemaVersion {
+		upstream = nil
+	}
 	if err != nil {
 		return db.WorkflowStepInstance{}, err
 	}
@@ -963,6 +971,10 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 		}
 	}
 
+	if in.GraphManaged {
+		stepInput["bound_inputs"] = in.GraphDecision.Inputs
+		stepInput["skip_reason"] = in.GraphDecision.Reason
+	}
 	now := e.now()
 	step, err := q.CreateWorkflowStepInstance(ctx, db.CreateWorkflowStepInstanceParams{
 		WorkspaceID:  run.WorkspaceID,
@@ -1003,6 +1015,9 @@ func (e *Engine) activateNode(ctx context.Context, q *db.Queries, in activateInp
 		return db.WorkflowStepInstance{}, err
 	}
 
+	if in.GraphManaged && (in.GraphDecision.Kind != "ready" || (in.Node.Type != NodeTypeAgent && in.Node.Type != NodeTypeAcceptance)) {
+		return e.executeGraphControl(ctx, q, in, step)
+	}
 	switch in.Node.Type {
 	case NodeTypeAgent:
 		return e.dispatchAgentStep(ctx, q, in, step, agentBrief{
@@ -1110,6 +1125,9 @@ func (e *Engine) dispatchAgentStep(ctx context.Context, q *db.Queries, in activa
 		})
 		if berr != nil {
 			return db.WorkflowStepInstance{}, fmt.Errorf("block step after routing failure: %w (original: %v)", berr, err)
+		}
+		if in.GraphManaged {
+			return blocked, nil
 		}
 		if err := e.blockRun(ctx, q, run, step, ReasonRoutingNoCandidate, err.Error(), in.ActorType, in.ActorID); err != nil {
 			return db.WorkflowStepInstance{}, err
@@ -1261,6 +1279,7 @@ func (e *Engine) latestSubmissionForRun(ctx context.Context, q *db.Queries, run 
 func (e *Engine) buildTaskContext(in activateInput, step db.WorkflowStepInstance, brief agentBrief) TaskContext {
 	stepID := uuidString(step.ID)
 	tc := TaskContext{
+		BoundInputs:        in.GraphDecision.Inputs,
 		Type:               TaskContextType,
 		RunID:              uuidString(in.Run.ID),
 		StepInstanceID:     stepID,
