@@ -183,7 +183,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	closeStdin := func() { closeStdinOnce.Do(func() { _ = stdin.Close() }) }
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "[opencode:stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		closeStdin()
 		cancel()
 		return nil, fmt.Errorf("start opencode: %w", err)

@@ -160,7 +160,7 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[codebuddy:stderr] "), agentStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		closeStdin()
 		cancel()
 		return nil, fmt.Errorf("start codebuddy: %w", err)

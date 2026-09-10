@@ -102,7 +102,7 @@ func (b *kimiBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		return nil, fmt.Errorf("kimi stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start kimi: %w", err)
 	}

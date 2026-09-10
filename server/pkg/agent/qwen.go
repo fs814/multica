@@ -113,7 +113,7 @@ func (b *qwenBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 	}
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[qwen:stderr] "), agentStderrTailBytes)
 	cmd.Stderr = stderrBuf
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start qwen: %w", err)
 	}

@@ -119,7 +119,7 @@ func (b *reasonixBackend) Execute(ctx context.Context, prompt string, opts ExecO
 		return nil, fmt.Errorf("reasonix stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start reasonix: %w", err)
 	}

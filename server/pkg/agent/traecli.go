@@ -140,7 +140,7 @@ func (b *traecliBackend) Execute(ctx context.Context, prompt string, opts ExecOp
 		return nil, fmt.Errorf("traecli stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := startAgentProcess(cmd); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start traecli: %w", err)
 	}

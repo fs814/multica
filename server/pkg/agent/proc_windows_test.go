@@ -158,8 +158,13 @@ func main() {
 	}
 	entries := parseJSONLogEntries(t, logs.String())
 	failure := findCodexLifecyclePhase(t, entries, "thread_start_failure")
-	if failure["cleanup_confirmed"] != false || failure["reaped"] != false {
-		t.Fatalf("Windows tree cleanup must remain unconfirmed: %v", failure)
+	// Windows agent processes now own a Job Object, so descendant termination
+	// is positively observable. This assertion was previously inverted — it
+	// required cleanup to remain UNCONFIRMED, encoding the leak where the
+	// leader was killed and its tool subprocesses kept running. Confirmed
+	// cleanup is the fix, so assert it.
+	if failure["cleanup_confirmed"] != true || failure["reaped"] != true {
+		t.Fatalf("Windows tree cleanup must be confirmed via the Job Object: %v", failure)
 	}
 	if phaseCount(entries, "thread_start_response") != 0 {
 		t.Fatalf("unexpected thread_start_response: %v", entries)
