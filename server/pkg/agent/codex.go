@@ -1118,24 +1118,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	readerDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
-		scanner := newAgentStreamScanner(stdout)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" {
-				continue
-			}
-			c.handleLine(line)
-		}
-		if err := scanner.Err(); err != nil {
-			// %w on BOTH: callers match errCodexProcessExited to decide the
-			// process is gone, and bufio.ErrTooLong to tell "we could not read
-			// the response" apart from "codex died". startOrResumeThread needs
-			// that distinction to report an oversized resume as a rejected
-			// resume rather than a crash (MUL-5722).
-			c.markProcessExited(fmt.Errorf("%w: %w", errCodexProcessExited, err))
-			return
-		}
-		c.markProcessExited(errCodexProcessExited)
+		c.readOutput(stdout)
 	}()
 
 	// drainAndWait closes stdin so codex shuts down, then joins cmd.Wait().
@@ -1388,7 +1371,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 			return
 		}
-		c.threadID = threadID
+		c.setThreadID(threadID)
 		if resumed {
 			b.cfg.Logger.Info("codex thread resumed", "thread_id", threadID)
 		} else {
@@ -1415,6 +1398,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		// shared `codexReasoningInjection` fixture in codex_test.go (see
 		// MUL-2339 — Trump's constraint that the three injection points
 		// must not drift independently).
+		applyCodexOutputSchema(turnParams, opts.OutputSchema)
 		applyCodexReasoningEffort(turnParams, opts.ThinkingLevel)
 		applyCodexServiceTier(turnParams, opts.ServiceTier)
 		waitingForTurn := true
@@ -2075,6 +2059,7 @@ type codexClient struct {
 	threadStartSent    bool
 	threadStartStarted time.Time
 	threadID           string
+	threadMu           sync.RWMutex // thread ID is published by the lifecycle goroutine
 	turnID             string
 	onMessage          func(Message)
 	onSemanticActivity func(description string)
@@ -2899,7 +2884,7 @@ func (c *codexClient) handleEvent(msg map[string]any) {
 	case "task_started":
 		c.turnStarted = true
 		if c.onMessage != nil {
-			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.threadID})
+			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.getThreadID()})
 		}
 	case "agent_message":
 		text, _ := msg["message"].(string)
@@ -2997,7 +2982,7 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 			c.turnID = turnID
 		}
 		if c.onMessage != nil {
-			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.threadID})
+			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.getThreadID()})
 		}
 
 	case "turn/completed":
@@ -3080,7 +3065,8 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 
 func (c *codexClient) isNotificationFromOtherThread(params map[string]any) bool {
 	threadID, ok := params["threadId"].(string)
-	return ok && c.threadID != "" && threadID != c.threadID
+	current := c.getThreadID()
+	return ok && current != "" && threadID != current
 }
 
 func (c *codexClient) handleItemNotification(method string, params map[string]any) {
@@ -3591,4 +3577,50 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// The app-server turn/start protocol accepts a JSON Schema object, not a string.
+func applyCodexOutputSchema(params map[string]any, schema json.RawMessage) {
+	if len(schema) > 0 {
+		params["outputSchema"] = schema
+	}
+}
+
+func (c *codexClient) setThreadID(id string) {
+	c.threadMu.Lock()
+	c.threadID = id
+	c.threadMu.Unlock()
+}
+
+func (c *codexClient) getThreadID() string {
+	c.threadMu.RLock()
+	defer c.threadMu.RUnlock()
+	return c.threadID
+}
+
+// A broken provider event must fail this task, not crash the daemon and strand
+// every other agent's queue. processDone also wakes pending RPCs and the turn
+// wait, whose existing cleanup closes/reaps the child process.
+func (c *codexClient) readOutput(stdout io.Reader) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err := fmt.Errorf("%w: codex notification handler panicked: %s", errCodexProcessExited, sanitizeCodexDiagnostic(fmt.Sprint(recovered)))
+			c.markProcessExited(err)
+			if c.cfg.Logger != nil {
+				c.cfg.Logger.Error("codex output processing failed", "error", err)
+			}
+		}
+	}()
+	scanner := newAgentStreamScanner(stdout)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			c.handleLine(line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		c.markProcessExited(fmt.Errorf("%w: %w", errCodexProcessExited, err))
+		return
+	}
+	c.markProcessExited(errCodexProcessExited)
 }

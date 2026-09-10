@@ -310,3 +310,11 @@ without enqueueing another run. Leaders and squad tasks retain their own lifecyc
 This path does not run remote Multica CLI setup. Failed context reads fail the run.
 Comment-triggered turns, explicit handoffs, workflows, chats, autopilots and
 quick-create retain their existing prompt contracts.
+## Interrupted local execution
+
+If the local daemon stops while a task is executing, it reports `runtime_offline`
+with the available session and work directory so normal server retry rules can
+resume it after the runtime reconnects. This differs from an explicit server/user
+cancellation, which is acknowledged without retrying. A completed result remains
+completed even if daemon shutdown begins at the same time. Historical failed runs
+remain in the issue's run history; inspect the latest run for recovery progress.

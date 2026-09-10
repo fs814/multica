@@ -224,3 +224,13 @@ grep -n 'func notifyParentOfChildDone'       internal/handler/issue_child_done.g
   issue transition with the task transition and broadcast after commit.
 - `server/internal/service/http_assignment_test.go` — transactional lifecycle,
   replay, cancellation, reassignment and unaffected-provider regression coverage.
+## Local daemon shutdown and task recovery
+
+- `server/internal/daemon/daemon.go`, `handleTask`: after honoring server-side
+  cancellation, classify incomplete results during root-context shutdown as
+  `runtime_offline` and keep session/work-directory metadata for retry. Completed
+  results still use the completion path and its independent terminal-report context.
+- `server/internal/daemon/daemon_shutdown_test.go`: regression coverage for cancelled,
+  blocked, errored and completed backends during daemon shutdown.
+- `server/internal/daemon/daemon_test.go`: cancellation acknowledgment tests ensure
+  a real server cancellation is not changed into a retryable failure.

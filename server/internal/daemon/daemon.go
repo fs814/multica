@@ -4765,6 +4765,26 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 	default:
 	}
 
+	// A cancelled daemon root context means the execution host is stopping,
+	// not that the user cancelled this task. Server cancellation is handled by
+	// cancelledByPoll above. Report a retryable runtime loss and keep the resume
+	// metadata; the terminal callback uses its own context during shutdown.
+	// A result already completed still follows the normal completion path.
+	if ctx.Err() != nil && (err != nil || result.Status != "completed") {
+		taskLog.Info("daemon stopped during task execution; reporting runtime offline")
+		if failErr := d.reportTerminalTask(ctx, terminalTaskReport{
+			kind:          terminalTaskReportFail,
+			taskID:        task.ID,
+			errorMessage:  "local daemon stopped during task execution; resume when the runtime reconnects",
+			failureReason: taskfailure.ReasonRuntimeOffline.String(),
+			sessionID:     result.SessionID,
+			workDir:       result.WorkDir,
+		}); failErr != nil {
+			taskLog.Error("report runtime shutdown failed", "error", failErr)
+		}
+		return
+	}
+
 	if err != nil {
 		taskLog.Error("task failed", "error", err)
 		// runTask returned without a TaskResult, so we don't have a SessionID
@@ -6390,6 +6410,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
 	}
+	prompt = configureWorkflowOutput(task, provider, prompt, &execOpts)
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
 	//   - openclaw is pinned to the task workdir via the per-task config we

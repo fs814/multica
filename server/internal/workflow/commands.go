@@ -221,7 +221,7 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 
 		payload := in.Payload
 		if len(payload) == 0 {
-			if extracted, found := ExtractDelimitedSubmission(in.RawOutput); found {
+			if extracted, found := ExtractSubmission(in.RawOutput); found {
 				payload = []byte(extracted)
 			}
 		}

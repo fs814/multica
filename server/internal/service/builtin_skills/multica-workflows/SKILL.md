@@ -69,3 +69,11 @@ the prefilled title and description, and each new dialog starts from node defaul
 The card preserves multiline content and shows it in read-only templates too.
 Expand **Configure fields and image** on the card to edit its field declaration or
 image. Inline edits use the same undo/redo and Save flow as other graph edits.
+
+Codex workflow steps use a step-bound JSON Schema for their final response.
+Return the submission JSON object directly when the runtime requests structured
+output; other runtimes keep the delimited submission format. If clarification
+is needed, submit verdict blocked and put the exact question in rationale.
+A prose question is not a passing result. Run details preserve and display the
+original agent reply alongside submission validation errors.
+See references/submission-output-source-map.md for the implementation and regression coverage.
