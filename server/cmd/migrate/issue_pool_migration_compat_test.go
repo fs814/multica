@@ -180,31 +180,27 @@ func TestIssuePoolOutboxPrimaryKeyRecoversInvalidConcurrentIndex(t *testing.T) {
 
 func installLegacyIssuePool469Fixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
-	statements := []string{
-		`ALTER TABLE autopilot DROP CONSTRAINT autopilot_execution_mode_check`,
-		`ALTER TABLE autopilot ADD CONSTRAINT autopilot_execution_mode_check CHECK (execution_mode IN ('create_issue','run_only','issue_pool'))`,
-		`ALTER TABLE issue_pool_cycle ADD COLUMN autopilot_run_id UUID, ADD COLUMN approved_count INTEGER NOT NULL DEFAULT 0 CHECK (approved_count>=0), ADD COLUMN rejected_count INTEGER NOT NULL DEFAULT 0 CHECK (rejected_count>=0), ADD COLUMN dispatched_count INTEGER NOT NULL DEFAULT 0 CHECK (dispatched_count>=0), ADD COLUMN awaiting_acceptance_count INTEGER NOT NULL DEFAULT 0 CHECK (awaiting_acceptance_count>=0), ADD COLUMN completed_count INTEGER NOT NULL DEFAULT 0 CHECK (completed_count>=0), ADD COLUMN failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count>=0), ADD COLUMN deferred_count INTEGER NOT NULL DEFAULT 0 CHECK (deferred_count>=0), ADD COLUMN completed_at TIMESTAMPTZ`,
-		`ALTER TABLE issue_pool_cycle DROP CONSTRAINT issue_pool_cycle_status_check`,
-		`ALTER TABLE issue_pool_cycle ADD CONSTRAINT issue_pool_cycle_status_check CHECK (status IN ('scanning','awaiting_review','running','completed','partial','failed'))`,
-		`ALTER TABLE issue_pool_item DROP CONSTRAINT issue_pool_item_status_check`,
-		`ALTER TABLE issue_pool_item ADD CONSTRAINT issue_pool_item_status_check CHECK (status IN ('claimed','approved','rejected','queued','running','awaiting_acceptance','completed','failed','blocked','cancelled','deferred'))`,
-		`ALTER TABLE issue_pool_item ADD COLUMN task_id UUID, ADD COLUMN failure_reason TEXT, ADD COLUMN dispatch_started_at TIMESTAMPTZ, ADD COLUMN awaiting_acceptance_at TIMESTAMPTZ, ADD COLUMN completed_at TIMESTAMPTZ`,
-		`CREATE UNIQUE INDEX CONCURRENTLY issue_pool_cycle_autopilot_run_key ON issue_pool_cycle (autopilot_run_id) WHERE autopilot_run_id IS NOT NULL`,
-		`CREATE UNIQUE INDEX CONCURRENTLY issue_pool_item_task_key ON issue_pool_item (task_id) WHERE task_id IS NOT NULL`,
-		`CREATE TABLE issue_pool_notification (id UUID NOT NULL DEFAULT gen_random_uuid(),cycle_id UUID NOT NULL,autopilot_id UUID NOT NULL,workspace_id UUID NOT NULL,recipient_id UUID NOT NULL,kind TEXT NOT NULL CHECK (kind IN ('review_requested','cycle_terminal')),inbox_item_id UUID NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
-		`CREATE UNIQUE INDEX CONCURRENTLY issue_pool_notification_id_key ON issue_pool_notification (id)`,
-		`CREATE UNIQUE INDEX CONCURRENTLY issue_pool_notification_dedup_key ON issue_pool_notification (cycle_id,recipient_id,kind)`,
-		`CREATE UNIQUE INDEX CONCURRENTLY issue_pool_item_active_issue_v2_key ON issue_pool_item (issue_id) WHERE status IN ('claimed','approved','queued','running','awaiting_acceptance')`,
-		`DROP INDEX CONCURRENTLY IF EXISTS issue_pool_item_active_issue_key`,
-		`ALTER TABLE issue_pool_notification ADD PRIMARY KEY USING INDEX issue_pool_notification_id_key`,
-		`CREATE INDEX CONCURRENTLY issue_pool_item_reconcile_index ON issue_pool_item (status,updated_at) WHERE status IN ('approved','queued','running','awaiting_acceptance')`,
-		`ALTER TABLE issue_pool_item DROP CONSTRAINT issue_pool_item_check1`,
-		`ALTER TABLE issue_pool_item ADD CONSTRAINT issue_pool_item_review_check CHECK (status IN ('claimed','deferred') OR (reviewer_id IS NOT NULL AND reviewed_at IS NOT NULL))`,
+	files, err := filepath.Glob(filepath.Join("testdata", "tes66-v2", "*.up.sql"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i, statement := range statements {
-		if _, err := pool.Exec(ctx, statement); err != nil {
-			t.Fatalf("install legacy 469 schema statement %d: %v", i, err)
+	applied := 0
+	for _, file := range files {
+		var version int
+		if _, err := fmt.Sscanf(filepath.Base(file), "%d_", &version); err != nil || version < 459 || version > 469 {
+			continue
 		}
+		sql, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("install original legacy migration %s: %v", file, err)
+		}
+		applied++
+	}
+	if applied != 11 {
+		t.Fatalf("legacy fixture count = %d, want 11", applied)
 	}
 	for _, version := range []string{
 		"459_issue_pool_execution_schema", "460_issue_pool_cycle_run_index", "461_issue_pool_item_task_index",
@@ -216,7 +212,7 @@ func installLegacyIssuePool469Fixture(t *testing.T, ctx context.Context, pool *p
 			t.Fatalf("seed legacy ledger %s: %v", version, err)
 		}
 	}
-	_, err := pool.Exec(ctx, `
+	_, err = pool.Exec(ctx, `
 		WITH u AS (INSERT INTO "user"(name,email) VALUES('Legacy owner','legacy-owner@example.test') RETURNING id),
 		w AS (INSERT INTO workspace(name,slug) VALUES('Legacy workspace','legacy-workspace') RETURNING id),
 		m AS (INSERT INTO member(workspace_id,user_id,role) SELECT w.id,u.id,'owner' FROM w,u RETURNING user_id,workspace_id),
@@ -289,4 +285,88 @@ func newIssuePoolMigrationPool(t *testing.T) (*pgxpool.Pool, string) {
 		}
 	})
 	return pool, schema
+}
+
+func TestIssuePoolInboxDedupeRecoversInvalidConcurrentIndex(t *testing.T) {
+	pool, schema := newIssuePoolMigrationPool(t)
+	ctx := context.Background()
+	opts := func(files []string) runOptions {
+		return runOptions{
+			Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
+			AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+		}
+	}
+
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 1, 478))); err != nil {
+		t.Fatalf("migrate through 478: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		WITH u AS (
+			INSERT INTO "user"(name,email) VALUES('Inbox recovery owner','inbox-recovery@example.test') RETURNING id
+		), w AS (
+			INSERT INTO workspace(name,slug) VALUES('Inbox recovery workspace','inbox-recovery') RETURNING id
+		), m AS (
+			INSERT INTO member(workspace_id,user_id,role) SELECT w.id,u.id,'owner' FROM w,u RETURNING workspace_id,user_id
+		)
+		INSERT INTO inbox_item(workspace_id,recipient_type,recipient_id,type,title,details)
+		SELECT m.workspace_id,'member',m.user_id,'issue_pool','duplicate notification',
+			jsonb_build_object('notification_id','interrupted-479')
+		FROM m CROSS JOIN generate_series(1,2)
+	`); err != nil {
+		t.Fatalf("seed duplicate inbox notification IDs: %v", err)
+	}
+	if err := runMigrations(ctx, pool, opts(issuePoolMigrationFiles(t, 479, 479))); err == nil {
+		t.Fatal("migration 479 unexpectedly succeeded with duplicate notification IDs")
+	}
+	var invalid bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+		WHERE c.relnamespace=current_schema()::regnamespace
+		  AND c.relname='idx_inbox_issue_pool_notification_dedupe'
+		  AND NOT i.indisvalid
+	)`).Scan(&invalid); err != nil || !invalid {
+		t.Fatalf("same-name INVALID index exists=%v err=%v", invalid, err)
+	}
+	var failedLedger int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+		WHERE version='479_inbox_issue_pool_notification_dedupe_index'`).Scan(&failedLedger); err != nil || failedLedger != 0 {
+		t.Fatalf("failed 479 ledger rows=%d err=%v", failedLedger, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM inbox_item a USING inbox_item b
+		WHERE a.type='issue_pool' AND b.type='issue_pool'
+		  AND a.details->>'notification_id'=b.details->>'notification_id' AND a.ctid>b.ctid`); err != nil {
+		t.Fatalf("repair duplicate inbox fixture: %v", err)
+	}
+
+	upgrade := issuePoolMigrationFiles(t, 479, 490)
+	if err := runMigrations(ctx, pool, opts(upgrade)); err != nil {
+		t.Fatalf("formal 479+ recovery: %v", err)
+	}
+	var valid bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+		WHERE c.relnamespace=current_schema()::regnamespace
+		  AND c.relname='idx_inbox_issue_pool_notification_dedupe'
+		  AND i.indisvalid AND i.indisready
+	)`).Scan(&valid); err != nil || !valid {
+		t.Fatalf("rebuilt index valid=%v err=%v", valid, err)
+	}
+	for _, file := range upgrade {
+		version := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(file), ".sql"), ".up")
+		var rows int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations WHERE version=$1`, version).Scan(&rows); err != nil || rows != 1 {
+			t.Fatalf("ledger version %s rows=%d err=%v", version, rows, err)
+		}
+	}
+	var ledgerBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&ledgerBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(ctx, pool, opts(upgrade)); err != nil {
+		t.Fatalf("idempotent 479+ rerun: %v", err)
+	}
+	var ledgerAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&ledgerAfter); err != nil || ledgerAfter != ledgerBefore {
+		t.Fatalf("idempotent ledger count before=%d after=%d err=%v", ledgerBefore, ledgerAfter, err)
+	}
 }

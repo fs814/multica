@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS issue_pool_notification_dedup_key;
