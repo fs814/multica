@@ -367,7 +367,9 @@
         "label": "任务池",
         "description": "初审排序后的现有任务，再运行固定工作流"
       }
-    }
+    },
+    "workflow_template_issue_pool_hint": "Issue 池必选。保存后固定已发布版本，确保执行与验收可复现。",
+    "error_workflow_template_required": "请为 Issue 池选择已发布的工作流。"
   },
   "schedule_editor": {
     "time_label": "时间",
@@ -497,5 +499,34 @@
       "confirm": "永久删除",
       "deleting": "删除中…"
     }
+  },
+  "issue_pool_panel": {
+    "title": "议题池",
+    "description": "候选项由 Workflow 执行、复核并验收；不会创建直接任务。",
+    "preview": "预览",
+    "create_batch": "创建批次",
+    "inactive_days": "未活跃天数",
+    "batch_limit": "批次上限",
+    "max_in_flight": "最大并行数",
+    "require_description": "必须有描述",
+    "require_acceptance": "必须有验收标准",
+    "save_policy": "保存策略",
+    "input_mapping": "Workflow 输入映射（目标字段到议题快照字段）",
+    "policy_required": "请先保存策略，再预览或创建批次。",
+    "preview_summary": "已扫描 {{scanned}}；符合条件 {{eligible}}；已选择 {{selected}}。",
+    "score": "分数 {{score}}",
+    "loading": "正在加载周期…",
+    "empty": "暂无批次。",
+    "cycle_summary": "已完成 {{completed}} · 待验收 {{review}} · 已阻塞 {{blocked}} · 已失败 {{failed}}",
+    "workflow_run": "Workflow 运行",
+    "approve": "批准",
+    "reject": "拒绝",
+    "reject_reason": "在议题池初审中被拒绝",
+    "pagination": "共 {{total}} 个周期 · 第 {{page}} / {{pages}} 页",
+    "previous": "上一页",
+    "next": "下一页",
+    "action_failed": "议题池操作失败",
+    "mapping_invalid": "Workflow 输入映射必须是有效 JSON。",
+    "policy_saved": "议题池策略已保存"
   }
 }

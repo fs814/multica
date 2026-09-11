@@ -8,6 +8,7 @@ import {
   issuePoolPolicyOptions,
 } from "@multica/core/autopilots/queries";
 import {
+  useCreateIssuePoolCycle,
   usePreviewIssuePool,
   usePutIssuePoolPolicy,
   useReviewIssuePoolItems,
@@ -205,6 +206,7 @@ export function IssuePoolSection({
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
   }));
+  const createCycle = useCreateIssuePoolCycle();
   const savePolicy = usePutIssuePoolPolicy();
   const previewPool = usePreviewIssuePool();
   const review = useReviewIssuePoolItems();
@@ -315,6 +317,12 @@ export function IssuePoolSection({
             <Button variant="outline" onClick={() => void previewPool.mutateAsync(autopilotId)}>
               <Eye className="mr-1 size-3.5" />{t(($) => $.issue_pool.preview)}
             </Button>
+            <Button variant="outline" disabled={createCycle.isPending} onClick={async () => {
+              try {
+                await createCycle.mutateAsync({ autopilotId, idempotencyKey: `ui:${crypto.randomUUID()}` });
+                setPage(0);
+              } catch (error) { toast.error(error instanceof Error ? error.message : String(error)); }
+            }}>{t(($) => $.issue_pool_panel.create_batch)}</Button>
             <Button onClick={() => void persist()}>
               <Save className="mr-1 size-3.5" />{t(($) => $.issue_pool.save_policy)}
             </Button>

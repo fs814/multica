@@ -367,7 +367,9 @@
         "label": "課題プール",
         "description": "既存の課題をレビューして固定ワークフローを実行します"
       }
-    }
+    },
+    "workflow_template_issue_pool_hint": "Issue プールでは必須です。決定的な実行と承認のため公開済みバージョンを固定します。",
+    "error_workflow_template_required": "公開済みワークフローを選択してください。"
   },
   "schedule_editor": {
     "time_label": "時刻",
@@ -497,5 +499,34 @@
       "confirm": "完全に削除",
       "deleting": "削除中…"
     }
+  },
+  "issue_pool_panel": {
+    "title": "課題プール",
+    "description": "候補のレビューと承認は Workflow で実行され、直接タスクは作成されません。",
+    "preview": "プレビュー",
+    "create_batch": "バッチを作成",
+    "inactive_days": "非アクティブ日数",
+    "batch_limit": "バッチ上限",
+    "max_in_flight": "最大同時実行数",
+    "require_description": "説明を必須にする",
+    "require_acceptance": "受け入れ条件を必須にする",
+    "save_policy": "ポリシーを保存",
+    "input_mapping": "Workflow 入力マッピング（対象フィールドから課題スナップショットフィールドへ）",
+    "policy_required": "プレビューまたはバッチ作成の前にポリシーを保存してください。",
+    "preview_summary": "スキャン {{scanned}}、対象 {{eligible}}、選択 {{selected}}。",
+    "score": "スコア {{score}}",
+    "loading": "サイクルを読み込み中…",
+    "empty": "バッチはまだありません。",
+    "cycle_summary": "完了 {{completed}} · レビュー {{review}} · ブロック {{blocked}} · 失敗 {{failed}}",
+    "workflow_run": "Workflow 実行",
+    "approve": "承認",
+    "reject": "却下",
+    "reject_reason": "課題プールのレビューで却下されました",
+    "pagination": "{{total}} サイクル · {{pages}} ページ中 {{page}} ページ",
+    "previous": "前へ",
+    "next": "次へ",
+    "action_failed": "課題プールの操作に失敗しました",
+    "mapping_invalid": "Workflow 入力マッピングは有効な JSON である必要があります。",
+    "policy_saved": "課題プールのポリシーを保存しました"
   }
 }

@@ -227,3 +227,15 @@ export function useReplayAutopilotDelivery() {
     },
   });
 }
+
+export function useCreateIssuePoolCycle() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+  return useMutation({
+    mutationFn: ({ autopilotId, idempotencyKey }: { autopilotId: string; idempotencyKey: string }) =>
+      api.createIssuePoolCycle(autopilotId, idempotencyKey),
+    onSettled: (_data, _err, vars) => {
+      qc.invalidateQueries({ queryKey: autopilotKeys.issuePoolCycles(wsId, vars.autopilotId) });
+    },
+  });
+}

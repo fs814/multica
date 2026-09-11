@@ -367,7 +367,9 @@
         "label": "Issue pool",
         "description": "Review ranked existing issues, then run the pinned workflow"
       }
-    }
+    },
+    "workflow_template_issue_pool_hint": "Required for an issue pool. The published version is pinned for deterministic execution and acceptance.",
+    "error_workflow_template_required": "Choose a published workflow for this issue pool."
   },
   "schedule_editor": {
     "time_label": "Time",
@@ -500,5 +502,34 @@
       "confirm": "Delete permanently",
       "deleting": "Deleting…"
     }
+  },
+  "issue_pool_panel": {
+    "title": "Issue pool",
+    "description": "Workflow-backed candidate review and acceptance; no direct task execution.",
+    "preview": "Preview",
+    "create_batch": "Create batch",
+    "inactive_days": "Inactive days",
+    "batch_limit": "Batch limit",
+    "max_in_flight": "Max in flight",
+    "require_description": "Require description",
+    "require_acceptance": "Require acceptance criteria",
+    "save_policy": "Save policy",
+    "input_mapping": "Workflow input mapping (target field to issue snapshot field)",
+    "policy_required": "Save the policy before previewing or creating a batch.",
+    "preview_summary": "Scanned {{scanned}}; eligible {{eligible}}; selected {{selected}}.",
+    "score": "score {{score}}",
+    "loading": "Loading cycles…",
+    "empty": "No batches yet.",
+    "cycle_summary": "{{completed}} done · {{review}} review · {{blocked}} blocked · {{failed}} failed",
+    "workflow_run": "Workflow run",
+    "approve": "Approve",
+    "reject": "Reject",
+    "reject_reason": "Rejected during issue pool review",
+    "pagination": "{{total}} cycles · page {{page}} of {{pages}}",
+    "previous": "Previous",
+    "next": "Next",
+    "action_failed": "Issue pool action failed",
+    "mapping_invalid": "Workflow input mapping must be valid JSON.",
+    "policy_saved": "Issue pool policy saved"
   }
 }

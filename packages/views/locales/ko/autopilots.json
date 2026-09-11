@@ -367,7 +367,9 @@
         "label": "이슈 풀",
         "description": "기존 이슈를 검토한 후 고정 워크플로를 실행합니다"
       }
-    }
+    },
+    "workflow_template_issue_pool_hint": "이슈 풀에는 필수입니다. 결정적 실행과 승인을 위해 게시된 버전을 고정합니다.",
+    "error_workflow_template_required": "게시된 워크플로를 선택하세요."
   },
   "schedule_editor": {
     "time_label": "시간",
@@ -497,5 +499,34 @@
       "confirm": "영구 삭제",
       "deleting": "삭제 중…"
     }
+  },
+  "issue_pool_panel": {
+    "title": "이슈 풀",
+    "description": "후보 검토와 승인은 Workflow로 실행되며 직접 작업은 생성되지 않습니다.",
+    "preview": "미리보기",
+    "create_batch": "배치 만들기",
+    "inactive_days": "비활성 일수",
+    "batch_limit": "배치 한도",
+    "max_in_flight": "최대 동시 실행",
+    "require_description": "설명 필수",
+    "require_acceptance": "승인 기준 필수",
+    "save_policy": "정책 저장",
+    "input_mapping": "Workflow 입력 매핑(대상 필드에서 이슈 스냅샷 필드로)",
+    "policy_required": "미리보기 또는 배치 생성 전에 정책을 저장하세요.",
+    "preview_summary": "스캔 {{scanned}}, 적합 {{eligible}}, 선택 {{selected}}.",
+    "score": "점수 {{score}}",
+    "loading": "주기를 불러오는 중…",
+    "empty": "아직 배치가 없습니다.",
+    "cycle_summary": "완료 {{completed}} · 검토 {{review}} · 차단 {{blocked}} · 실패 {{failed}}",
+    "workflow_run": "Workflow 실행",
+    "approve": "승인",
+    "reject": "거부",
+    "reject_reason": "이슈 풀 검토에서 거부됨",
+    "pagination": "총 {{total}}개 주기 · {{pages}}페이지 중 {{page}}페이지",
+    "previous": "이전",
+    "next": "다음",
+    "action_failed": "이슈 풀 작업 실패",
+    "mapping_invalid": "Workflow 입력 매핑은 유효한 JSON이어야 합니다.",
+    "policy_saved": "이슈 풀 정책이 저장되었습니다"
   }
 }

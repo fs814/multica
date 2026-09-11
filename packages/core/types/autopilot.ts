@@ -306,6 +306,8 @@ export interface IssuePoolCycle {
   scanned_count: number;
   eligible_count: number;
   claimed_count: number;
+  dispatched_count?: number;
+  waiting_acceptance_count?: number;
   approved_count: number;
   rejected_count: number;
   completed_count: number;
@@ -324,6 +326,8 @@ export interface IssuePoolCycle {
 }
 
 export interface ListIssuePoolCyclesResponse {
+  page?: number;
+  page_size?: number;
   cycles: IssuePoolCycle[];
   total: number;
 }
@@ -384,3 +388,5 @@ export interface ListWebhookDeliveriesResponse {
   deliveries: WebhookDelivery[];
   total: number;
 }
+
+export type PutIssuePoolPolicy = PutIssuePoolPolicyRequest & { review_mode?: "manual" };

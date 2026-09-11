@@ -3366,12 +3366,38 @@ export class ApiClient {
 
   async listIssuePoolCycles(
     autopilotId: string,
-    params?: { limit?: number; offset?: number },
+    params?: { limit?: number; offset?: number } | number,
+    pageSize = 20,
   ): Promise<ListIssuePoolCyclesResponse> {
     const search = new URLSearchParams();
+    if (typeof params === "number") {
+      search.set("page", String(params));
+      search.set("page_size", String(pageSize));
+    } else {
     if (params?.limit) search.set("limit", String(params.limit));
     if (params?.offset) search.set("offset", String(params.offset));
+    }
     return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles?${search}`);
+  }
+
+  async createIssuePoolCycle(autopilotId: string, idempotencyKey: string): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles`, {
+      method: "POST",
+      body: JSON.stringify({ idempotency_key: idempotencyKey }),
+    });
+  }
+
+  async reviewIssuePoolItem(
+    autopilotId: string,
+    cycleId: string,
+    itemId: string,
+    decision: "approve" | "reject",
+    reason = "",
+  ): Promise<IssuePoolCycle> {
+    return this.fetch(`/api/autopilots/${autopilotId}/issue-pool/cycles/${cycleId}/review`, {
+      method: "POST",
+      body: JSON.stringify({ decisions: [{ item_id: itemId, decision, reason }] }),
+    });
   }
 
   async getIssuePoolCycle(autopilotId: string, cycleId: string): Promise<IssuePoolCycle> {

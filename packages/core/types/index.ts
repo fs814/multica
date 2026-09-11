@@ -234,6 +234,7 @@ export type {
   ListAutopilotRunsResponse,
   IssuePoolPolicy,
   PutIssuePoolPolicyRequest,
+  PutIssuePoolPolicy,
   IssuePoolCandidate,
   IssuePoolPreview,
   IssuePoolItem,
