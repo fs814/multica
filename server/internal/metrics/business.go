@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"sync"
+	"time"
 
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,8 +32,12 @@ type BusinessMetrics struct {
 	llmUnpricedTokens *prometheus.CounterVec
 	llmRequests       *prometheus.CounterVec
 
-	taskQueuedExpired *prometheus.CounterVec
-	taskLeaseExpired  *prometheus.CounterVec
+	taskQueuedExpired       *prometheus.CounterVec
+	taskLeaseExpired        *prometheus.CounterVec
+	issuePoolTransition     *prometheus.CounterVec
+	issuePoolReconciliation *prometheus.CounterVec
+	issuePoolDuration       *prometheus.HistogramVec
+	issuePoolActive         *prometheus.GaugeVec
 
 	activeMu    sync.Mutex
 	activeTasks map[string]activeTaskLabels
@@ -145,6 +150,22 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Name:      "lease_expired_total",
 			Help:      "Total dispatched or running task leases expired by the scheduler.",
 		}, metricLabels("multica_task_lease_expired_total")),
+		issuePoolTransition: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "multica", Subsystem: "issue_pool", Name: "transition_total",
+			Help: "Total durable issue-pool lifecycle transitions by bounded stage.",
+		}, []string{"stage"}),
+		issuePoolReconciliation: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "multica", Subsystem: "issue_pool", Name: "reconciliation_total",
+			Help: "Total issue-pool reconciliation passes by bounded outcome.",
+		}, []string{"outcome"}),
+		issuePoolDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "multica", Subsystem: "issue_pool", Name: "phase_duration_seconds",
+			Help: "Issue-pool lifecycle duration by bounded phase.", Buckets: taskDurationBuckets,
+		}, []string{"phase"}),
+		issuePoolActive: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "multica", Subsystem: "issue_pool", Name: "active",
+			Help: "Current issue-pool items observed by this process by bounded state group.",
+		}, []string{"state"}),
 		activeTasks: map[string]activeTaskLabels{},
 		events:      newBusinessEventMetrics(),
 	}
@@ -170,6 +191,10 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.llmRequests,
 		m.taskQueuedExpired,
 		m.taskLeaseExpired,
+		m.issuePoolTransition,
+		m.issuePoolReconciliation,
+		m.issuePoolDuration,
+		m.issuePoolActive,
 	}, m.events.collectors()...)
 }
 
@@ -248,6 +273,54 @@ func (m *BusinessMetrics) RecordTaskLeaseExpired(source string) {
 		return
 	}
 	m.taskLeaseExpired.WithLabelValues(NormalizeTaskSource(source)).Inc()
+}
+
+func (m *BusinessMetrics) RecordIssuePoolTransition(stage string, count int) {
+	if m == nil || count <= 0 {
+		return
+	}
+	switch stage {
+	case "scanned", "eligible", "claimed", "approved", "rejected", "dispatched", "waiting_acceptance", "completed", "blocked", "failed", "deferred":
+	default:
+		return
+	}
+	m.issuePoolTransition.WithLabelValues(stage).Add(float64(count))
+}
+
+func (m *BusinessMetrics) RecordIssuePoolReconciliation(outcome string) {
+	if m == nil {
+		return
+	}
+	switch outcome {
+	case "repaired", "replayed", "unchanged", "error":
+	default:
+		outcome = "error"
+	}
+	m.issuePoolReconciliation.WithLabelValues(outcome).Inc()
+}
+
+func (m *BusinessMetrics) RecordIssuePoolDuration(phase string, duration time.Duration) {
+	if m == nil || duration < 0 {
+		return
+	}
+	switch phase {
+	case "claim_to_dispatch", "dispatch_to_review", "review_to_done":
+	default:
+		return
+	}
+	m.issuePoolDuration.WithLabelValues(phase).Observe(duration.Seconds())
+}
+
+func (m *BusinessMetrics) SetIssuePoolActive(state string, count int) {
+	if m == nil || count < 0 {
+		return
+	}
+	switch state {
+	case "running", "awaiting_review", "waiting_acceptance", "blocked":
+	default:
+		return
+	}
+	m.issuePoolActive.WithLabelValues(state).Set(float64(count))
 }
 
 // costUSDTicks is the provider's own price for this usage in 1e-10 USD, or 0

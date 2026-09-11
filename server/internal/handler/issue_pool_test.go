@@ -807,3 +807,116 @@ func TestWorkflowStartExistingIssueRejectsWorkspaceBoundary(t *testing.T) {
 		t.Fatalf("boundary rejection left %d runs", got)
 	}
 }
+
+func TestIssuePoolCyclePaginationUsesTrueTotal(t *testing.T) {
+	autopilotID := newIssuePoolAutopilot(t, nil)
+	cleanIssuePoolRows(t, autopilotID)
+	putIssuePoolPolicy(t, autopilotID, map[string]any{
+		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
+		"require_description": false, "require_acceptance_criteria": false,
+	})
+	createIssuePoolCycle(t, autopilotID, "page-one", http.StatusCreated)
+	createIssuePoolCycle(t, autopilotID, "page-two", http.StatusCreated)
+
+	path := "/api/autopilots/" + autopilotID + "/issue-pool/cycles?workspace_id=" + testWorkspaceID + "&page=1&page_size=1"
+	req := withURLParam(newRequest(http.MethodGet, path, nil), "id", autopilotID)
+	var response IssuePoolCycleListResponse
+	testutil.Call(t, testHandler.ListIssuePoolCycles, req).Want(http.StatusOK).JSON(&response)
+	if response.Total != 2 || len(response.Cycles) != 1 || response.Page != 1 || response.PageSize != 1 {
+		t.Fatalf("cycle pagination = total %d rows %d page %d size %d", response.Total, len(response.Cycles), response.Page, response.PageSize)
+	}
+}
+
+func TestIssuePoolDualDispatcherBarrierCreatesExactlyOneRunAndTask(t *testing.T) {
+	autopilotID := newIssuePoolAutopilotWithDefinition(t, nil, func(agentID string) *workflow.Definition {
+		return &workflow.Definition{
+			SchemaVersion: workflow.SchemaVersion, EntryNode: "implement",
+			Nodes: []workflow.Node{
+				{Key: "implement", Type: workflow.NodeTypeAgent, Next: []string{"end"}, Routing: &workflow.Routing{Strategy: workflow.RoutingExplicit, AgentID: agentID}, SubmissionSchema: "code_change"},
+				{Key: "end", Type: workflow.NodeTypeEnd},
+			},
+		}
+	})
+	cleanIssuePoolRows(t, autopilotID)
+	dbfx.Issue(t, "Barrier dispatch candidate", testutil.Cols{
+		"status": "backlog", "description": "dispatch exactly once",
+		"updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz"),
+	})
+	putIssuePoolPolicy(t, autopilotID, map[string]any{
+		"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1,
+		"require_description": false, "require_acceptance_criteria": false,
+	})
+	previous := testHandler.WorkflowEngine
+	testHandler.WorkflowEngine = nil
+	t.Cleanup(func() { testHandler.WorkflowEngine = previous })
+	cycle := createIssuePoolCycle(t, autopilotID, "dual-dispatch-barrier", http.StatusCreated)
+	reviewIssuePoolItems(t, autopilotID, cycle.ID, []map[string]any{{"item_id": cycle.Items[0].ID, "decision": "approve"}}, http.StatusOK)
+
+	var row issuePoolDispatchRow
+	dbfx.QueryRow(t, `SELECT item.id,item.issue_id,item.workspace_id,item.project_id,
+		item.cycle_id,item.autopilot_id,cycle.workflow_template_id,cycle.workflow_template_version_id,
+		item.reviewer_id,item.issue_snapshot,cycle.workflow_input_mapping_snapshot,cycle.policy_snapshot
+		FROM issue_pool_item item JOIN issue_pool_cycle cycle ON cycle.id=item.cycle_id WHERE item.id=$1`, cycle.Items[0].ID).
+		Scan(&row.ItemID, &row.IssueID, &row.WorkspaceID, &row.ProjectID, &row.CycleID, &row.AutopilotID,
+			&row.TemplateID, &row.TemplateVersionID, &row.ReviewerID, &row.Snapshot, &row.Mapping, &row.PolicySnapshot)
+	testHandler.WorkflowEngine = &workflow.Engine{
+		Queries: testHandler.Queries, TxStarter: testPool, Router: service.NewWorkflowRouter(testHandler.Queries), Schemas: workflow.DefaultSchemaRegistry,
+	}
+	ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	ready := make(chan struct{}, 2)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ready <- struct{}{}
+			<-start
+			testHandler.dispatchIssuePoolItem(context.Background(), ap, row)
+		}()
+	}
+	<-ready
+	<-ready
+	close(start)
+	wg.Wait()
+
+	key := "issue-pool:" + cycle.Items[0].ID
+	if got := dbfx.Count(t, `SELECT count(*) FROM workflow_run WHERE idempotency_key=$1`, key); got != 1 {
+		t.Fatalf("dual dispatcher WorkflowRuns = %d, want 1", got)
+	}
+	if got := dbfx.Count(t, `SELECT count(*) FROM agent_task_queue task JOIN workflow_step_instance step ON step.task_id=task.id JOIN workflow_run run ON run.id=step.run_id WHERE run.idempotency_key=$1`, key); got != 1 {
+		t.Fatalf("dual dispatcher AgentTasks = %d, want 1", got)
+	}
+	var attempts int
+	dbfx.QueryRow(t, `SELECT dispatch_attempts FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&attempts)
+	if attempts != 1 {
+		t.Fatalf("dispatch attempts = %d, want exactly one CAS winner", attempts)
+	}
+}
+
+func TestIssuePoolAllFailedProjectsCycleAndAutopilotRunAtomically(t *testing.T) {
+	autopilotID := newIssuePoolAutopilot(t, nil)
+	cleanIssuePoolRows(t, autopilotID)
+	dbfx.Issue(t, "Failed pool candidate", testutil.Cols{"status": "backlog", "updated_at": testutil.Raw("'2020-01-01T00:00:00Z'::timestamptz")})
+	putIssuePoolPolicy(t, autopilotID, map[string]any{"inactive_for_days": 0, "batch_limit": 1, "max_in_flight": 1, "require_description": false, "require_acceptance_criteria": false})
+	runID := dbfx.Insert(t, "autopilot_run", testutil.Cols{"autopilot_id": autopilotID, "source": "manual", "status": "running"})
+	ap, _ := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
+	run, _ := testHandler.Queries.GetAutopilotRun(context.Background(), parseUUID(runID))
+	if err := testHandler.DispatchIssuePool(context.Background(), ap, &run, parseUUID(testUserID)); err != nil {
+		t.Fatal(err)
+	}
+	var cycleID, itemID string
+	dbfx.QueryRow(t, `SELECT cycle.id::text,item.id::text FROM issue_pool_cycle cycle JOIN issue_pool_item item ON item.cycle_id=cycle.id WHERE cycle.autopilot_run_id=$1`, runID).Scan(&cycleID, &itemID)
+	dbfx.Exec(t, `UPDATE issue_pool_item SET status='failed',failure_code='infrastructure_unavailable',completed_at=now(),reviewer_id=$2,reviewed_at=now() WHERE id=$1`, itemID, testUserID)
+	testHandler.reconcileIssuePoolCycle(context.Background(), ap, parseUUID(cycleID))
+	var cycleStatus, runStatus, failure, resultStatus string
+	var cycleCompleted, runCompleted bool
+	dbfx.QueryRow(t, `SELECT cycle.status,cycle.completed_at IS NOT NULL,run.status,run.completed_at IS NOT NULL,
+		COALESCE(run.failure_reason,''),COALESCE(run.result->>'status','')
+		FROM issue_pool_cycle cycle JOIN autopilot_run run ON run.id=cycle.autopilot_run_id WHERE cycle.id=$1`, cycleID).
+		Scan(&cycleStatus, &cycleCompleted, &runStatus, &runCompleted, &failure, &resultStatus)
+	if cycleStatus != "failed" || runStatus != "failed" || failure != "issue_pool_failed" || resultStatus != "failed" || !cycleCompleted || !runCompleted {
+		t.Fatalf("atomic failure projection cycle=%s/%v run=%s/%v reason=%s result=%s",
+			cycleStatus, cycleCompleted, runStatus, runCompleted, failure, resultStatus)
+	}
+}

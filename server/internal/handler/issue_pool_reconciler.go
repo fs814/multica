@@ -97,12 +97,22 @@ func (h *Handler) dispatchIssuePoolItem(ctx context.Context, ap db.Autopilot, ro
 	if status == "pending" {
 		status = "running"
 	}
-	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
-		dispatched_at=COALESCE(dispatched_at,now()),waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN now() ELSE waiting_acceptance_at END,
-		failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, row.ItemID, started.Run.ID, status)
-	h.IssuePoolMetrics.AddItemTransition(status, 1)
-	if row.ClaimedAt.Valid {
-		h.IssuePoolMetrics.ObserveDuration("claim_to_dispatch", time.Since(row.ClaimedAt.Time).Seconds())
+	result, err := h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
+        dispatched_at=COALESCE(dispatched_at,now()),
+        waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN COALESCE(waiting_acceptance_at,now()) ELSE waiting_acceptance_at END,
+        failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1 AND dispatched_at IS NULL`, row.ItemID, started.Run.ID, status)
+	if err != nil {
+		return
+	}
+	if result.RowsAffected() > 0 {
+		h.IssuePoolMetrics.AddItemTransition(status, 1)
+		if row.ClaimedAt.Valid {
+			h.IssuePoolMetrics.ObserveDuration("claim_to_dispatch", time.Since(row.ClaimedAt.Time).Seconds())
+		}
+	} else {
+		_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET workflow_run_id=$2,status=$3,
+            waiting_acceptance_at=CASE WHEN $3='waiting_acceptance' THEN COALESCE(waiting_acceptance_at,now()) ELSE waiting_acceptance_at END,
+            failure_code=NULL,failure_detail=NULL,updated_at=now() WHERE id=$1`, row.ItemID, started.Run.ID, status)
 	}
 }
 
@@ -230,7 +240,7 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 	} else if active > 0 {
 		status = "running"
 	} else if terminal == total {
-		if failed > 0 && completed == 0 && deferred == 0 {
+		if total > 0 && failed == total {
 			status = "failed"
 		} else if failed > 0 || deferred > 0 {
 			status = "partial"
@@ -244,11 +254,24 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 	var cycleCreatedAt pgtype.Timestamptz
 	_ = h.DB.QueryRow(ctx, `SELECT status,created_at FROM issue_pool_cycle WHERE id=$1`, cycleID).
 		Scan(&previousStatus, &cycleCreatedAt)
-	var autopilotRunID pgtype.UUID
-	_ = h.DB.QueryRow(ctx, `UPDATE issue_pool_cycle SET status=$2,completed_count=$3,blocked_count=$4,
-		failed_count=$5,deferred_count=$6,rejected_count=$7,updated_at=now(),
-		completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
-		WHERE id=$1 RETURNING autopilot_run_id`, cycleID, status, completed, blocked, failed, deferred, rejected).Scan(&autopilotRunID)
+	result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
+	// Commit cycle and owner run together so crashes cannot split their state.
+	_, err = h.DB.Exec(ctx, `WITH updated_cycle AS (
+        UPDATE issue_pool_cycle SET status=$2,completed_count=$3,blocked_count=$4,
+            failed_count=$5,deferred_count=$6,rejected_count=$7,updated_at=now(),
+            completed_at=CASE WHEN $2 IN ('completed','partial','cancelled','failed') THEN COALESCE(completed_at,now()) ELSE NULL END
+        WHERE id=$1 RETURNING autopilot_run_id
+    ) UPDATE autopilot_run SET
+        status=CASE WHEN $2='failed' THEN 'failed' ELSE 'completed' END,
+        completed_at=COALESCE(completed_at,now()),
+        failure_reason=CASE WHEN $2='failed' THEN COALESCE(failure_reason,'issue_pool_failed') ELSE failure_reason END,
+        result=$8::jsonb
+    WHERE id=(SELECT autopilot_run_id FROM updated_cycle) AND status='running'
+      AND $2 IN ('completed','partial','cancelled','failed')`, cycleID, status, completed, blocked, failed, deferred, rejected, string(result))
+	if err != nil {
+		h.IssuePoolMetrics.RecordReconciliation("projection_error")
+		return
+	}
 	if previousStatus != status && (status == "completed" || status == "partial" || status == "cancelled" || status == "failed") {
 		h.IssuePoolMetrics.RecordCycleOutcome(status)
 		if cycleCreatedAt.Valid {
@@ -256,17 +279,7 @@ func (h *Handler) reconcileIssuePoolCycle(ctx context.Context, ap db.Autopilot, 
 		}
 	}
 	h.IssuePoolMetrics.RecordReconciliation("success")
-	if autopilotRunID.Valid && (status == "completed" || status == "partial" || status == "cancelled") {
-		result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "completed": completed, "failed": failed, "deferred": deferred})
-		_, _ = h.DB.Exec(ctx, `UPDATE autopilot_run SET status='completed',completed_at=COALESCE(completed_at,now()),result=$2::jsonb
-			WHERE id=$1 AND status='running'`, autopilotRunID, string(result))
-	}
-	if autopilotRunID.Valid && status == "failed" {
-		result, _ := json.Marshal(map[string]any{"cycle_id": uuidToString(cycleID), "status": status, "failed": failed})
-		_, _ = h.DB.Exec(ctx, `UPDATE autopilot_run SET status='failed',completed_at=COALESCE(completed_at,now()),
-			failure_reason=COALESCE(failure_reason,'issue_pool_failed'),result=$2::jsonb
-			WHERE id=$1 AND status='running'`, autopilotRunID, string(result))
-	}
+
 	// Durable, replay-safe notification intents. The unique outbox key suppresses
 	// duplicates across every reconciler replay and crash-recovery pass.
 	_, _ = h.DB.Exec(ctx, `WITH events AS (

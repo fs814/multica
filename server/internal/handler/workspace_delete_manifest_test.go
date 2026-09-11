@@ -117,6 +117,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"workflow_run":                    workspaceDelete,
 	"workflow_step_instance":          workspaceDelete,
 	"workflow_submission":             workspaceDelete,
+	"workflow_input_instance":         workspaceDelete,
 	"workflow_template":               workspaceDelete,
 	"workflow_template_version":       workspaceDelete,
 	"workspace":                       workspaceDelete,

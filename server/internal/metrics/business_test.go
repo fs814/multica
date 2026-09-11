@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -301,5 +302,36 @@ func TestBusinessMetricsUnpricedModelWithoutCostStaysAtZero(t *testing.T) {
 	if got := testutil.ToFloat64(m.llmCostUSD.WithLabelValues(
 		"grok", "grok-composer-2.5-fast", "input", "local", "issue")); got != 0 {
 		t.Fatalf("recorded cost = %v, want 0", got)
+	}
+}
+
+func TestIssuePoolMetricsUseOnlyBoundedLabels(t *testing.T) {
+	m := NewBusinessMetrics()
+	m.RecordIssuePoolTransition("claimed", 2)
+	m.RecordIssuePoolTransition("workspace-or-issue-id", 99)
+	m.RecordIssuePoolReconciliation("repaired")
+	m.RecordIssuePoolReconciliation("unbounded-value")
+	m.RecordIssuePoolDuration("claim_to_dispatch", 2*time.Second)
+	m.RecordIssuePoolDuration("issue-id", time.Second)
+	m.SetIssuePoolActive("blocked", 3)
+	m.SetIssuePoolActive("workspace-id", 9)
+
+	if got := testutil.ToFloat64(m.issuePoolTransition.WithLabelValues("claimed")); got != 2 {
+		t.Fatalf("claimed transition = %v, want 2", got)
+	}
+	if got := testutil.CollectAndCount(m.issuePoolTransition); got != 1 {
+		t.Fatalf("transition series = %d, want one bounded label", got)
+	}
+	if got := testutil.ToFloat64(m.issuePoolReconciliation.WithLabelValues("repaired")); got != 1 {
+		t.Fatalf("repaired reconciliation = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.issuePoolReconciliation.WithLabelValues("error")); got != 1 {
+		t.Fatalf("unknown reconcile outcome should fold to error, got %v", got)
+	}
+	if got := testutil.ToFloat64(m.issuePoolActive.WithLabelValues("blocked")); got != 3 {
+		t.Fatalf("blocked active gauge = %v, want 3", got)
+	}
+	if got := testutil.CollectAndCount(m.issuePoolDuration); got != 1 {
+		t.Fatalf("duration series = %d, want one bounded phase", got)
 	}
 }
