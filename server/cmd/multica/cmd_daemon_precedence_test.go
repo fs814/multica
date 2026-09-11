@@ -1,11 +1,14 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/multica-ai/multica/server/internal/cli"
 )
 
 // TestResolveDaemonStringOverridePrecedence pins the three-tier order:
@@ -41,6 +44,56 @@ func TestResolveDaemonStringOverridePrecedence(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestResolveDaemonWorkspacesRootPrecedence(t *testing.T) {
+	home := t.TempDir()
+	flagRoot := filepath.Join(t.TempDir(), "flag")
+	envRoot := filepath.Join(t.TempDir(), "env")
+	configRoot := filepath.Join(t.TempDir(), "config")
+	setTestHome(t, home)
+	t.Setenv("USERPROFILE", home)
+	if err := cli.SaveCLIConfigForProfile(cli.CLIConfig{WorkspacesRoot: configRoot}, "dev"); err != nil {
+		t.Fatalf("SaveCLIConfigForProfile: %v", err)
+	}
+	t.Setenv("MULTICA_WORKSPACES_ROOT", envRoot)
+
+	got, err := resolveWorkspacesRootForProfile("dev", flagRoot)
+	if err != nil {
+		t.Fatalf("resolve flag root: %v", err)
+	}
+	if got != flagRoot {
+		t.Fatalf("flag root = %q, want %q", got, flagRoot)
+	}
+
+	got, err = resolveWorkspacesRootForProfile("dev", "")
+	if err != nil {
+		t.Fatalf("resolve env root: %v", err)
+	}
+	if got != envRoot {
+		t.Fatalf("env root = %q, want %q", got, envRoot)
+	}
+
+	t.Setenv("MULTICA_WORKSPACES_ROOT", "")
+	got, err = resolveWorkspacesRootForProfile("dev", "")
+	if err != nil {
+		t.Fatalf("resolve config root: %v", err)
+	}
+	if got != configRoot {
+		t.Fatalf("config root = %q, want %q", got, configRoot)
+	}
+
+	if err := cli.SaveCLIConfigForProfile(cli.CLIConfig{}, "dev"); err != nil {
+		t.Fatalf("clear profile config: %v", err)
+	}
+	got, err = resolveWorkspacesRootForProfile("dev", "")
+	if err != nil {
+		t.Fatalf("resolve default root: %v", err)
+	}
+	wantDefault := filepath.Join(home, "multica_workspaces_dev")
+	if got != wantDefault {
+		t.Fatalf("default root = %q, want %q", got, wantDefault)
 	}
 }
 

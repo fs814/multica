@@ -173,7 +173,7 @@ func (b *knotBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 	}
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[knot:stderr] "), agentStderrTailBytes)
 	cmd.Stderr = stderrBuf
-	if err := startAgentProcess(cmd); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start knot-cli: %w", err)
 	}
@@ -657,18 +657,17 @@ func knotErrorText(raw knotRawEvent) string {
 // returned an identical list on v0.26.2), so it is discovered once without an
 // agent id. A failure returns an empty list so the picker degrades to manual
 // entry instead of advertising a guess.
-func discoverKnotModels(ctx context.Context, executablePath string) ([]Model, error) {
-	if executablePath == "" {
-		executablePath = knotDefaultBinary
+func discoverKnotModels(ctx context.Context, runtimeCmd Command) ([]Model, error) {
+	if runtimeCmd.Path == "" {
+		runtimeCmd.Path = knotDefaultBinary
 	}
-	if _, err := exec.LookPath(executablePath); err != nil {
+	if _, err := exec.LookPath(runtimeCmd.Path); err != nil {
 		return []Model{}, nil
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, executablePath, "model", "list")
-	hideAgentWindow(cmd)
+	cmd := runtimeCmd.exec(runCtx, "model", "list")
 	// Discovery must not inherit the daemon's MULTICA_* namespace, and needs no
 	// task environment of its own.
 	cmd.Env = buildEnv(nil)
@@ -767,17 +766,16 @@ func knotLooksLikeModelID(token string) bool {
 // to their display names, so a configured id can be checked before it is used.
 // An invalid -a does NOT make knot-cli fail: it silently falls back to a
 // default agent, so a typo would otherwise run as an agent nobody chose.
-func knotKnownAgentIDs(ctx context.Context, executablePath string) (map[string]string, error) {
-	if executablePath == "" {
-		executablePath = knotDefaultBinary
+func knotKnownAgentIDs(ctx context.Context, runtimeCmd Command) (map[string]string, error) {
+	if runtimeCmd.Path == "" {
+		runtimeCmd.Path = knotDefaultBinary
 	}
-	if _, err := exec.LookPath(executablePath); err != nil {
+	if _, err := exec.LookPath(runtimeCmd.Path); err != nil {
 		return nil, err
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "list-agents")
-	hideAgentWindow(cmd)
+	cmd := runtimeCmd.exec(runCtx, "list-agents")
 	cmd.Env = buildEnv(nil)
 	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
@@ -824,8 +822,8 @@ func parseKnotAgents(out string) map[string]string {
 // runtime whose binary is absent or offline configurable. Failing would
 // otherwise take the whole model catalog down with it, since both share one
 // discovery round.
-func discoverKnotAgents(ctx context.Context, executablePath string) []KnotAgentEntry {
-	known, err := knotKnownAgentIDs(ctx, executablePath)
+func discoverKnotAgents(ctx context.Context, runtimeCmd Command) []KnotAgentEntry {
+	known, err := knotKnownAgentIDs(ctx, runtimeCmd)
 	if err != nil || len(known) == 0 {
 		return nil
 	}
@@ -880,12 +878,16 @@ func knotLooksLikeAgentID(token string) bool {
 //
 // This exists because knot-cli treats an unknown -a as "use the default"
 // instead of an error, so nothing downstream would ever surface the mistake.
+//
+// The signature stays a plain path rather than a Command: the only caller is
+// the daemon's runtime probe, which has a discovered binary and no launch
+// prefix to apply.
 func VerifyKnotAgentID(ctx context.Context, executablePath string, env map[string]string) (ok bool, configured string, known map[string]string) {
 	configured = knotAgentID(env)
 	if configured == "" {
 		return true, "", nil
 	}
-	agents, err := knotKnownAgentIDs(ctx, executablePath)
+	agents, err := knotKnownAgentIDs(ctx, NewCommand(executablePath, nil))
 	if err != nil || len(agents) == 0 {
 		return true, configured, nil
 	}

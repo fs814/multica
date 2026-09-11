@@ -27,6 +27,12 @@ func TestIssuePoolMigrationUpgradePaths(t *testing.T) {
 				return runOptions{
 					Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
 					AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+					// These fixtures replay the real migration set from 001, which now
+					// includes upstream migrations gated on an optional extension (446
+					// builds a pg_bigm index). Without the production conditions the
+					// replay dies on `operator class "gin_bigm_ops" does not exist`
+					// wherever pg_bigm is absent — CI and most dev machines.
+					Conditions: conditionsForDirection("up"),
 				}
 			}
 
@@ -124,6 +130,10 @@ func TestIssuePoolOutboxPrimaryKeyRecoversInvalidConcurrentIndex(t *testing.T) {
 		return runOptions{
 			Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
 			AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+			// Replays from 001, so it crosses upstream migrations gated on an
+			// optional extension (446 needs pg_bigm). The production conditions
+			// skip those where the opclass is absent — CI and most dev machines.
+			Conditions: conditionsForDirection("up"),
 		}
 	}
 
@@ -294,6 +304,10 @@ func TestIssuePoolInboxDedupeRecoversInvalidConcurrentIndex(t *testing.T) {
 		return runOptions{
 			Direction: "up", Files: files, SchemaMigrationsTable: schema + ".schema_migrations",
 			AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1, Hooks: preMigrationHooks,
+			// Replays from 001, so it crosses upstream migrations gated on an
+			// optional extension (446 needs pg_bigm). The production conditions
+			// skip those where the opclass is absent — CI and most dev machines.
+			Conditions: conditionsForDirection("up"),
 		}
 	}
 

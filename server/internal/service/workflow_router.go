@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -277,15 +278,22 @@ func (r *WorkflowRouter) routeCapability(
 // permission problem the operator would then chase for an agent that could not
 // have run anyway.
 func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor, requiresVision bool) (string, bool) {
-	ready, reason, err := AgentReadiness(ctx, q, agent)
+	// Upstream reshaped AgentReadiness to take a RuntimeLookup (so each
+	// admission path is distinguishable in multica_agent_runtime_lookup_total)
+	// and to return a verdict struct. The lookup MUST carry the caller's
+	// transaction-scoped `q`, not r.Queries, so the readiness read sees the
+	// same snapshot as the rest of the activating transaction — see the comment
+	// on WorkflowRouter.Queries. There is no workflow-specific source label
+	// yet, so routing reads are attributed to "other".
+	verdict, err := AgentReadiness(ctx, RuntimeLookup{Queries: q, Source: obsmetrics.RuntimeLookupSourceOther}, agent)
 	if err != nil {
 		// A runtime lookup failure is NOT "ready". Routing decides who gets
 		// credentials and work; a candidate we could not verify is refused, and
 		// the Run blocks with a reason a human can act on.
 		return "could not verify agent runtime: " + err.Error(), false
 	}
-	if !ready {
-		return reason, false
+	if !verdict.Ready() {
+		return verdict.Detail, false
 	}
 	if !AgentInvokePermitted(ctx, q, agent, actor) {
 		// Same wording for "private and not yours" and "not on the allow-list":

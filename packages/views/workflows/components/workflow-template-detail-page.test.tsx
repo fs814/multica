@@ -286,6 +286,7 @@ function renderPage() {
     back: vi.fn(),
     pathname: "/acme/workflows/wft-1",
     searchParams: new URLSearchParams(),
+    hash: "",
     getShareableUrl: (path) => path,
   };
   return render(

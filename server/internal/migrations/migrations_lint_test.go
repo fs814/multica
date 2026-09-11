@@ -14,8 +14,29 @@ import (
 )
 
 const maxLegacyMigrationPrefix = 148
-const maxLegacyImplicitIndexPrefix = 272
 
+// maxLegacyImplicitIndexPrefix freezes the range that predates the
+// build-indexes-concurrently rule. The merge with upstream raised this from 272
+// to 466: upstream's history runs to 466 and still declares implicit PK/unique
+// indexes inline (285, 294, 315, 319, 325, 344, 362, 392, 399), and those
+// migrations are already applied in the field, so the rule cannot bind
+// retroactively on them. It still binds on everything added after the merge —
+// this fork's 470+ range, which complies. Raising this number again to exempt a
+// new migration defeats the check; build the index concurrently in its own
+// migration instead.
+const maxLegacyImplicitIndexPrefix = 466
+
+// legacyDuplicateMigrationStems freezes the historical numeric-prefix
+// collisions.
+//
+// Upstream replaced this whitelist with a flat "every prefix from 129 up is
+// unique" rule (TestMigrationNumericPrefixesAreUnique). That rule cannot hold
+// in this fork: the workflow runtime occupies 232-253, and every one of those
+// numbers also names an unrelated upstream migration. Renaming either side
+// would change the schema_migrations version key — which is the FULL stem — and
+// make an upgraded database replay non-idempotent CREATE/ALTER statements. So
+// the whitelist stays and upstream's stricter test is not adopted; the pairs
+// below are frozen, and any THIRD use of one of these prefixes still fails.
 var legacyDuplicateMigrationStems = map[string][]string{
 	"020": {"020_issue_number", "020_task_session"},
 	"026": {"026_comment_reactions", "026_task_messages"},
@@ -76,6 +97,38 @@ var legacyDuplicateMigrationStems = map[string][]string{
 	"251": {"251_agent_runtime_unbind", "251_workflow_step_input_node_type"},
 	"252": {"252_agent_builder_draft", "252_workflow_step_trace_position"},
 	"253": {"253_runtime_profile_add_qwenpaw", "253_workflow_step_trace_position_index"},
+	// Fork collisions frozen when this fork merged upstream/main. This fork and
+	// upstream both numbered from the same base independently, so 21 prefixes
+	// ended up carrying one migration from each side. Frozen rather than
+	// renumbered for the same reason as 232-253 above, and for one more that is
+	// specific to these: renumbering was attempted and it BROKE ordering —
+	// 449_issue_pool_schema creates the issue_pool_* tables that the 20
+	// migrations at 470-490 then ALTER, and 274_workflow_callback_destination_*
+	// is a prerequisite of 280. Moving the creating migration above its
+	// dependents made `sqlc generate` fail with `relation "issue_pool_policy"
+	// does not exist`. The runner keys schema_migrations on the FULL stem, so
+	// both members of a pair apply exactly once and relative order is preserved.
+	"273": {"273_agent_task_queue_runtime_id_index", "273_workflow_external_handoff"},
+	"274": {"274_task_token_workspace_id_index", "274_workflow_callback_destination_name_index"},
+	"275": {"275_task_token_agent_id_index", "275_workflow_callback_delivery_event_index"},
+	"276": {"276_chat_draft_restore_task_id_index", "276_workflow_callback_delivery_claim_index"},
+	"277": {"277_autopilot_run_task_id_index", "277_workflow_callback_delivery_run_index"},
+	"278": {"278_agent_task_queue_agent_id_keyset_index", "278_workflow_callback_destination_primary_index"},
+	"279": {"279_agent_task_queue_issue_id_keyset_index", "279_workflow_callback_delivery_primary_index"},
+	"281": {"281_agent_workspace_id_keyset_index", "281_workflow_callback_delivery_primary_key"},
+	"282": {"282_issue_workspace_id_keyset_index", "282_runtime_profile_add_knot"},
+	"283": {"283_agent_runtime_workspace_id_keyset_index", "283_runtime_profile_add_knot_http"},
+	"284": {"284_task_owner_row_fence", "284_workflow_template_revision"},
+	"449": {"449_autopilot_trigger_created_by", "449_issue_pool_schema"},
+	"450": {"450_drop_comment_delegated_failure_pending_index", "450_issue_pool_policy_id_index"},
+	"451": {"451_agent_task_comment_thread", "451_issue_pool_cycle_id_index"},
+	"452": {"452_agent_task_pending_thread_unique", "452_issue_pool_item_id_index"},
+	"453": {"453_drop_pending_issue_agent_unique", "453_issue_pool_policy_autopilot_index"},
+	"454": {"454_drop_comment_content_bigm_index", "454_issue_pool_cycle_idempotency_index"},
+	"455": {"455_drop_comment_content_trgm_index", "455_issue_pool_item_active_issue_index"},
+	"456": {"456_cancel_comment_assignee_fallbacks", "456_issue_pool_cycle_autopilot_index"},
+	"457": {"457_issue_pool_item_cycle_index", "457_task_message_output_truncated"},
+	"458": {"458_agent_task_cancellation_actor", "458_issue_pool_primary_keys"},
 }
 
 var migrationPrefixPattern = regexp.MustCompile(`^(\d+)_`)

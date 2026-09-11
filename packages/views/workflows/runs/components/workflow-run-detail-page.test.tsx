@@ -190,6 +190,7 @@ function renderRun() {
     back: vi.fn(),
     pathname: "/acme/workflow-runs/wfr-1",
     searchParams: new URLSearchParams(),
+    hash: "",
     getShareableUrl: (path) => path,
   };
   render(
@@ -215,6 +216,7 @@ function renderDialog(
     back: vi.fn(),
     pathname: "/acme/workflows/wft-1",
     searchParams: new URLSearchParams(),
+    hash: "",
     getShareableUrl: (path) => path,
   };
   render(

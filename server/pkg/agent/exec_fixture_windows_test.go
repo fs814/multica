@@ -154,7 +154,12 @@ func runWindowsPowerShellShimHelper() (int, bool) {
 				`{"type":"result","subtype":"success","is_error":false,"result":"ok"}`,
 			},
 		}
-	case os.Getenv(piShimHelperEnv) == "1":
+	// piShimHelperRPCEnv is deliberately excluded: that fixture needs the
+	// line-by-line RPC responder in TestPiShimHelperProcess, which answers
+	// get_state/get_available_models while stdin is still open. This helper
+	// reads stdin to EOF and emits a fixed turn instead, so intercepting here
+	// would starve the RPC discovery the test is asserting on.
+	case os.Getenv(piShimHelperEnv) == "1" && os.Getenv(piShimHelperRPCEnv) != "1":
 		cfg = helperConfig{
 			enabledEnv: piShimHelperEnv,
 			argvFile:   os.Getenv(piShimHelperArgvFile),

@@ -95,7 +95,12 @@ func TestHTTPAssignmentIssueLifecycle(t *testing.T) {
 			}
 			result := []byte(`{"output":"` + tc.output + `"}`)
 			for range 2 {
-				if _, err := svc.CompleteTask(ctx, taskID, result, "", "", false, ""); err != nil {
+				// Arg list tracks upstream's CompleteTask signature, which gained
+				// branchName (after workDir) and durableWorkDir (trailing). This
+				// test exercises the HTTP-assignment issue-status path, which
+				// cares about neither, so they stay empty like sessionID /
+				// workDir / retiredSessionID already were.
+				if _, err := svc.CompleteTask(ctx, taskID, result, "", "", "", false, "", ""); err != nil {
 					t.Fatal(err)
 				}
 				checkStatus(tc.wantEnd)

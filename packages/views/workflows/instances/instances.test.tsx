@@ -95,6 +95,7 @@ function mount(ui: React.ReactNode) {
           back: vi.fn(),
           pathname: "/acme/workflow-instances/instance",
           searchParams: new URLSearchParams(),
+          hash: "",
           getShareableUrl: (p) => p,
         }}
       >

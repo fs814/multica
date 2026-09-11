@@ -70,9 +70,16 @@ func (c *Client) httpIssueContext(ctx context.Context, task Task) (httpIssueCont
 // buildExecutionPrompt makes ordinary HTTP assignments independent of the
 // dispatcher's CLI configuration and workflow files. Other turn contracts,
 // including comment replies and explicitly scoped handoffs, remain unchanged.
-func (d *Daemon) buildExecutionPrompt(ctx context.Context, task Task, provider string) (string, error) {
+//
+// Upstream gave BuildPrompt variadic PromptOptions (per-turn context blocks such
+// as worktree replay conflicts). They are forwarded on the delegating path so
+// those blocks are not silently dropped for every non-knot-http provider. The
+// self-contained knot-http brief below deliberately ignores them: it replaces the
+// standard prompt wholesale, and the local-workflow context those options carry
+// does not apply on the remote tool host.
+func (d *Daemon) buildExecutionPrompt(ctx context.Context, task Task, provider string, options ...PromptOption) (string, error) {
 	if provider != "knot-http" || task.IssueID == "" || task.TriggerCommentID != "" || task.HandoffNote != "" || task.WorkflowPrompt != "" || task.ChatSessionID != "" || task.AutopilotRunID != "" || task.QuickCreatePrompt != "" {
-		return BuildPrompt(task, provider), nil
+		return BuildPrompt(task, provider, options...), nil
 	}
 	issue, err := d.client.httpIssueContext(ctx, task)
 	if err != nil {

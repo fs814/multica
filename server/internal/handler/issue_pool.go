@@ -617,8 +617,14 @@ func (h *Handler) issuePoolAutopilot(w http.ResponseWriter, r *http.Request, wri
 		writeError(w, http.StatusConflict, "issue_pool autopilot requires a fixed published workflow template version")
 		return db.Autopilot{}, "", false
 	}
-	if write && !h.requireAutopilotWrite(w, r, ap, workspaceID) {
-		return db.Autopilot{}, "", false
+	// Upstream MUL-7108 (3ac53a68a) changed requireAutopilotWrite to also
+	// return the member it judged, for callers that need to attribute the
+	// write. The issue-pool gate only needs the yes/no, so the member is
+	// discarded here.
+	if write {
+		if _, ok := h.requireAutopilotWrite(w, r, ap, workspaceID); !ok {
+			return db.Autopilot{}, "", false
+		}
 	}
 	return ap, workspaceID, true
 }

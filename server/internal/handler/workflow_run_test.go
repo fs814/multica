@@ -1401,7 +1401,7 @@ func completeWorkflowTaskForTest(t *testing.T, taskID, stepID, summary string) {
 		t.Fatalf("marshal task result: %v", err)
 	}
 
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), result, "", "", false, ""); err != nil {
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(taskID), result, "", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 }

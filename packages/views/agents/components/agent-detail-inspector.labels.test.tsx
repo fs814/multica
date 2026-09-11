@@ -57,7 +57,9 @@ const knotHTTPRuntime = {
 } as AgentRuntime;
 
 describe("AgentDetailInspector labels", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+  });
 
   // Agent labels were removed from the product (MUL-5600). Label Settings no
   // longer manages an agent catalog, so an attach-only picker here would be a

@@ -56,7 +56,7 @@ The workspace-scoped UI APIs are /api/workflow-instances (list, detail,
 validation, run, history, archive/restore), with create/update under
 /api/workflow-templates/{id}/input-instances and immutable version reads under
 /api/workflow-templates/{id}/versions/{versionID}. These are HTTP UI endpoints,
-not new workflow action names. See references/input-instances-source-map.md.
+not new workflow action names.
 
 ## Editing workflow nodes (web and desktop)
 
@@ -67,8 +67,7 @@ source) as one undoable change. Typing in an input field does not delete a node.
 Use **Set as entry** to choose a replacement after deleting the entry node. The
 first node added to an empty graph becomes its entry. Fix any required connections
 or routing reported by Validate, then save the draft; publish to use it for new runs.
-Built-in, archived and non-admin views remain read-only. See
-`references/editor-source-map.md` for implementation evidence.
+Built-in, archived and non-admin views remain read-only.
 Input nodes expose **Name** and **Key information** directly on the canvas. Key
 information edits the input node's existing `instruction` field and is saved with
 the template draft. Opening Run reuses the input name as its title (or the template
@@ -93,7 +92,6 @@ output; other runtimes keep the delimited submission format. If clarification
 is needed, submit verdict blocked and put the exact question in rationale.
 A prose question is not a passing result. Run details preserve and display the
 original agent reply alongside submission validation errors.
-See references/submission-output-source-map.md for the implementation and regression coverage.
 
 ## Graph definition v2
 
@@ -115,5 +113,4 @@ branch without a rework target when `can_reject_without_rework` is true.
 Incomplete v2 drafts can be saved, but publishing and starting validate the
 complete graph. Combined control/data cycles, invalid ports, duplicate IDs and
 ambiguous collection bindings are rejected. Running instances keep their pinned
-published version. See [the graph v2 source map](references/graph-v2-source-map.md)
-for contract details, supported output values and tests.
+published version.

@@ -165,7 +165,7 @@ func TestWorkflowRunExecutesEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal task result: %v", err)
 	}
-	if _, err := tasks.CompleteTask(ctx, analyzeTask.ID, result, "", "", false, ""); err != nil {
+	if _, err := tasks.CompleteTask(ctx, analyzeTask.ID, result, "", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func TestWorkflowRunExecutesEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal task result: %v", err)
 	}
-	if _, err := tasks.CompleteTask(ctx, implementTask.ID, result2, "", "", false, ""); err != nil {
+	if _, err := tasks.CompleteTask(ctx, implementTask.ID, result2, "", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask (implement): %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestNonWorkflowTaskCompletionIsUntouched(t *testing.T) {
 	})
 
 	dispatchAndStart(t, env, taskID)
-	done, err := tasks.CompleteTask(ctx, taskID, []byte(`{"output":"did the thing"}`), "", "", false, "")
+	done, err := tasks.CompleteTask(ctx, taskID, []byte(`{"output":"did the thing"}`), "", "", "", false, "", "")
 	if err != nil {
 		t.Fatalf("a non-workflow task must complete normally with the observer wired: %v", err)
 	}

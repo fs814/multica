@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -689,13 +688,7 @@ func BuiltinWorkflowShippedDefinition(key string, revision int) ([]byte, bool) {
 	return nil, false
 }
 
-// isUniqueViolation reports whether err is a Postgres unique-index violation.
-// Mirrors the helper in internal/workflow/engine.go; for the seeder a duplicate
-// is not an error but proof that a concurrent caller already did the work.
-func isUniqueViolation(err error) bool {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code == "23505"
-	}
-	return false
-}
+// isUniqueViolation now lives in plugin.go: upstream added an identical helper
+// to this same package, so the copy that used to sit here would be a duplicate
+// declaration. For the seeder a duplicate row is not an error but proof that a
+// concurrent caller already did the work.

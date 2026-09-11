@@ -557,7 +557,7 @@ func TestInputNodeRunDeliversTypedIntakeToTheAnalyzeAgent(t *testing.T) {
 	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimedID),
 		e2eTaskResult(t, claimedID, brief.StepInstanceID, "analysis",
 			"the Save handler is bound to a detached node after the editor re-renders"),
-		"", "", false, ""); err != nil {
+		"", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask(analyze): %v", err)
 	}
 	after := env.getRun(t, run.ID)

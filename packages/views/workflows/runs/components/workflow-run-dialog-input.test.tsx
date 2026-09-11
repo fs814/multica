@@ -182,6 +182,7 @@ function renderDialog(
     back: vi.fn(),
     pathname: "/acme/workflows/wft-1",
     searchParams: new URLSearchParams(),
+    hash: "",
     getShareableUrl: (path) => path,
   };
   const ui = (nextProps = props) => (

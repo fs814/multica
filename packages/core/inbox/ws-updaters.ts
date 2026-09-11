@@ -1,20 +1,79 @@
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { inboxKeys } from "./queries";
-import type { InboxItem, IssueStatus } from "../types";
+import type { InboxItem, IssuePriority, IssueStatus } from "../types";
 
-export function onInboxNew(
+// Re-read a query because the server changed — in a way that is never answered
+// by a request that was already on the wire before the change.
+//
+// Plain invalidation does not give that guarantee. TanStack only cancels an
+// in-flight request on invalidation once the query already holds data —
+// `Query.fetch` guards that branch on `state.data !== undefined` and otherwise
+// hands back the request already in flight:
+//
+//     if (this.state.data !== undefined && fetchOptions?.cancelRefetch) {
+//       this.cancel({ silent: true })
+//     } else if (this.#retryer) {
+//       return this.#retryer.promise      // ← the pre-change request
+//     }
+//
+// That branch exists to dedupe concurrent mounts, not to carry freshness. So a
+// change that lands during a query's FIRST load is answered by the pre-change
+// response, which resolves successfully and clears `isInvalidated`; with
+// `staleTime: Infinity` and no refetch on focus, nothing asks again. Cancelling
+// first makes a refresh behave the same whether or not the query has loaded.
+//
+// Every inbox cache is refreshed through here — both lists and the unread
+// summary. They are rendered side by side (the badge next to the rows it
+// counts), so a hole in either one shows up as the two disagreeing (MUL-6967).
+async function refreshInboxQuery(qc: QueryClient, queryKey: QueryKey) {
+  await qc.cancelQueries({ queryKey });
+  await qc.invalidateQueries({ queryKey });
+}
+
+export async function onInboxNew(
   qc: QueryClient,
   wsId: string,
   _item: InboxItem,
 ) {
-  // Use invalidateQueries instead of setQueryData — triggers a refetch that
-  // reliably notifies all observers. The inbox list is small so this is cheap.
+  // Refetch instead of setQueryData, so every observer is notified.
   //
   // Both lists: a new notification on an ARCHIVED issue puts that issue back in
   // the main inbox, which means it must also leave the archived list. The
   // server owns that split (ListArchivedInboxItems excludes issues with an
   // active row), so refetching both is what keeps them mutually exclusive.
-  qc.invalidateQueries({ queryKey: inboxKeys.all(wsId) });
+  await onInboxInvalidate(qc, wsId);
+}
+
+export function patchInboxIssueProjection(
+  qc: QueryClient,
+  wsId: string,
+  issueId: string,
+  patch: { status?: IssueStatus; priority?: IssuePriority },
+) {
+  const project = (old: InboxItem[] | undefined) => {
+    if (!old) return old;
+    let changed = false;
+    const next = old.map((item) => {
+      if (item.issue_id !== issueId) return item;
+      changed = true;
+      return {
+        ...item,
+        ...(patch.status !== undefined
+          ? { issue_status: patch.status }
+          : {}),
+        // Do not manufacture the projection on data returned by an older
+        // backend. Capability detection relies on `undefined` continuing to
+        // mean "this endpoint version does not provide issue_priority".
+        ...(patch.priority !== undefined && item.issue_priority !== undefined
+          ? { issue_priority: patch.priority }
+          : {}),
+      };
+    });
+    return changed ? next : old;
+  };
+  qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), project);
+  // Archived rows expose the same issue fields and filter controls.
+  qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), project);
 }
 
 export function patchInboxIssueStatus(
@@ -23,11 +82,7 @@ export function patchInboxIssueStatus(
   issueId: string,
   status: IssueStatus,
 ) {
-  const patch = (old: InboxItem[] | undefined) =>
-    old?.map((i) => (i.issue_id === issueId ? { ...i, issue_status: status } : i));
-  qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), patch);
-  // Archived rows render the same status icon, so they need the same patch.
-  qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), patch);
+  patchInboxIssueProjection(qc, wsId, issueId, { status });
 }
 
 export function onInboxIssueStatusChanged(
@@ -43,7 +98,14 @@ export function onInboxIssueStatusChanged(
 // is deleted, all inbox items that referenced it are gone server-side, so drop
 // them from the cache too — from the archived list as well, which holds rows
 // for the same issues.
-export function onInboxIssueDeleted(
+//
+// Dropping unread rows changes the unread badge, which reads the server-side
+// summary rather than these lists, so the summary is refreshed here too. It
+// has to happen inside this updater and not at the call site: deletion is an
+// `issue:*` event, so no `inbox:*` handler runs to pick it up, and the summary
+// query is `staleTime: Infinity` with no refetch on focus — nothing else would
+// ever correct it, leaving the badge stuck above an empty inbox (MUL-6967).
+export async function onInboxIssueDeleted(
   qc: QueryClient,
   wsId: string,
   issueId: string,
@@ -52,21 +114,30 @@ export function onInboxIssueDeleted(
     old?.filter((i) => i.issue_id !== issueId);
   qc.setQueryData<InboxItem[]>(inboxKeys.list(wsId), drop);
   qc.setQueryData<InboxItem[]>(inboxKeys.archived(wsId), drop);
+  await onInboxSummaryInvalidate(qc);
 }
 
-// Refresh both the main and archived lists. Every inbox event can move an item
-// across that boundary (archive, unarchive, or a new notification reviving an
-// archived issue), and the split is decided server-side, so the two are always
-// invalidated together.
-export function onInboxInvalidate(qc: QueryClient, wsId: string) {
-  qc.invalidateQueries({ queryKey: inboxKeys.all(wsId) });
+// THE entry point for refreshing the workspace's inbox lists — main and
+// archived. Every inbox event can move an item across that boundary (archive,
+// unarchive, or a new notification reviving an archived issue), and the split
+// is decided server-side, so the two are always refreshed together.
+//
+// Cancels first, like the summary refresh below, and for the same reason. The
+// list's first load is where the hole bites hardest: nothing outside the Inbox
+// page observes the list, so on web it is collected once the user has been
+// away, and every return is a first load again — with notifications arriving
+// while a large, unbounded list is still downloading.
+export async function onInboxInvalidate(qc: QueryClient, wsId: string) {
+  await refreshInboxQuery(qc, inboxKeys.all(wsId));
 }
 
-// Refresh the cross-workspace unread summary (workspace-switcher dot). The
-// summary spans every workspace, so it is invalidated on ANY inbox event
+// THE entry point for refreshing the cross-workspace unread summary — the
+// workspace-switcher dot and the Inbox unread badge. Every writer goes through
+// here: inbox mutations, inbox events, issue deletion, and reconnect. The
+// summary spans every workspace, so it is refreshed on ANY inbox event
 // regardless of which workspace the event came from — including read/archive
 // events from a workspace other than the active one, which the workspace-
-// scoped list invalidation cannot reach.
-export function onInboxSummaryInvalidate(qc: QueryClient) {
-  qc.invalidateQueries({ queryKey: inboxKeys.unreadSummary() });
+// scoped list refresh cannot reach. Cancels first; see `refreshInboxQuery`.
+export async function onInboxSummaryInvalidate(qc: QueryClient) {
+  await refreshInboxQuery(qc, inboxKeys.unreadSummary());
 }

@@ -62,13 +62,17 @@ const (
 type ModelCatalogSnapshot struct {
 	RuntimeID string       `json:"runtime_id"`
 	Models    []ModelEntry `json:"models"`
-	Supported bool         `json:"supported"`
-	StoredAt  time.Time    `json:"stored_at"`
+	// UnavailableModels rides along so a cache hit renders the same picker as
+	// the live round trip. Without it the greyed-out "needs a newer CLI" rows
+	// would blink out for 24h the moment the first snapshot was stored.
+	UnavailableModels []UnavailableModelEntry `json:"unavailable_models,omitempty"`
 	// KnotAgents is the knot/knot-http agent list captured with the models.
 	// Cached alongside them because both come from the same discovery round:
 	// omitting it would make a cache hit serve models with no agent list, so the
 	// picker would populate only on a cold open.
 	KnotAgents []KnotAgentEntry `json:"knot_agents,omitempty"`
+	Supported  bool             `json:"supported"`
+	StoredAt   time.Time        `json:"stored_at"`
 }
 
 // Age reports how long ago the snapshot was captured.
@@ -87,7 +91,12 @@ func (s *ModelCatalogSnapshot) Age(now time.Time) time.Duration {
 // Implementations must be safe for concurrent use.
 type ModelCatalogCache interface {
 	Get(ctx context.Context, runtimeID string) (*ModelCatalogSnapshot, error)
-	Put(ctx context.Context, runtimeID string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error
+	// Put stores a successful discovery round. `unavailable` is the advisory
+	// "named but will not run" list (upstream); `knotAgents` is the fork's
+	// knot/knot-http agent list discovered on the same round trip and nil for
+	// every other provider. Both ride along with the models because a cache hit
+	// must render exactly the same picker as the live round trip.
+	Put(ctx context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool, knotAgents []KnotAgentEntry) error
 	// Invalidate drops any snapshot for the runtime. Used when the cached
 	// catalog can no longer be trusted (e.g. the runtime row was deleted).
 	Invalidate(ctx context.Context, runtimeID string) error
@@ -170,6 +179,15 @@ func cloneModelEntries(models []ModelEntry) []ModelEntry {
 	return out
 }
 
+// cloneUnavailableModelEntries mirrors cloneModelEntries for the advisory list.
+// The entries hold no pointers, so a shallow element copy is a full one.
+func cloneUnavailableModelEntries(models []UnavailableModelEntry) []UnavailableModelEntry {
+	if models == nil {
+		return nil
+	}
+	return append([]UnavailableModelEntry(nil), models...)
+}
+
 // InMemoryModelCatalogCache is the single-node implementation. Adequate for
 // self-hosted and tests; multi-node deploys should use the Redis backend so
 // every API replica shares one warm catalog.
@@ -203,6 +221,7 @@ func (c *InMemoryModelCatalogCache) Get(_ context.Context, runtimeID string) (*M
 	// Copy so a caller mutating the response cannot corrupt the cache.
 	snapshot := entry
 	snapshot.Models = cloneModelEntries(entry.Models)
+	snapshot.UnavailableModels = cloneUnavailableModelEntries(entry.UnavailableModels)
 	snapshot.KnotAgents = cloneKnotAgentEntries(entry.KnotAgents)
 	return &snapshot, nil
 }
@@ -218,7 +237,7 @@ func cloneKnotAgentEntries(agents []KnotAgentEntry) []KnotAgentEntry {
 	return append([]KnotAgentEntry(nil), agents...)
 }
 
-func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, supported bool, knotAgents []KnotAgentEntry) error {
+func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool, knotAgents []KnotAgentEntry) error {
 	// fallback=false: ReportModelListResult refuses to Put a fallback catalog
 	// at all, so anything reaching a cache backend is a real discovery result.
 	if runtimeID == "" || !cacheableModelCatalog(models, supported, false) {
@@ -237,11 +256,12 @@ func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, mod
 	}
 
 	c.entries[runtimeID] = ModelCatalogSnapshot{
-		RuntimeID:  runtimeID,
-		Models:     cloneModelEntries(models),
-		KnotAgents: cloneKnotAgentEntries(knotAgents),
-		Supported:  supported,
-		StoredAt:   now,
+		RuntimeID:         runtimeID,
+		Models:            cloneModelEntries(models),
+		UnavailableModels: cloneUnavailableModelEntries(unavailable),
+		KnotAgents:        cloneKnotAgentEntries(knotAgents),
+		Supported:         supported,
+		StoredAt:          now,
 	}
 	return nil
 }

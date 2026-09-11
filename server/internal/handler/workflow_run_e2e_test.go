@@ -251,12 +251,17 @@ func (env *workflowE2EEnv) assertAgentRoutable(t *testing.T, agentID, capability
 	if err != nil {
 		t.Fatalf("load agent %s: %v", agentID, err)
 	}
-	ready, reason, err := service.AgentReadiness(ctx, testHandler.Queries, agent)
+	// Upstream reshaped AgentReadiness to take a RuntimeLookup and to return an
+	// AgentVerdict (it was `(ready bool, reason string, err error)`). Mirrors
+	// what WorkflowRouter.eligible actually calls, so this still asserts the
+	// real gate routing applies: Ready() is the admission test, and Detail is
+	// the daemon's own description, which is what the old `reason` carried.
+	verdict, err := service.AgentReadiness(ctx, service.RuntimeLookup{Queries: testHandler.Queries}, agent)
 	if err != nil {
 		t.Fatalf("AgentReadiness(%s): %v", agent.Name, err)
 	}
-	if !ready {
-		t.Fatalf("agent %q is not ready (%s); routing would block the run", agent.Name, reason)
+	if !verdict.Ready() {
+		t.Fatalf("agent %q is not ready (%s); routing would block the run", agent.Name, verdict.Detail)
 	}
 	if !testHandler.canInvokeAgent(ctx, agent, "member", testUserID, testUserID, env.workspaceID) {
 		t.Fatalf("the accountable user may not invoke agent %q; routing would block the run", agent.Name)
@@ -469,7 +474,7 @@ func (env *workflowE2EEnv) finishStep(
 		t.Fatalf("%s: StartTask: %v", nodeKey, err)
 	}
 	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID),
-		e2eTaskResult(t, claimed.ID, brief.StepInstanceID, artifactType, summary), "", "", false, ""); err != nil {
+		e2eTaskResult(t, claimed.ID, brief.StepInstanceID, artifactType, summary), "", "", "", false, "", ""); err != nil {
 		t.Fatalf("%s: CompleteTask: %v", nodeKey, err)
 	}
 }
@@ -613,7 +618,7 @@ func TestWorkflowRunExecutesBugFixEndToEnd(t *testing.T) {
 	const analysisSummary = "the Save handler is bound to a detached DOM node after the editor re-renders, so the click never fires"
 	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimedAnalyze.ID),
 		e2eTaskResult(t, claimedAnalyze.ID, analyzeBrief.StepInstanceID, "analysis", analysisSummary),
-		"", "", false, ""); err != nil {
+		"", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask(analyze): %v", err)
 	}
 
@@ -662,7 +667,7 @@ func TestWorkflowRunExecutesBugFixEndToEnd(t *testing.T) {
 	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimedImplement.ID),
 		e2eTaskResult(t, claimedImplement.ID, implementBrief.StepInstanceID, "code_change",
 			"rebound the Save handler after re-render and added a regression test"),
-		"", "", false, ""); err != nil {
+		"", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask(implement): %v", err)
 	}
 
@@ -824,7 +829,7 @@ func TestWorkflowRunProseReplyBlocksTheStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal task result: %v", err)
 	}
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID), result, "", "", false, ""); err != nil {
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID), result, "", "", "", false, "", ""); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -891,7 +896,7 @@ func TestWorkflowStructuredClarificationRecordsBlockedVerdict(t *testing.T) {
 	}
 	reply, _ := json.Marshal(map[string]any{"schema_version": 1, "step_instance_id": step.ID, "verdict": "blocked", "artifact": map[string]any{"type": "analysis", "summary": "Need clarification", "references": []string{}}, "rationale": "Should connection changes affect execution order?"})
 	envelope, _ := json.Marshal(map[string]any{"task_id": claimed.ID, "output": string(reply)})
-	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID), envelope, "", "", false, ""); err != nil {
+	if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(claimed.ID), envelope, "", "", "", false, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	after := env.getRun(t, run.ID)
