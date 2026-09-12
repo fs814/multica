@@ -27,6 +27,11 @@ import (
 // meaningful summary, short enough to keep the dropdown row scannable.
 const chatSessionTitleMaxLen = 200
 
+// chatSessionModelMaxLen caps the per-session model override. Real model ids are
+// far shorter; this only stops an unbounded string reaching the daemon, since the
+// value is intentionally not validated against any catalog.
+const chatSessionModelMaxLen = 200
+
 // ---------------------------------------------------------------------------
 // Chat Sessions
 // ---------------------------------------------------------------------------
@@ -201,6 +206,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				AgentID:     uuidToString(s.AgentID),
 				CreatorID:   uuidToString(s.CreatorID),
 				ProjectID:   uuidToPtr(s.ProjectID),
+				Model:       textToPtr(s.Model),
 				Title:       s.Title,
 				Status:      s.Status,
 				HasUnread:   s.UnreadCount > 0,
@@ -231,6 +237,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				AgentID:     uuidToString(s.AgentID),
 				CreatorID:   uuidToString(s.CreatorID),
 				ProjectID:   uuidToPtr(s.ProjectID),
+				Model:       textToPtr(s.Model),
 				Title:       s.Title,
 				Status:      s.Status,
 				HasUnread:   s.UnreadCount > 0,
@@ -345,11 +352,16 @@ func (h *Handler) GetChatSession(w http.ResponseWriter, r *http.Request) {
 type UpdateChatSessionRequest struct {
 	Title     *string         `json:"title"`
 	ProjectID json.RawMessage `json:"project_id"`
+	// Model is json.RawMessage for the same reason ProjectID is: an omitted field
+	// ("leave the override alone") and an explicit null ("follow the agent's
+	// default") are different requests, and a *string collapses both to nil.
+	Model json.RawMessage `json:"model"`
 }
 
 // UpdateChatSession updates one user-editable field on a chat session. Title
 // is surfaced by inline rename; project_id controls the project context used
-// by subsequent turns. Status and pinned keep their dedicated endpoints,
+// by subsequent turns; model overrides the agent's model for this conversation
+// only. Status and pinned keep their dedicated endpoints,
 // agent/creator/workspace are immutable, and the resume pointers
 // (session_id / work_dir / runtime_id) remain daemon-owned.
 func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
@@ -367,8 +379,21 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	}
 	hasTitle := req.Title != nil
 	hasProjectID := req.ProjectID != nil
-	if hasTitle == hasProjectID {
-		writeError(w, http.StatusBadRequest, "exactly one of title or project_id is required")
+	hasModel := req.Model != nil
+	// Exactly one field per request. Each writes a different column with
+	// different semantics (title bumps updated_at, the other two deliberately do
+	// not) and each broadcasts a different WS patch, so a combined request would
+	// have no single correct ordering or payload. The count form replaces the old
+	// `hasTitle == hasProjectID` equality, which only happened to work for two
+	// fields.
+	changed := 0
+	for _, present := range []bool{hasTitle, hasProjectID, hasModel} {
+		if present {
+			changed++
+		}
+	}
+	if changed != 1 {
+		writeError(w, http.StatusBadRequest, "exactly one of title, project_id, or model is required")
 		return
 	}
 
@@ -382,6 +407,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		err     error
 	)
 	var projectIDChanged bool
+	var modelChanged bool
 	if hasTitle {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
@@ -396,7 +422,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 			ID:    session.ID,
 			Title: title,
 		})
-	} else {
+	} else if hasProjectID {
 		projectID := pgtype.UUID{Valid: false}
 		if string(req.ProjectID) != "null" {
 			var rawProjectID string
@@ -446,6 +472,43 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 			err = tx.Commit(r.Context())
 		}
 		projectIDChanged = true
+	} else {
+		// Empty string and explicit null both mean "clear the override and follow
+		// the agent's default": the picker's Clear action sends "", and a
+		// whitespace-only id is never a real model.
+		model := pgtype.Text{Valid: false}
+		if string(req.Model) != "null" {
+			var rawModel string
+			if err := json.Unmarshal(req.Model, &rawModel); err != nil {
+				writeError(w, http.StatusBadRequest, "model must be a string or null")
+				return
+			}
+			rawModel = strings.TrimSpace(rawModel)
+			if len([]rune(rawModel)) > chatSessionModelMaxLen {
+				writeError(w, http.StatusBadRequest, "model is too long")
+				return
+			}
+			if rawModel != "" {
+				model = pgtype.Text{String: rawModel, Valid: true}
+			}
+		}
+		// No transaction and no lock, unlike the project branch above: a model id
+		// is a free-form runtime-native string rather than a workspace-scoped row,
+		// so there is nothing to serialise against and no cross-tenant reference to
+		// revalidate.
+		//
+		// The id is deliberately NOT checked against a catalog. Catalogs are
+		// per-runtime and discovered on the user's own machine, the agent-level
+		// picker already accepts manual entries, and the daemon is the authority:
+		// it degrades an unusable value to the runtime default at execution time
+		// rather than failing the task. Rejecting here would break custom models
+		// this server has never heard of.
+		updated, err = h.Queries.UpdateChatSessionModel(r.Context(), db.UpdateChatSessionModelParams{
+			ID:          session.ID,
+			WorkspaceID: session.WorkspaceID,
+			Model:       model,
+		})
+		modelChanged = true
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update chat session")
@@ -461,6 +524,10 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	if projectIDChanged {
 		projectID := uuidToPtr(updated.ProjectID)
 		payload.ProjectID = &projectID
+	}
+	if modelChanged {
+		model := textToPtr(updated.Model)
+		payload.Model = &model
 	}
 	h.publishChat(protocol.EventChatSessionUpdated, workspaceID, "member", userID, resolvedSessionID, payload)
 
@@ -1913,8 +1980,11 @@ type ChatSessionResponse struct {
 	AgentID     string  `json:"agent_id"`
 	CreatorID   string  `json:"creator_id"`
 	ProjectID   *string `json:"project_id"`
-	Title       string  `json:"title"`
-	Status      string  `json:"status"`
+	// Model overrides agent.model for every turn in this session. Null when the
+	// conversation follows the agent's default; optional for older clients.
+	Model  *string `json:"model"`
+	Title  string  `json:"title"`
+	Status string  `json:"status"`
 	// Only populated by list endpoints — single-session fetches return 0/false/nil.
 	// HasUnread is kept as a convenience (== UnreadCount > 0) for existing consumers.
 	HasUnread   bool             `json:"has_unread"`
@@ -2030,6 +2100,7 @@ func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 		AgentID:     uuidToString(s.AgentID),
 		CreatorID:   uuidToString(s.CreatorID),
 		ProjectID:   uuidToPtr(s.ProjectID),
+		Model:       textToPtr(s.Model),
 		Title:       s.Title,
 		Status:      s.Status,
 		Pinned:      s.PinnedAt.Valid,

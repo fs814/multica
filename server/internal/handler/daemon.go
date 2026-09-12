@@ -2799,6 +2799,34 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		}
 		resp.ChatSessionID = uuidToString(cs.ID)
 		resp.ThreadName = cs.Title
+		// Per-session model override (chat_session.model). The agent block above
+		// stamped resp.Agent.Model from agent.Model — the agent-wide default —
+		// and this is the one place that knows the conversation asked for
+		// something else.
+		//
+		// Patched here rather than by hoisting GetChatSession above the agent
+		// block: everything else in this block (workspace id, resume pointers,
+		// the input batch) is sequenced around a claimBuildFailure early return,
+		// so moving the load would reorder the hottest path in the server for
+		// one string. The chat block already runs after the agent block, so
+		// resp.Agent is fully populated by the time we get here.
+		//
+		// The empty-string guard matters as much as .Valid: resp.Agent.Model =
+		// "" would silently ERASE a valid agent.model. resp.Agent is nil only
+		// when GetAgent failed above, in which case there is no agent payload to
+		// override and the run already degrades to provider defaults.
+		//
+		// thinking_level / service_tier are deliberately left alone. They are
+		// per-model capabilities, but the daemon already validates both against
+		// its local catalog and drops incompatible values with a warning rather
+		// than failing the task, and buildModelChangeUpdate (MUL-5390) settled
+		// the policy for this codebase: clear only what an authoritative catalog
+		// says the new model rejects, because clearing blind throws away a
+		// choice both models may well support. The catalog lives on the user's
+		// machine and is unreachable from here, so this must not guess.
+		if resp.Agent != nil && cs.Model.Valid && cs.Model.String != "" {
+			resp.Agent.Model = cs.Model.String
+		}
 		// Legacy compatibility: agent creation no longer creates intro chats,
 		// but historical is_agent_intro sessions can still be resumed. Such a
 		// session carries no user message on its opening turn, so flag it for

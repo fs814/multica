@@ -343,6 +343,24 @@ describe("runtimeModelsOptions", () => {
     expect(runtimeModelsOptions(null).enabled).toBe(false);
   });
 
+  // The disabled state must NOT park on `all()`. That array is the shared
+  // prefix of every per-runtime key, so a disabled query keyed to it reads
+  // whichever runtime last populated that exact prefix — and with a 30-minute
+  // gcTime the picker then renders another provider's catalog (Claude Code's
+  // models showing up for a knot-http runtime).
+  it("keys the disabled state off the shared prefix", () => {
+    const disabled = runtimeModelsOptions(null).queryKey;
+    expect(disabled).not.toEqual(runtimeModelsKeys.all());
+    expect(disabled.slice(0, 2)).toEqual([...runtimeModelsKeys.all()]);
+    expect(disabled).not.toEqual(runtimeModelsKeys.forRuntime("rt-1"));
+  });
+
+  it("gives each runtime its own cache slot", () => {
+    expect(runtimeModelsOptions("rt-claude").queryKey).not.toEqual(
+      runtimeModelsOptions("rt-knot").queryKey,
+    );
+  });
+
   // The regression Sol-Boy flagged on PR #6098: a stale-but-served snapshot must
   // reach the SAME client once the server-side refresh lands, and the picker
   // must not blink an empty loading state while that happens.

@@ -6,6 +6,14 @@ export const runtimeModelsKeys = {
   all: () => ["runtimes", "models"] as const,
   forRuntime: (runtimeId: string) =>
     [...runtimeModelsKeys.all(), runtimeId] as const,
+  // Key for the disabled (no-runtime) state. `all()` must NOT be used here:
+  // it is the shared PREFIX of every per-runtime key, so a disabled query
+  // parked on it reads whichever runtime last populated that exact prefix —
+  // and with a 30-minute gcTime the picker then renders a different
+  // provider's catalog entirely (Claude Code's models for a knot runtime).
+  // A distinct sentinel keeps `all()` usable for bulk invalidation while
+  // giving the disabled state a cache slot nothing else can write.
+  none: () => [...runtimeModelsKeys.all(), "__none__"] as const,
 };
 
 const POLL_INTERVAL_MS = 500;
@@ -126,7 +134,7 @@ export function runtimeModelsOptions(runtimeId: string | null | undefined) {
   return queryOptions({
     queryKey: runtimeId
       ? runtimeModelsKeys.forRuntime(runtimeId)
-      : runtimeModelsKeys.all(),
+      : runtimeModelsKeys.none(),
     queryFn: () => resolveRuntimeModels(runtimeId as string),
     enabled: Boolean(runtimeId),
     staleTime: (query) => staleTimeFor(query.state.data),

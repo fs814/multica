@@ -24,6 +24,7 @@ import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
 import { ChatMessageList, ChatMessageSkeleton } from "./components/chat-message-list";
 import { ChatInput } from "./components/chat-input";
+import { ChatModelPicker } from "./components/chat-model-picker";
 import { ChatQueue } from "./components/chat-queue";
 import { ChatThreadList } from "./components/chat-thread-list";
 import { ChatSessionHeader } from "./components/chat-session-header";
@@ -342,6 +343,24 @@ export function ChatPage() {
         projectContextUnsupported={c.projectContextUnsupported}
         onProjectChange={changeProjectContext}
         isProjectUpdating={c.isProjectUpdating}
+        modelAdornment={
+          <ChatModelPicker
+            wsId={c.wsId}
+            agent={c.modelPickerAgent}
+            value={c.effectiveModel}
+            disabled={
+              c.isSessionArchived ||
+              c.isAgentArchived ||
+              !c.isAgentRuntimeBound ||
+              c.isModelUpdating ||
+              // chat_session.model needs a session row to live on. Read-only
+              // rather than hidden, so the composer still shows which model the
+              // first turn will use.
+              !c.activeSessionId
+            }
+            onChange={c.handleModelChange}
+          />
+        }
         focusRequest={c.focusInputRequest}
       />
     </div>

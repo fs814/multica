@@ -58,6 +58,7 @@ import {
   useRegenerateChatQuickActions,
   useSetChatSessionArchived,
   useSetChatSessionProject,
+  useSetChatSessionModel,
   useUpdateChatSession,
 } from "@multica/core/chat/mutations";
 import { useChatStore } from "@multica/core/chat";
@@ -72,6 +73,7 @@ import { useChatTaskActions } from "./use-chat-task-actions";
 import { useChatInputFocus } from "./use-chat-input-focus";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
+import { ChatModelPicker } from "./chat-model-picker";
 import { ChatQueue } from "./chat-queue";
 import { EmptyState } from "./chat-empty-state";
 import { SessionRenameInput } from "./session-rename-input";
@@ -224,6 +226,9 @@ export function ChatWindow() {
     (!projectsLoaded || projects.some((project) => project.id === candidateProjectId))
     ? candidateProjectId
     : null;
+  // See the same derivation in use-chat-controller: "" means "follow the agent's
+  // own model", and an uncreated chat has no session row to hold an override.
+  const activeModel = currentSession?.model ?? "";
 
   useEffect(() => {
     if (!projectsLoaded || !selectedProjectId) return;
@@ -235,6 +240,7 @@ export function ChatWindow() {
   const createSession = useCreateChatSession();
   const markRead = useMarkChatSessionRead();
   const setSessionProject = useSetChatSessionProject();
+  const setSessionModel = useSetChatSessionModel();
 
   const currentMember = members.find((m) => m.user_id === user?.id);
   const memberRole = currentMember?.role;
@@ -279,6 +285,12 @@ export function ChatWindow() {
     wsId,
   );
 
+  // Mirrors modelPickerAgent / effectiveModel in use-chat-controller: a real
+  // session must resolve its OWN agent (activeAgent's availableAgents[0]
+  // fallback would read an unrelated runtime's model catalog), while a
+  // not-yet-created chat correctly uses the agent it will be created against.
+  const modelPickerAgent = activeSessionId ? sessionAgent : activeAgent;
+  const effectiveModel = activeModel || modelPickerAgent?.model || "";
   const projectContextSupport = useChatProjectContextSupport(wsId, activeAgent);
 
   // Three-state availability — "loading" stays neutral (no banner, no
@@ -746,6 +758,23 @@ export function ChatWindow() {
     ],
   );
 
+  // Mirrors handleModelChange in use-chat-controller. No plan function and no
+  // fresh chat: the model is resolved per turn at claim time, so a mid-thread
+  // switch keeps the existing provider session resumable.
+  const handleModelChange = useCallback(
+    (model: string) => {
+      if (!activeSessionId || model === activeModel) return;
+      uiLogger.info("selectSessionModel", {
+        from: activeModel,
+        to: model,
+        sessionId: activeSessionId,
+      });
+      setSessionModel.mutate({ sessionId: activeSessionId, model: model || null });
+      requestInputFocus();
+    },
+    [activeModel, activeSessionId, setSessionModel, requestInputFocus],
+  );
+
   const handleMinimize = useCallback(() => {
     uiLogger.info("minimize (close)", {
       activeSessionId,
@@ -1017,6 +1046,21 @@ export function ChatWindow() {
         projectContextUnsupported={projectContextSupport === false}
         isProjectUpdating={
           setSessionProject.isPending || (!!activeSessionId && !currentSession)
+        }
+        modelAdornment={
+          <ChatModelPicker
+            wsId={wsId}
+            agent={modelPickerAgent}
+            value={effectiveModel}
+            disabled={
+              isSessionArchived ||
+              isAgentArchived ||
+              !activeAgentRuntimeBound ||
+              setSessionModel.isPending ||
+              !activeSessionId
+            }
+            onChange={handleModelChange}
+          />
         }
         leftAdornment={
           <AgentDropdown

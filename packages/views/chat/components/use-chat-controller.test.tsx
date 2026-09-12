@@ -71,6 +71,7 @@ const h = vi.hoisted(() => {
     appForeground: { value: true },
     consumeRestoreMutate: vi.fn(),
     setProjectMutate: vi.fn(),
+    setModelMutate: vi.fn(),
     removeFromCaches: vi.fn(),
     // useQuery reads these so each test can vary the loaded data.
     sessions: [] as ChatSession[],
@@ -138,6 +139,10 @@ vi.mock("@multica/core/chat/mutations", () => ({
   useSetChatSessionArchived: () => ({ mutate: h.archivedMutate }),
   useSetChatSessionProject: () => ({
     mutate: h.setProjectMutate,
+    isPending: false,
+  }),
+  useSetChatSessionModel: () => ({
+    mutate: h.setModelMutate,
     isPending: false,
   }),
   useConsumeChatDraftRestore: () => ({ mutate: h.consumeRestoreMutate }),
@@ -460,6 +465,148 @@ describe("useChatController project context", () => {
 
     expect(h.store.setSelectedProjectId).not.toHaveBeenCalled();
     expect(h.store.setActiveSession).toHaveBeenCalledWith(projectSession.id);
+  });
+});
+
+describe("useChatController.handleModelChange", () => {
+  beforeEach(() => {
+    h.setModelMutate.mockClear();
+    h.store.setActiveSession.mockClear();
+    h.store.setSelectedProjectId.mockClear();
+  });
+
+  it("persists the override and exposes it as activeModel", () => {
+    const session = makeSession({
+      id: "model-session",
+      agent_id: "agent-a",
+      model: "agent-default",
+    });
+    h.store.activeSessionId = session.id;
+    h.sessions = [session];
+    h.agents = [agentA];
+
+    const { result } = renderHook(() => useChatController());
+    expect(result.current.activeModel).toBe("agent-default");
+
+    act(() => result.current.handleModelChange("gpt-5.6-terra"));
+
+    expect(h.setModelMutate).toHaveBeenCalledWith({
+      sessionId: session.id,
+      model: "gpt-5.6-terra",
+    });
+    // A model change must never start a fresh chat — the provider session stays
+    // resumable, unlike a project switch.
+    expect(h.store.setActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('sends null for the picker\'s "clear" action', () => {
+    const session = makeSession({
+      id: "model-session",
+      agent_id: "agent-a",
+      model: "gpt-5.6-terra",
+    });
+    h.store.activeSessionId = session.id;
+    h.sessions = [session];
+    h.agents = [agentA];
+
+    const { result } = renderHook(() => useChatController());
+    act(() => result.current.handleModelChange(""));
+
+    expect(h.setModelMutate).toHaveBeenCalledWith({
+      sessionId: session.id,
+      model: null,
+    });
+  });
+
+  it("is a no-op when the model is unchanged", () => {
+    const session = makeSession({
+      id: "model-session",
+      agent_id: "agent-a",
+      model: "gpt-5.6-terra",
+    });
+    h.store.activeSessionId = session.id;
+    h.sessions = [session];
+    h.agents = [agentA];
+
+    const { result } = renderHook(() => useChatController());
+    act(() => result.current.handleModelChange("gpt-5.6-terra"));
+
+    expect(h.setModelMutate).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op without a created session", () => {
+    h.store.activeSessionId = null;
+    h.sessions = [];
+    h.agents = [agentA];
+
+    const { result } = renderHook(() => useChatController());
+    expect(result.current.activeModel).toBe("");
+
+    act(() => result.current.handleModelChange("gpt-5.6-terra"));
+
+    expect(h.setModelMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("useChatController model picker inputs", () => {
+  // The picker resolves its runtime catalog from modelPickerAgent. For an open
+  // session that MUST be the session's own agent: activeAgent falls back to
+  // availableAgents[0], and using it would offer a different runtime's models
+  // (Claude Code's list for a knot conversation).
+  it("resolves an open session's own agent, never the list fallback", () => {
+    const session = makeSession({ id: "sB", agent_id: "agent-b" });
+    h.store.activeSessionId = session.id;
+    // agentA sorts first, so a fallback would wrongly pick runtime-a.
+    h.sessions = [session];
+    h.agents = [agentA, agentB];
+
+    const { result } = renderHook(() => useChatController());
+
+    expect(result.current.modelPickerAgent?.id).toBe("agent-b");
+    expect(result.current.modelPickerAgent?.runtime_id).toBe("runtime-b");
+  });
+
+  // The regression that hid the chip entirely: with no session yet, keying the
+  // picker off sessionAgent left it null, so the composer rendered no model
+  // control at all until after the first send.
+  it("falls back to the target agent while composing the first message", () => {
+    h.store.activeSessionId = null;
+    h.store.selectedAgentId = agentB.id;
+    h.sessions = [];
+    h.agents = [agentA, agentB];
+
+    const { result } = renderHook(() => useChatController());
+
+    expect(result.current.modelPickerAgent?.id).toBe("agent-b");
+  });
+
+  it("shows the agent's own model until a session override exists", () => {
+    const inherited = { ...agentA, model: "agent-default" } as typeof agentA;
+    h.store.activeSessionId = null;
+    h.store.selectedAgentId = inherited.id;
+    h.sessions = [];
+    h.agents = [inherited];
+
+    const { result } = renderHook(() => useChatController());
+
+    expect(result.current.activeModel).toBe("");
+    expect(result.current.effectiveModel).toBe("agent-default");
+  });
+
+  it("prefers the session override over the agent's model", () => {
+    const inherited = { ...agentA, model: "agent-default" } as typeof agentA;
+    const session = makeSession({
+      id: "model-session",
+      agent_id: inherited.id,
+      model: "gpt-5.6-terra",
+    });
+    h.store.activeSessionId = session.id;
+    h.sessions = [session];
+    h.agents = [inherited];
+
+    const { result } = renderHook(() => useChatController());
+
+    expect(result.current.effectiveModel).toBe("gpt-5.6-terra");
   });
 });
 

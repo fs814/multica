@@ -240,6 +240,53 @@ describe("applyChatSessionUpdatedToCache", () => {
     expect(row.project_id).toBeNull();
   });
 
+  it("applies a model override from another tab", () => {
+    const qc = createQueryClient();
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [makeSession({ model: null })]);
+
+    applyChatSessionUpdatedToCache(qc, WS_ID, {
+      chat_session_id: "s1",
+      model: "gpt-5.6-terra",
+    });
+
+    const row = qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!;
+    expect(row.model).toBe("gpt-5.6-terra");
+  });
+
+  // The `"model" in payload` form, not `payload.model ?? s.model`: an explicit
+  // null means "follow the agent default", and the nullish fallback would drop
+  // every clear on the floor.
+  it("applies an explicit null model from another tab", () => {
+    const qc = createQueryClient();
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [
+      makeSession({ model: "gpt-5.6-terra" }),
+    ]);
+
+    applyChatSessionUpdatedToCache(qc, WS_ID, {
+      chat_session_id: "s1",
+      model: null,
+    });
+
+    const row = qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!;
+    expect(row.model).toBeNull();
+  });
+
+  it("leaves a cached model untouched when the payload omits it", () => {
+    const qc = createQueryClient();
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [
+      makeSession({ model: "gpt-5.6-terra" }),
+    ]);
+
+    applyChatSessionUpdatedToCache(qc, WS_ID, {
+      chat_session_id: "s1",
+      title: "Renamed",
+    });
+
+    const row = qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!;
+    expect(row.model).toBe("gpt-5.6-terra");
+    expect(row.title).toBe("Renamed");
+  });
+
   // MUL-4360 cross-tab: chatSessionsOptions is staleTime: Infinity, so a stale
   // cache in another tab never self-heals. When an archive event lands there,
   // the row's unread must be forced to 0 to match the archive mutation and the

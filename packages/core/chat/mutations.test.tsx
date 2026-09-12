@@ -11,6 +11,7 @@ import type { ApiClient } from "../api/client";
 import {
   useConsumeChatDraftRestore,
   useSetChatSessionArchived,
+  useSetChatSessionModel,
   useSetChatSessionProject,
 } from "./mutations";
 import { chatKeys } from "./queries";
@@ -189,6 +190,81 @@ describe("useSetChatSessionProject", () => {
     expect(
       qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!.project_id,
     ).toBe("project-1");
+  });
+});
+
+describe("useSetChatSessionModel", () => {
+  let qc: QueryClient;
+  let updateChatSession: ReturnType<
+    typeof vi.fn<(id: string, data: { model: string | null }) => Promise<ChatSession>>
+  >;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    updateChatSession = vi.fn();
+    setApiInstance({ updateChatSession } as unknown as ApiClient);
+  });
+
+  afterEach(() => {
+    qc.clear();
+    vi.restoreAllMocks();
+  });
+
+  it("optimistically applies the override to the cached session", async () => {
+    updateChatSession.mockResolvedValue(makeSession({ model: "gpt-5.6-terra" }));
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [makeSession({ model: null })]);
+
+    const { result } = renderHook(() => useSetChatSessionModel(), {
+      wrapper: createWrapper(qc),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sessionId: "s1", model: "gpt-5.6-terra" });
+    });
+
+    expect(updateChatSession).toHaveBeenCalledWith("s1", { model: "gpt-5.6-terra" });
+    expect(qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!.model).toBe(
+      "gpt-5.6-terra",
+    );
+  });
+
+  it("clears the override with an explicit null", async () => {
+    updateChatSession.mockResolvedValue(makeSession({ model: null }));
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [
+      makeSession({ model: "gpt-5.6-terra" }),
+    ]);
+
+    const { result } = renderHook(() => useSetChatSessionModel(), {
+      wrapper: createWrapper(qc),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sessionId: "s1", model: null });
+    });
+
+    expect(updateChatSession).toHaveBeenCalledWith("s1", { model: null });
+    expect(qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!.model).toBeNull();
+  });
+
+  it("rolls the model back when the update fails", async () => {
+    updateChatSession.mockRejectedValue(new Error("boom"));
+    qc.setQueryData<ChatSession[]>(chatKeys.sessions(WS_ID), [
+      makeSession({ model: "agent-default-model" }),
+    ]);
+
+    const { result } = renderHook(() => useSetChatSessionModel(), {
+      wrapper: createWrapper(qc),
+    });
+
+    await act(async () => {
+      await expect(
+        result.current.mutateAsync({ sessionId: "s1", model: "gpt-5.6-terra" }),
+      ).rejects.toThrow("boom");
+    });
+
+    expect(qc.getQueryData<ChatSession[]>(chatKeys.sessions(WS_ID))![0]!.model).toBe(
+      "agent-default-model",
+    );
   });
 });
 

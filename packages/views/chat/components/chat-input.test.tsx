@@ -1538,3 +1538,38 @@ describe("ChatInput revoked-access placeholder", () => {
     expect(editorProps.last?.placeholder).toBe("Message Multica…");
   });
 });
+
+describe("ChatInput model adornment", () => {
+  const marker = <span data-testid="model-adornment" />;
+
+  it("renders the adornment in the bottom-left cluster", () => {
+    renderInput({ modelAdornment: marker });
+
+    expect(screen.getByTestId("model-adornment")).toBeTruthy();
+  });
+
+  // The cluster's mount condition had to widen when modelAdornment joined it:
+  // with uploads off, no project picker and no leftAdornment, the model chip is
+  // the ONLY left-side content, and the old condition would have dropped the
+  // whole wrapper — taking the chip with it.
+  it("mounts the cluster when the adornment is its only content", () => {
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <ChatInput
+          onSend={vi.fn()}
+          uploadEnabled={false}
+          agentName="Multica"
+          modelAdornment={marker}
+        />
+      </I18nProvider>,
+    );
+
+    expect(screen.getByTestId("model-adornment")).toBeTruthy();
+  });
+
+  it("omits the adornment when none is passed", () => {
+    renderInput();
+
+    expect(screen.queryByTestId("model-adornment")).toBeNull();
+  });
+});

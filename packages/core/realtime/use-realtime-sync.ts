@@ -344,6 +344,7 @@ type ChatSessionUpdatedPayload = {
   chat_session_id: string;
   title?: string;
   project_id?: string | null;
+  model?: string | null;
   pinned?: boolean;
   status?: "active" | "archived";
   updated_at?: string;
@@ -379,6 +380,10 @@ export function applyChatSessionUpdatedToCache(
             ...s,
             title: payload.title ?? s.title,
             ...("project_id" in payload ? { project_id: payload.project_id } : {}),
+            // `in`, not `?? s.model`: an explicit null is a real value here
+            // ("follow the agent default") and the nullish form would silently
+            // drop every clear. Same reason the server sends `**string`.
+            ...("model" in payload ? { model: payload.model } : {}),
             pinned: payload.pinned ?? s.pinned,
             status: payload.status ?? s.status,
             updated_at: payload.updated_at ?? s.updated_at,

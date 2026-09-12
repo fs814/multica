@@ -484,6 +484,65 @@ func TestParseKnotModels(t *testing.T) {
 	if got := byID["claude-opus-5"].Thinking; got != nil {
 		t.Fatalf("claude-opus-5 thinking = %+v, want nil", got)
 	}
+	// Every parsed model carries a vendor so the picker can group them instead of
+	// rendering one unlabelled list. tokenhub_ is a resale prefix, not a vendor.
+	for id, want := range map[string]string{
+		"claude-opus-5":            "anthropic",
+		"claude-4.8-opus":          "anthropic",
+		"gpt-5.6-sol":              "openai",
+		"glm-5.2":                  "zhipu",
+		"tokenhub_deepseek-v4-pro": "deepseek",
+	} {
+		if got := byID[id].Provider; got != want {
+			t.Errorf("%s provider = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// TestKnotModelProvider pins the vendor mapping against the real catalog this
+// account serves (knot-cli v0.26.2). The two knot-only prefixes are the
+// interesting cases: `tokenhub_` (resale) and `ext-` (external routing) must be
+// stripped before matching, or their models fall into the ungrouped bucket.
+func TestKnotModelProvider(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		// Anthropic, including the 1m-context variants.
+		"claude-4.8-opus":              "anthropic",
+		"claude-5-sonnet":              "anthropic",
+		"claude-opus-5":                "anthropic",
+		"claude-4.6-sonnet-1m-context": "anthropic",
+		// OpenAI / Google under knot's naming.
+		"gpt-5.4":          "openai",
+		"gpt-5.6-terra":    "openai",
+		"gpt-5.6-luna":     "openai",
+		"gemini-3.5-flash": "google",
+		// Zhipu, plain and externally routed.
+		"glm-4.7":     "zhipu",
+		"glm-5.2":     "zhipu",
+		"ext-glm-5.2": "zhipu",
+		"ext-glm-5.3": "zhipu",
+		// Moonshot / DeepSeek, plain and resold.
+		"kimi-k2.7-code":             "kimi",
+		"kimi-k2.6":                  "kimi",
+		"deepseek-v4-pro":            "deepseek",
+		"deepseek-v3.2":              "deepseek",
+		"tokenhub_deepseek-v4-pro":   "deepseek",
+		"tokenhub_deepseek-v4-flash": "deepseek",
+		// Hunyuan reaches knot under BOTH spellings; both must group together.
+		"hunyuan-2.0-instruct": "hunyuan",
+		"hunyuan-2.0-thinking": "hunyuan",
+		"hy3":                  "hunyuan",
+		"hy3-preview":          "hunyuan",
+		"hy3-dev0402":          "hunyuan",
+		// Unknown ids stay ungrouped rather than being guessed into a section.
+		"some-private-fork/v9": "",
+		"mystery-model-1":      "",
+	}
+	for id, want := range cases {
+		if got := knotModelProvider(id); got != want {
+			t.Errorf("knotModelProvider(%q) = %q, want %q", id, got, want)
+		}
+	}
 }
 
 func TestParseKnotAgents(t *testing.T) {

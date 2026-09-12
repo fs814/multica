@@ -31,6 +31,7 @@ import {
   useCreateChatSession,
   useMarkChatSessionRead,
   useSetChatSessionProject,
+  useSetChatSessionModel,
   useSetChatSessionArchived,
 } from "@multica/core/chat/mutations";
 import { useChatStore } from "@multica/core/chat";
@@ -309,7 +310,12 @@ export function useChatController(opts?: { isActive?: boolean }) {
     (!projectsLoaded || projects.some((project) => project.id === candidateProjectId))
     ? candidateProjectId
     : null;
-
+  // The model override in force for the open conversation. Unlike
+  // activeProjectId there is no draft counterpart in the store: a model is only
+  // meaningful against a bound runtime's catalog, and an uncreated chat has no
+  // session row to hold the value, so the picker stays hidden until the session
+  // exists. "" means "follow the agent's own model".
+  const activeModel = currentSession?.model ?? "";
   // A project may be deleted on another client while this workspace's next
   // chat preference is still persisted locally. Normalize it as soon as the
   // authoritative project list settles so a future send cannot carry a stale
@@ -324,6 +330,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
   const createSession = useCreateChatSession();
   const markRead = useMarkChatSessionRead();
   const setSessionProject = useSetChatSessionProject();
+  const setSessionModel = useSetChatSessionModel();
   const setArchived = useSetChatSessionArchived();
 
   const currentMember = members.find((m) => m.user_id === user?.id);
@@ -379,6 +386,18 @@ export function useChatController(opts?: { isActive?: boolean }) {
     wsId,
   );
 
+  // Which agent the model picker must read its runtime catalog from.
+  //
+  // A real session resolves its OWN agent: activeAgent falls back to
+  // availableAgents[0], and using that would fetch an unrelated runtime's
+  // catalog — Claude Code's models offered for a knot conversation. For a
+  // not-yet-created chat activeAgent IS correct, because it is the agent
+  // handleSend will create the session against.
+  const modelPickerAgent = activeSessionId ? sessionAgent : activeAgent;
+  // The model that will actually run the next turn: the session override when
+  // one is set, otherwise the agent's own model. Showing the inherited value
+  // keeps the chip meaningful before any override exists.
+  const effectiveModel = activeModel || modelPickerAgent?.model || "";
   const agentAvailability = useWorkspaceAgentAvailability();
   const noAgent = agentAvailability === "none";
 
@@ -793,6 +812,27 @@ export function useChatController(opts?: { isActive?: boolean }) {
     ],
   );
 
+  // Sets or clears ("" -> null) the session's model override.
+  //
+  // No planProjectContextChange analogue and deliberately no fresh chat: the
+  // model is resolved per turn when the daemon claims the task, so switching it
+  // mid-thread needs no new provider session and the existing history stays
+  // resumable. Contrast the project path above, which starts a clean chat so the
+  // previous project's provider memory cannot bleed into the new context.
+  const handleModelChange = useCallback(
+    (model: string) => {
+      if (!activeSessionId || model === activeModel) return;
+      uiLogger.info("selectSessionModel", {
+        from: activeModel,
+        to: model,
+        sessionId: activeSessionId,
+      });
+      setSessionModel.mutate({ sessionId: activeSessionId, model: model || null });
+      requestInputFocus();
+    },
+    [activeModel, activeSessionId, setSessionModel, requestInputFocus],
+  );
+
   // Archiving the chat currently in view would otherwise strand the
   // conversation pane on a now read-only, "dangling" session. Mirror the Inbox
   // list: advance selection to the next chat in the (sorted, non-archived)
@@ -837,6 +877,18 @@ export function useChatController(opts?: { isActive?: boolean }) {
     projectContextUnsupported: projectContextSupport === false,
     isProjectUpdating:
       setSessionProject.isPending || (!!activeSessionId && !currentSession),
+    activeModel,
+    isModelUpdating: setSessionModel.isPending,
+    // Model-picker inputs. See their derivation above — the agent choice is
+    // load-bearing (a session must never read another runtime's catalog) and
+    // effectiveModel falls back to the agent's own model so the chip is
+    // meaningful before an override exists.
+    modelPickerAgent,
+    effectiveModel,
+    // The OPEN session's own agent, unlike `activeAgent` which falls back to
+    // availableAgents[0]. Consumers that must not guess — the model picker
+    // resolving a runtime catalog — need this one.
+    sessionAgent,
     currentSession,
     isSessionArchived,
     isAgentArchived,
@@ -876,6 +928,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
     handleStartNewChat,
     handleSelectSession,
     handleProjectChange,
+    handleModelChange,
     advanceSelectionAfterArchive,
     archiveSession,
     // store setters (for surfaces that sync selection to the URL, etc.)

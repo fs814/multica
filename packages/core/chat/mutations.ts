@@ -241,6 +241,49 @@ export function useSetChatSessionProject() {
 }
 
 /**
+ * Sets or clears the per-session model override (`null` = follow the agent's
+ * own model).
+ *
+ * Unlike a project change this never starts a fresh conversation: the model is
+ * resolved per turn when the daemon claims the task, so switching mid-thread
+ * needs no new provider session and the existing history stays resumable. That
+ * is why there is no `planProjectContextChange` analogue here.
+ */
+export function useSetChatSessionModel() {
+  const qc = useQueryClient();
+  const wsId = useWorkspaceId();
+
+  return useMutation({
+    mutationFn: (data: { sessionId: string; model: string | null }) => {
+      logger.info("setChatSessionModel.start", data);
+      return api.updateChatSession(data.sessionId, { model: data.model });
+    },
+    onMutate: async ({ sessionId, model }) => {
+      await qc.cancelQueries({ queryKey: chatKeys.sessions(wsId) });
+
+      const prevSessions = qc.getQueryData<ChatSession[]>(chatKeys.sessions(wsId));
+      const patch = (old?: ChatSession[]) =>
+        old?.map((session) =>
+          session.id === sessionId ? { ...session, model } : session,
+        );
+      qc.setQueryData<ChatSession[]>(chatKeys.sessions(wsId), patch);
+
+      return { prevSessions };
+    },
+    onError: (err, vars, ctx) => {
+      logger.error("setChatSessionModel.error.rollback", {
+        sessionId: vars.sessionId,
+        err,
+      });
+      if (ctx?.prevSessions) qc.setQueryData(chatKeys.sessions(wsId), ctx.prevSessions);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: chatKeys.sessions(wsId) });
+    },
+  });
+}
+
+/**
  * Pins or unpins a chat. Optimistically flips `pinned` and re-sorts the cached
  * list (pinned first, then by activity) so the row jumps to / from the top
  * instantly; rolls back on error. The matching `chat:session_updated` WS event

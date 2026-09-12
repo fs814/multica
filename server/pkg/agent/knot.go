@@ -695,7 +695,7 @@ func parseKnotModels(out string) []Model {
 			continue
 		}
 		seen[id] = true
-		model := Model{ID: id, Label: id}
+		model := Model{ID: id, Label: id, Provider: knotModelProvider(id)}
 		var thinkingLevels, nonThinkingLevels []string
 		supportsThinking := false
 		for _, field := range fields[1:] {
@@ -740,6 +740,53 @@ func knotThinkingLevels(values []string) []ThinkingLevel {
 		levels = append(levels, ThinkingLevel{Value: value, Label: value})
 	}
 	return levels
+}
+
+// knotModelProvider infers a vendor from a knot model ID so the picker renders
+// Anthropic / Zhipu / DeepSeek sections instead of dumping all ~36 ids into one
+// unlabelled group. `knot-cli model list` carries no vendor column, so the id
+// prefix is the only signal available — the same situation, and the same remedy,
+// as codebuddyModelProvider.
+//
+// Deliberately knot-private rather than a call into the CodeBuddy mapper: the
+// two accounts aggregate overlapping but not identical vendor sets, and knot
+// carries prefixes CodeBuddy never sees (`tokenhub_` resale, `ext-` external
+// routing, spelled-out `hunyuan-`). Sharing one function would let either
+// family's catalog silently redefine the other's grouping.
+//
+// An unknown id returns "" — the picker's ungrouped bucket. That is the honest
+// answer for a model this build has never seen, and better than guessing a
+// vendor and filing it under the wrong heading.
+func knotModelProvider(id string) string {
+	// Strip knot's routing prefixes before matching the vendor: `tokenhub_` is a
+	// resale channel and `ext-` an external route, neither of which changes who
+	// built the model (tokenhub_deepseek-v4-pro is still DeepSeek, ext-glm-5.3
+	// still Zhipu). Without this both would fall through to "".
+	base := strings.TrimPrefix(strings.TrimPrefix(id, "tokenhub_"), "ext-")
+	switch {
+	case strings.HasPrefix(base, "claude-"):
+		return "anthropic"
+	case strings.HasPrefix(base, "gpt-"):
+		return "openai"
+	case strings.HasPrefix(base, "gemini-"):
+		return "google"
+	case strings.HasPrefix(base, "glm-"):
+		return "zhipu"
+	case strings.HasPrefix(base, "kimi-"):
+		return "kimi"
+	case strings.HasPrefix(base, "deepseek-"):
+		return "deepseek"
+	// Tencent's own family reaches knot under two unrelated spellings: explicit
+	// `hunyuan-2.0-*` and the short `hy3*` series. Both are Hunyuan and must land
+	// in ONE group — matching only one would split the vendor between a named
+	// section and the ungrouped bucket.
+	case strings.HasPrefix(base, "hunyuan-"):
+		return "hunyuan"
+	case len(base) >= 3 && base[0] == 'h' && base[1] == 'y' && base[2] >= '0' && base[2] <= '9':
+		return "hunyuan"
+	default:
+		return ""
+	}
 }
 
 // knotLooksLikeModelID accepts the lowercase, punctuation-separated ids

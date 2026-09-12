@@ -353,6 +353,10 @@ type ChatSessionUpdatedPayload struct {
 	// ProjectID is set only by the project-context update path. The double
 	// pointer distinguishes an omitted field from an explicit JSON null.
 	ProjectID **string `json:"project_id,omitempty"`
+	// Model is set only by the model-override update path. Double pointer for the
+	// same reason as ProjectID: it distinguishes an omitted field ("leave the
+	// override alone") from an explicit JSON null ("follow the agent's default").
+	Model **string `json:"model,omitempty"`
 	// Pinned is set only by the pin/unpin path; nil on a plain rename so a
 	// receiver leaves the existing pin state untouched.
 	Pinned *bool `json:"pinned,omitempty"`

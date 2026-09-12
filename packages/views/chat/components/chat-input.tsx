@@ -120,6 +120,10 @@ interface ChatInputProps {
   agentName?: string;
   /** Rendered at the bottom-left of the input bar — typically the agent picker. */
   leftAdornment?: ReactNode;
+  /** Rendered in the same bottom-left cluster, before `leftAdornment` —
+   *  typically the per-session model picker. Kept separate because the floating
+   *  window already spends `leftAdornment` on its agent dropdown. */
+  modelAdornment?: ReactNode;
   /** Chat @ suggestions: current/recent issue/project entries. */
   contextItems?: MentionItem[];
   /** Optional project context for the draft or current chat session. */
@@ -163,6 +167,7 @@ export function ChatInput({
   agentRuntimeRequired,
   agentName,
   leftAdornment,
+  modelAdornment,
   contextItems,
   projects = [],
   projectId,
@@ -715,7 +720,10 @@ export function ChatInput({
             showBubbleMenu
           />
         </div>
-        {(uploadEnabled || projectSelectionEnabled || leftAdornment) && (
+        {(uploadEnabled ||
+          projectSelectionEnabled ||
+          modelAdornment ||
+          leftAdornment) && (
           <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1">
             {(uploadEnabled || projectSelectionEnabled) && (
               <ChatAddMenu
@@ -728,6 +736,7 @@ export function ChatInput({
                 projectContextUnsupported={projectContextUnsupported}
               />
             )}
+            {modelAdornment}
             {leftAdornment}
           </div>
         )}

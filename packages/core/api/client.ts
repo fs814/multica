@@ -3325,7 +3325,13 @@ export class ApiClient {
 
   async updateChatSession(
     id: string,
-    data: { title: string } | { project_id: string | null },
+    // Union, not one object with optional fields: the server accepts exactly one
+    // field per request, so the union makes an illegal combination
+    // unrepresentable instead of a runtime 400.
+    data:
+      | { title: string }
+      | { project_id: string | null }
+      | { model: string | null },
   ): Promise<ChatSession> {
     return this.fetch(`/api/chat/sessions/${id}`, {
       method: "PATCH",

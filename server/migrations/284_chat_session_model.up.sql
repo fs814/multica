@@ -1,0 +1,23 @@
+-- Per-conversation model override. agent.model stays the agent-wide default;
+-- this column answers "which model should THIS chat run on", and NULL means
+-- "follow the agent's default" — the same additive, clearable shape as
+-- chat_session.project_id (214) and runtime_id (060). Overriding here instead
+-- of editing agent.model is what keeps one conversation's choice from changing
+-- every other chat, issue, and autopilot task the agent runs.
+--
+-- TEXT with no FK, CHECK, or catalog reference: model ids are runtime-native
+-- strings discovered from the user's own machine (see runtimeModelsOptions),
+-- and both the agent picker and the CLI already accept manual entries. The
+-- daemon is the only authority on whether a (provider, model) pair is real, and
+-- it degrades an unusable value to the runtime default at execution time rather
+-- than failing the task — so the server must not reject a value it cannot
+-- confidently classify (same policy as ModelKnownIncompatibleWithProvider).
+--
+-- No backfill, unlike 060: NULL is already the correct meaning for every
+-- existing row. No index either — the column is never a predicate, only read
+-- alongside the row it belongs to.
+--
+-- IF NOT EXISTS mirrors 151/154/155/214 so a re-applied or renumbered migration
+-- cannot fail deploy with "column already exists" (SQLSTATE 42701).
+ALTER TABLE chat_session
+  ADD COLUMN IF NOT EXISTS model TEXT;

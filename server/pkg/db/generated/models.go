@@ -525,6 +525,7 @@ type ChatSession struct {
 	IsAgentIntro        bool               `json:"is_agent_intro"`
 	PinnedAt            pgtype.Timestamptz `json:"pinned_at"`
 	ProjectID           pgtype.UUID        `json:"project_id"`
+	Model               pgtype.Text        `json:"model"`
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
 }
 

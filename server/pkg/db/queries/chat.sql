@@ -237,6 +237,26 @@ SET project_id = sqlc.narg('project_id')
 WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id')
 RETURNING *;
 
+-- name: UpdateChatSessionModel :one
+-- Per-conversation model override. Like UpdateChatSessionProject this is
+-- user-editable session metadata, so it deliberately does NOT touch updated_at:
+-- picking a model is not conversation activity and must not reorder the chat
+-- list.
+--
+-- narg, not COALESCE: NULL is a meaningful value here ("follow agent.model"),
+-- and COALESCE cannot express a clear — it would read every clear as "leave it
+-- alone". Same tri-state shape as project_id above.
+--
+-- Nothing to lock and nothing to revalidate, unlike the project path: a model
+-- id is a free-form runtime-native string rather than a workspace-scoped row,
+-- so there is no cross-tenant reference to guard and no sibling writer to
+-- serialise against. The workspace_id predicate stays as the SQL-layer tenant
+-- guard.
+UPDATE chat_session
+SET model = sqlc.narg('model')
+WHERE id = sqlc.arg('id') AND workspace_id = sqlc.arg('workspace_id')
+RETURNING *;
+
 -- name: UpdateChatSessionTitleIfCurrent :one
 -- Compare-and-swap the title: only overwrite it when it still equals the
 -- value the caller observed (@expected_title). This is the idempotency /
