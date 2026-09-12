@@ -873,6 +873,30 @@ describe("McpConfigTab workspace servers", () => {
       await screen.findByText(/no MCP servers to assign yet/i),
     ).toBeInTheDocument();
   });
+
+  // Regression: the add control was rendered only when something was left to
+  // assign, so assigning the workspace's LAST server made it vanish outright.
+  // That is indistinguishable from the feature breaking — it was reported as
+  // "I added one and now I can't add any more". It has to stay visible and say
+  // why there is nothing in the list.
+  it("keeps the add control and explains when every library server is assigned", async () => {
+    const assigned = wsServer({ id: "srv-1", name: "wecom-doc", enabled: true });
+    workspaceMcp.assigned = [assigned];
+    workspaceMcp.library = [assigned]; // the assignment exhausts the library
+
+    renderTab({ mcp_config: null });
+
+    const addButton = await screen.findByRole("button", {
+      name: /Add from workspace/i,
+    });
+    expect(addButton).toBeInTheDocument();
+
+    fireEvent.click(addButton);
+
+    expect(
+      await screen.findByText(/already has every MCP server/i),
+    ).toBeInTheDocument();
+  });
 });
 
 // The runtime section's Overridden badge has to reflect the REAL precedence:

@@ -406,10 +406,18 @@ export function McpConfigTab({
           <h3 className="text-body font-medium">
             {t(($) => $.tab_body.mcp_config.workspace_title)}
           </h3>
-          {canEdit && availableServers.length > 0 && (
+          {/* Rendered whenever the viewer can edit, even with nothing left to
+              assign. Hiding the control on an empty `availableServers` (the
+              previous behaviour) is indistinguishable from the feature being
+              broken: after assigning the workspace's only server the button
+              simply vanished, with nothing saying why or where new servers
+              come from. Now it stays, disabled, and the menu explains that the
+              library is the place to add more. */}
+          {canEdit && (
             <McpWorkspaceServerPicker
               servers={availableServers}
               disabled={addServer.isPending}
+              libraryEmpty={(libraryQuery.data ?? []).length === 0}
               onSelect={(serverId) => void handleAddWorkspaceServer(serverId)}
             />
           )}
@@ -645,10 +653,12 @@ function McpWorkspaceServerRow({
 function McpWorkspaceServerPicker({
   servers,
   disabled,
+  libraryEmpty,
   onSelect,
 }: {
   servers: WorkspaceMcpServer[];
   disabled: boolean;
+  libraryEmpty: boolean;
   onSelect: (serverId: string) => void;
 }) {
   const { t } = useT("agents");
@@ -669,18 +679,30 @@ function McpWorkspaceServerPicker({
         align="end"
         className="max-h-72 min-w-(--anchor-width) max-w-[min(20rem,var(--available-width))]"
       >
-        {servers.map((server) => (
-          <DropdownMenuItem
-            key={server.id}
-            className="gap-3"
-            onClick={() => onSelect(server.id)}
-          >
-            <span className="min-w-0 flex-1 truncate">{server.name}</span>
-            <span className="shrink-0 text-caption text-muted-foreground">
-              {mcpTransportLabel(server.transport)}
-            </span>
-          </DropdownMenuItem>
-        ))}
+        {servers.length === 0 ? (
+          // Two different dead ends, and the fix differs: an empty library
+          // needs a server created in workspace settings, while an exhausted
+          // one means this agent already has them all. Saying which one it is
+          // saves the reader from hunting for a control that cannot exist.
+          <div className="px-2 py-1.5 text-caption text-muted-foreground">
+            {libraryEmpty
+              ? t(($) => $.tab_body.mcp_config.workspace_library_empty)
+              : t(($) => $.tab_body.mcp_config.workspace_all_assigned)}
+          </div>
+        ) : (
+          servers.map((server) => (
+            <DropdownMenuItem
+              key={server.id}
+              className="gap-3"
+              onClick={() => onSelect(server.id)}
+            >
+              <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              <span className="shrink-0 text-caption text-muted-foreground">
+                {mcpTransportLabel(server.transport)}
+              </span>
+            </DropdownMenuItem>
+          ))
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

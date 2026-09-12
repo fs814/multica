@@ -549,6 +549,7 @@
       "workspace_remove_action": "Remove",
       "workspace_toggle_aria": "Enable {{name}} for this agent",
       "workspace_library_empty": "This workspace has no MCP servers to assign yet. Add them in workspace Settings → MCP.",
+      "workspace_all_assigned": "This agent already has every MCP server in the workspace library. Add more in workspace Settings → MCP.",
       "workspace_none_assigned": "No workspace MCP servers assigned to this agent yet.",
       "workspace_add_action": "Add from workspace",
       "workspace_loading": "Loading assigned servers…",

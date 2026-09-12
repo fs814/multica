@@ -438,6 +438,7 @@
       "workspace_remove_action": "제거",
       "workspace_toggle_aria": "이 에이전트에서 {{name}} 활성화",
       "workspace_library_empty": "이 워크스페이스에는 아직 할당할 MCP 서버가 없습니다. 워크스페이스 설정 → MCP에서 추가하세요.",
+      "workspace_all_assigned": "이 에이전트에 워크스페이스의 모든 MCP 서버가 이미 할당되어 있습니다. 더 추가하려면 워크스페이스 설정 → MCP에서 등록하세요.",
       "workspace_none_assigned": "이 에이전트에 할당된 워크스페이스 MCP 서버가 아직 없습니다.",
       "workspace_add_action": "워크스페이스에서 추가",
       "workspace_loading": "할당된 서버를 불러오는 중…",

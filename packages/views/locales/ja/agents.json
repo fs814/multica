@@ -430,6 +430,7 @@
       "workspace_remove_action": "削除",
       "workspace_toggle_aria": "このエージェントで {{name}} を有効化",
       "workspace_library_empty": "このワークスペースにはまだ割り当て可能な MCP サーバーがありません。ワークスペース設定 → MCP で追加してください。",
+      "workspace_all_assigned": "このエージェントはワークスペースの MCP サーバーをすべて割り当て済みです。追加するにはワークスペース設定 → MCP で登録してください。",
       "workspace_none_assigned": "このエージェントにはまだワークスペース MCP サーバーが割り当てられていません。",
       "workspace_add_action": "ワークスペースから追加",
       "workspace_loading": "割り当て済みサーバーを読み込み中…",

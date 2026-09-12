@@ -537,6 +537,7 @@
       "workspace_remove_action": "移除",
       "workspace_toggle_aria": "为该智能体启用 {{name}}",
       "workspace_library_empty": "工作区中暂无可分配的 MCP Server。请先前往“工作区设置 → MCP”添加。",
+      "workspace_all_assigned": "该智能体已分配工作区中的全部 MCP Server。如需更多，请先前往“工作区设置 → MCP”添加。",
       "workspace_none_assigned": "该智能体尚未分配工作区 MCP Server。",
       "workspace_add_action": "从工作区添加",
       "workspace_loading": "正在加载已分配的 MCP Server...",
