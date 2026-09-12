@@ -1,0 +1,20 @@
+{
+  "name": "wecom-doc-mcp",
+  "version": "1.0.0",
+  "description": "企业微信文档 MCP 服务 - 通过 Playwright 自动化获取企微文档内容",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "wecom-doc-mcp": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "login": "node src/login.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "jszip": "^3.10.1",
+    "playwright": "^1.52.0",
+    "xlsx": "^0.18.5"
+  }
+}
