@@ -97,28 +97,63 @@ if (Test-Path $SdkMarker) {
 if ($SkipBrowserCheck) {
   Write-Info "Skipping Chromium check (-SkipBrowserCheck)"
 } else {
-  $PwCache = if ($env:PLAYWRIGHT_BROWSERS_PATH) {
-    $env:PLAYWRIGHT_BROWSERS_PATH
-  } else {
-    Join-Path $env:LOCALAPPDATA "ms-playwright"
+  # Ask Playwright itself whether the browser it needs is present, rather than
+  # globbing the cache for "chromium*". The cache is versioned per Playwright
+  # build (chromium-1208, chromium-1228, ...), so a glob match is a FALSE
+  # POSITIVE whenever the installed playwright wants a different revision than
+  # whatever an older project left behind — the check passes and the login then
+  # dies with "Executable doesn't exist at ...\chromium-1208\...". Resolving
+  # executablePath and testing that exact file is the only check that tracks
+  # the version actually required.
+  $probe = 'try { const p = require("playwright"); const e = p.chromium.executablePath(); process.stdout.write(require("fs").existsSync(e) ? "OK" : "MISSING"); } catch { process.stdout.write("MISSING"); }'
+  Push-Location $McpDir
+  try {
+    $chromiumState = (& node -e $probe 2>$null | Out-String).Trim()
+  } catch {
+    $chromiumState = "MISSING"
   }
-  $HasChromium = (Test-Path $PwCache) -and
-    (Get-ChildItem -Path $PwCache -Filter "chromium*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1)
+  Pop-Location
 
-  if ($HasChromium) {
+  if ($chromiumState -eq "OK") {
     Write-Ok "Playwright Chromium present"
   } elseif ($DryRun) {
-    Write-Info "[dry-run] would run: npx playwright install chromium (~150MB)"
+    Write-Info "[dry-run] would run: playwright install chromium (~170MB)"
   } else {
-    Write-Info "Downloading Playwright Chromium (~150MB, one time)..."
+    Write-Info "Downloading Playwright Chromium (~170MB, one time)..."
     Push-Location $McpDir
     try {
-      npx --yes playwright install chromium 2>&1 | Out-String | Write-Verbose
+      # Use the LOCAL playwright, not `npx playwright`. npx may resolve a
+      # different playwright version than the one in node_modules, and each
+      # version wants its own pinned browser revision — installing with the
+      # wrong one populates a revision this project will never look for.
+      $pwCli = Join-Path $McpDir "node_modules\playwright\cli.js"
+      if (Test-Path -LiteralPath $pwCli) {
+        node $pwCli install chromium 2>&1 | Out-String | Write-Verbose
+      } else {
+        npx --yes playwright install chromium 2>&1 | Out-String | Write-Verbose
+      }
       if ($LASTEXITCODE -ne 0) { throw "playwright install exited $LASTEXITCODE" }
-      Write-Ok "Chromium installed"
+
+      # Re-probe rather than trusting the exit code: the installer can report
+      # success while extraction was blocked partway, leaving a directory that
+      # holds only the first few files.
+      $recheck = (& node -e $probe 2>$null | Out-String).Trim()
+      if ($recheck -eq "OK") {
+        Write-Ok "Chromium installed"
+      } else {
+        throw "installer finished but the browser is still missing (extraction was likely blocked)"
+      }
     } catch {
-      Write-Warn2 "Chromium download failed: $_"
-      Write-Warn2 "Run manually: cd $McpDir; npx playwright install chromium"
+      Write-Warn2 "Chromium install did not complete: $_"
+      Write-Warn2 "wecom-doc-mcp cannot open a browser until this is fixed."
+      # Observed on this fleet: 腾讯电脑管家 (Tencent PC Manager) silently kills
+      # the unzip right after chrome-win64\D3DCompiler_47.dll, so the install
+      # exits 0 with 3 files on disk and no error anywhere. Worth naming,
+      # because nothing in Playwright's own output points at it.
+      Write-Warn2 "If the extraction stops after a few files, an endpoint-security"
+      Write-Warn2 "product is blocking it (e.g. Tencent PC Manager, Windows Defender)."
+      Write-Warn2 "Allowlist this path, then retry:  $env:LOCALAPPDATA\ms-playwright"
+      Write-Warn2 "Retry with:  cd $McpDir; node node_modules\playwright\cli.js install chromium"
     }
     Pop-Location
   }
@@ -134,6 +169,12 @@ $StateFile = Join-Path $env:USERPROFILE ".wecom-doc-mcp\state.json"
 if ($Login) {
   if ($DryRun) {
     Write-Info "[dry-run] would run: node src/login.js (opens a browser for QR scan)"
+  } elseif ($chromiumState -ne "OK" -and -not $SkipBrowserCheck) {
+    # Refuse rather than let login.js die on Playwright's raw
+    # "Executable doesn't exist at ...\chromium-NNNN\chrome.exe", which reads
+    # like a broken install instead of a missing prerequisite.
+    Write-Warn2 "Cannot open the QR login: Chromium is not installed (see above)."
+    Write-Warn2 "Fix the browser install first, then re-run with -Login."
   } else {
     Write-Info "Opening browser for WeCom QR login..."
     Push-Location $McpDir
