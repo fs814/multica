@@ -127,6 +127,47 @@ class CheckLoginAction:
             dict with keys: logged_in (bool), username (str | None)
         """
         page = self.page
+
+        # Ask Zhihu who we are, before falling back to reading the page
+        # (Multica fork addition).
+        #
+        # Upstream decides this purely from DOM selectors, which silently rot as
+        # Zhihu ships front-end changes. Observed here: a session with a valid
+        # z_c0 cookie matched NONE of the three heuristics — no "登录" button
+        # (correctly, we were signed in), but also no `.AppHeader-userEntry`
+        # and no "写回答"/"提问" button, so check() fell through to its final
+        # `return False`. The result was a working session reported as logged
+        # out, which then made every other tool look broken.
+        #
+        # /api/v4/me is the endpoint Zhihu's own web client uses. It answers 200
+        # with the account for an authenticated session and 401 otherwise, so it
+        # is both cheaper and far more stable than scraping markup. The DOM
+        # checks stay below as a fallback for the case where the API shape
+        # changes or the request is blocked.
+        try:
+            resp = page.request.get(
+                "https://www.zhihu.com/api/v4/me",
+                headers={"x-requested-with": "fetch"},
+                timeout=15000,
+            )
+            if resp.status == 200:
+                data = resp.json()
+                username = (
+                    data.get("name")
+                    or data.get("url_token")
+                    or "已登录用户"
+                )
+                logger.info(f"Logged in as: {username} (via /api/v4/me)")
+                return {"logged_in": True, "username": username}
+            if resp.status in (401, 403):
+                logger.info("Not logged in — /api/v4/me returned %s", resp.status)
+                return {"logged_in": False, "username": None}
+            logger.warning(
+                f"/api/v4/me returned {resp.status}; falling back to DOM checks"
+            )
+        except Exception as exc:  # network error, blocked request, shape change
+            logger.warning(f"/api/v4/me check failed ({exc}); falling back to DOM")
+
         page.goto(ZHIHU_BASE_URL, wait_until="networkidle")
         time.sleep(2)
 
