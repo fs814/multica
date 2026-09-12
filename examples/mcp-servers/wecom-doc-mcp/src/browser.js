@@ -11,6 +11,24 @@ import os from 'os';
 const COOKIE_DIR = path.join(os.homedir(), '.wecom-doc-mcp');
 const STATE_FILE = path.join(COOKIE_DIR, 'state.json');
 
+/**
+ * 浏览器来源（Multica fork 新增）。
+ *
+ * 上游只用 Playwright 自带的 Chromium。问题是那个二进制需要
+ * `playwright install chromium` 下载 ~170MB 并解压，而在装了
+ * 腾讯电脑管家一类端点安全软件的机器上，解压会被静默拦截 —— 进程在
+ * chrome-win64\D3DCompiler_47.dll 之后就被杀掉，install 还返回 0，
+ * 于是 launch 报 "Executable doesn't exist at ...\chromium-1208\chrome.exe"。
+ *
+ * `channel` 让 Playwright 直接驱动系统已装的 Chrome / Edge，完全绕开
+ * 那次下载和解压。设 WECOM_MCP_BROWSER_CHANNEL=chrome|msedge 即可启用；
+ * 不设则保持上游行为（用 Playwright 自带的 Chromium）。
+ */
+function launchOptions(extra = {}) {
+  const channel = String(process.env.WECOM_MCP_BROWSER_CHANNEL || '').trim();
+  return channel ? { ...extra, channel } : extra;
+}
+
 let browser = null;
 let context = null;
 let lastStateModTime = -1; // 上次读取 state.json 的修改时间，-1 表示尚未初始化
@@ -194,14 +212,14 @@ async function launchBrowser(headless = true) {
     // ignore
   }
 
-  browser = await chromium.launch({
+  browser = await chromium.launch(launchOptions({
     headless,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-  });
+  }));
 
   const contextOptions = {
     userAgent:
@@ -233,14 +251,14 @@ async function openLoginBrowser() {
   // 关闭已有浏览器
   await closeBrowser();
 
-  browser = await chromium.launch({
+  browser = await chromium.launch(launchOptions({
     headless: false, // 可视化模式
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
     ],
-  });
+  }));
 
   context = await browser.newContext({
     userAgent:
@@ -305,10 +323,10 @@ async function checkLoginStatus() {
   const state = loadState();
   let checkBrowser = null;
   try {
-    checkBrowser = await chromium.launch({
+    checkBrowser = await chromium.launch(launchOptions({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    }));
     
     const contextOptions = {
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
