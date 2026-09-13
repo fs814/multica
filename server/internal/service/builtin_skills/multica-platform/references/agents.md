@@ -290,6 +290,13 @@ Two ways `mcp_config` differs from `custom_env`:
 
 Provider support is not uniform: Qwen Code accepts a managed `mcp_config` through a daemon-owned 0600 temporary JSON file passed with `--mcp-config`; it is removed when the run exits. Leave the field unset (`null`) to inherit Qwen Code native settings.
 
+Codex per-tool objects such as `tools.check_login_status.approval_mode` and
+`tools.<name>.output_token_limit` are preserved in the generated task-local
+config. These differ from Multica's `tools.include` / `tools.exclude` selector
+arrays, which are stripped before launching Codex. A saved approval rule has
+no effect if an older daemon drops the entire `tools` field; rebuild/restart
+that daemon and inspect the generated config when diagnosing this case.
+
 #### Workspace MCP servers
 
 A workspace keeps a LIBRARY of MCP servers (workspace Settings → MCP, or

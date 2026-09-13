@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/multica-ai/multica/server/pkg/redact"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func newTestCodexClient(t *testing.T) (*codexClient, *fakeStdin, []Message) {
@@ -5118,6 +5119,56 @@ func TestEnsureCodexMcpConfigTranslatesRemoteHTTPServer(t *testing.T) {
 		if strings.Contains(got, unexpected) {
 			t.Fatalf("remote HTTP server should not render %q, got:\n%s", unexpected, got)
 		}
+	}
+}
+
+func TestEnsureCodexMcpConfigPreservesToolSettings(t *testing.T) {
+	t.Parallel()
+	for _, transport := range []string{"stdio", "http"} {
+		t.Run(transport, func(t *testing.T) {
+			t.Parallel()
+			server := map[string]any{
+				"tools": map[string]any{
+					"include":            []string{"check_login_status"},
+					"exclude":            []string{"delete_cookies"},
+					"check_login_status": map[string]any{"approval_mode": "approve"},
+					"publish_article":    map[string]any{"approval_mode": "prompt", "output_token_limit": 2048},
+				},
+			}
+			if transport == "http" {
+				server["type"] = "http"
+				server["url"] = "http://127.0.0.1:18060/mcp"
+			} else {
+				server["command"] = "test-mcp-server"
+			}
+			raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{"zhihu": server}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := ensureCodexMcpConfig(path, raw, slog.Default()); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var config struct {
+				Servers map[string]struct {
+					Tools map[string]map[string]any `toml:"tools"`
+				} `toml:"mcp_servers"`
+			}
+			if err := toml.Unmarshal(data, &config); err != nil {
+				t.Fatalf("invalid generated Codex config: %v", err)
+			}
+			want := map[string]map[string]any{
+				"check_login_status": {"approval_mode": "approve"},
+				"publish_article":    {"approval_mode": "prompt", "output_token_limit": int64(2048)},
+			}
+			if !reflect.DeepEqual(config.Servers["zhihu"].Tools, want) {
+				t.Fatalf("tool approval settings must survive while selectors are stripped: got %#v, want %#v", config.Servers["zhihu"].Tools, want)
+			}
+		})
 	}
 }
 

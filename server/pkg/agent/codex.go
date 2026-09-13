@@ -727,6 +727,12 @@ func normalizeCodexMcpServerConfig(server map[string]any) map[string]any {
 	if !isCodexRemoteMcpServer(server) {
 		normalized := make(map[string]any, len(server))
 		for k, v := range server {
+			if k == "tools" {
+				if settings := codexMcpToolSettings(v); len(settings) > 0 {
+					normalized[k] = settings
+				}
+				continue
+			}
 			if isMulticaMcpSelectorKey(k) {
 				continue
 			}
@@ -738,6 +744,10 @@ func normalizeCodexMcpServerConfig(server map[string]any) map[string]any {
 	normalized := make(map[string]any, len(server)+1)
 	for k, v := range server {
 		switch {
+		case k == "tools":
+			if settings := codexMcpToolSettings(v); len(settings) > 0 {
+				normalized[k] = settings
+			}
 		case isMulticaMcpSelectorKey(k):
 			continue
 		case k == "type":
@@ -752,6 +762,23 @@ func normalizeCodexMcpServerConfig(server map[string]any) map[string]any {
 	}
 	normalized["experimental_use_rmcp_client"] = true
 	return normalized
+}
+
+// Codex uses tools.<name> objects for approval and output settings. Multica
+// also uses tools.include/exclude arrays for selection. Keep the former while
+// stripping selectors, including when both appear in the same server entry.
+func codexMcpToolSettings(value any) map[string]any {
+	entries, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+	settings := make(map[string]any)
+	for name, entry := range entries {
+		if _, ok := entry.(map[string]any); ok {
+			settings[name] = entry
+		}
+	}
+	return settings
 }
 
 func isMulticaMcpSelectorKey(k string) bool {
