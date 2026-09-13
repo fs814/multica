@@ -201,3 +201,42 @@ it("review: adapter back requests leave confirmation only once", () => {
     router.back.mockReset();
   }
 });
+
+it.each(["back", "forward"] as const)(
+  "settles cancelled native %s before another traversal",
+  async (direction) => {
+    const browser = new EventTarget();
+    let prompts = 0;
+    const cancel = (event: Event) => {
+      prompts++;
+      event.preventDefault();
+    };
+    const traverse = vi.fn(() => {
+      const event = new Event("navigate", { cancelable: true });
+      Object.assign(event, {
+        navigationType: "traverse",
+        destination: { url: "http://localhost/acme/workflows" },
+      });
+      browser.dispatchEvent(event);
+      return {
+        committed: Promise.reject(new DOMException("Cancelled", "AbortError")),
+        finished: Promise.reject(new DOMException("Cancelled", "AbortError")),
+      };
+    });
+    Object.assign(browser, { [direction]: traverse });
+    Object.assign(window, { navigation: browser });
+    window.addEventListener("multica:before-navigate", cancel);
+    try {
+      const adapter = renderAdapter();
+      adapter()[direction]?.();
+      await Promise.resolve();
+      adapter()[direction]?.();
+      await Promise.resolve();
+      expect(traverse).toHaveBeenCalledTimes(2);
+      expect(prompts).toBe(2);
+    } finally {
+      window.removeEventListener("multica:before-navigate", cancel);
+      delete (window as unknown as { navigation?: unknown }).navigation;
+    }
+  },
+);

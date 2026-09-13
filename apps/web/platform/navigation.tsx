@@ -67,6 +67,28 @@ function subscribeToHash(onStoreChange: () => void): () => void {
   };
 }
 
+/** Navigation API traversal settles explicitly after a cancelled browser traversal. */
+function traverseHistory(direction: "back" | "forward", fallback: () => void) {
+  const browser = (
+    window as unknown as {
+      navigation?: Partial<
+        Record<
+          "back" | "forward",
+          () => { committed: Promise<unknown>; finished: Promise<unknown> }
+        >
+      >;
+    }
+  ).navigation;
+  if (!browser?.[direction]) {
+    fallback();
+    return;
+  }
+  const result = browser[direction]();
+  // Cancelling a dirty-page prompt rejects both promises by design.
+  void result.committed.catch(() => {});
+  void result.finished.catch(() => {});
+}
+
 function NavigationProviderInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,8 +139,8 @@ function NavigationProviderInner({ children }: { children: React.ReactNode }) {
       typeof window !== "undefined" &&
       typeof (window as unknown as { navigation?: EventTarget }).navigation
         ?.addEventListener === "function",
-    back: router.back,
-    forward: router.forward,
+    back: () => traverseHistory("back", router.back),
+    forward: () => traverseHistory("forward", router.forward),
     canGoBack: canGoBackInApp,
     pathname,
     searchParams: new URLSearchParams(searchParams.toString()),
