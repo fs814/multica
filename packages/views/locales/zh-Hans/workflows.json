@@ -724,5 +724,29 @@
     "wait_active": "等待全部已激活前驱",
     "reject": "拒绝",
     "rejected": "已拒绝；依赖此节点的任务将跳过。"
+  },
+  "authoring": {
+    "rename": "确认重命名",
+    "invalid_port": "端口标识须非空且唯一，首尾不能有空格。",
+    "source": "来源输出",
+    "disconnect": "断开绑定",
+    "join_hint": "等待所有已激活的前驱；不等待跳过的分支。",
+    "added": "新增",
+    "removed": "删除",
+    "type": "类型变化",
+    "options": "选项变化",
+    "required": "必填变化",
+    "label": "标签变化",
+    "no_field_changes": "输入字段无变化",
+    "compare": "比较版本",
+    "from": "原版本",
+    "to": "目标版本",
+    "version_failed": "版本加载失败，请关闭后重新打开重试。",
+    "changed": "已修改节点",
+    "schema": "格式版本变化",
+    "entry": "入口变化",
+    "limits": "限制变化",
+    "bindings": "数据绑定变化",
+    "keep_value": "保留值"
   }
 }

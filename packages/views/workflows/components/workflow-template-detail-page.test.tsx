@@ -469,6 +469,8 @@ describe("validate", () => {
       ),
     ).toBeInTheDocument();
     expect(validateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Agent node "step_1" must have exactly one/ }));
+    expect(screen.getByTestId("canvas")).toHaveAttribute("data-selected", "step_1");
   });
 
   it("asks the server when the mirror is clean, and says so", async () => {

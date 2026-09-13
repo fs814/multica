@@ -52,7 +52,10 @@ import {
   type FlowNode,
   type WorkflowNodeType,
 } from "../graph";
-import { defaultOutputPorts } from "@multica/core/workflows";
+import {
+  defaultOutputPorts,
+  renameWorkflowPort,
+} from "@multica/core/workflows";
 import type { WorkflowDefinition, WorkflowNode } from "@multica/core/workflows";
 
 /** One point in time: the canvas plus the envelope the canvas does not model. */
@@ -87,6 +90,13 @@ export type WorkflowEditorState = {
 };
 
 export type WorkflowEditorAction =
+  | {
+      type: "rename_port";
+      nodeKey: string;
+      direction: "input_ports" | "output_ports";
+      previous: string;
+      next: string;
+    }
   /** Seed from the server. Ignored if this template is already seeded. */
   | { type: "hydrate"; templateId: string; definition: WorkflowDefinition }
   /** Explicitly discard the working copy after the author accepts a conflict reload. */
@@ -497,6 +507,28 @@ export function workflowEditorReducer(
         nodes: state.present.nodes.map((node) => ({
           ...node,
           data: { ...node.data, isEntry: node.id === selected.id },
+        })),
+      });
+    }
+    case "rename_port": {
+      const before = workingDefinition(state);
+      const after = renameWorkflowPort(
+        before,
+        action.nodeKey,
+        action.direction,
+        action.previous,
+        action.next,
+      );
+      if (before === after) return state;
+      const graph = definitionToGraph(after);
+      return commit(state, {
+        base: after,
+        edges: graph.edges,
+        nodes: graph.nodes.map((node) => ({
+          ...node,
+          position:
+            state.present.nodes.find((old) => old.id === node.id)?.position ??
+            node.position,
         })),
       });
     }

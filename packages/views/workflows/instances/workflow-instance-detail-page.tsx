@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import {
+  unknownInputKeys,
   workflowInstanceOptions,
   workflowInstanceVersionOptions,
   workflowInstanceValidationOptions,
@@ -28,8 +29,13 @@ import {
   inputNode,
   useInstanceLeaveWarning,
 } from "./instance-form";
-import { useWorkflowLocation, workflowReturnPath } from "../use-workflow-location";
+import {
+  useWorkflowLocation,
+  workflowReturnPath,
+} from "../use-workflow-location";
 import { WorkflowRunStatusBadge } from "../runs/components/run-status-badge";
+
+import { InputVersionDiff } from "../editor/version-comparison";
 
 function editable(
   row: WorkflowInputInstance,
@@ -97,11 +103,17 @@ function InstanceEditor({
   const [value, setValue] = useState(() => editable(row, node));
   const [notice, setNotice] = useState("");
   const [upgrade, setUpgrade] = useState("");
+  const [fieldDecisions, setFieldDecisions] = useState<
+    Record<string, "keep" | "remove">
+  >({});
   const [offset, setOffset] = useState(0);
   const tpl = useQuery(workflowTemplateDetailOptions(ws, row.templateId));
   const proposed = useQuery(
     workflowInstanceVersionOptions(ws, row.templateId, upgrade),
   );
+  const upgradeUnknown = proposed.data
+    ? unknownInputKeys(value.input, inputNode(proposed.data.definition))
+    : [];
   const readiness = useQuery(
     workflowInstanceValidationOptions(ws, row.id, base.revision),
   );
@@ -203,10 +215,18 @@ function InstanceEditor({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <header className="flex flex-wrap items-center gap-3 border-b p-4">
-        <AppLink href={workflowReturnPath(location.params.get("return_to"), paths.workflowInstances(), [paths.workflowInstances(), paths.workflowDetail(row.templateId)])}>
+        <AppLink
+          href={workflowReturnPath(
+            location.params.get("return_to"),
+            paths.workflowInstances(),
+            [paths.workflowInstances(), paths.workflowDetail(row.templateId)],
+          )}
+        >
           {t(($) => $.instances.all)}
         </AppLink>
-        <AppLink href={paths.workflowDetail(row.templateId) + "?section=instances"}>
+        <AppLink
+          href={paths.workflowDetail(row.templateId) + "?section=instances"}
+        >
           {tpl.data?.name ?? t(($) => $.page.title)}
         </AppLink>
         <h1 className="min-w-0 flex-1 truncate font-semibold">{value.name}</h1>
@@ -250,7 +270,10 @@ function InstanceEditor({
             <Button
               variant="outline"
               disabled={pending || archived}
-              onClick={() => setUpgrade(latest.id)}
+              onClick={() => {
+                setFieldDecisions({});
+                setUpgrade(latest.id);
+              }}
             >
               {t(($) => $.instances.upgrade)}
             </Button>
@@ -261,43 +284,68 @@ function InstanceEditor({
               {proposed.error && <p role="alert">{proposed.error.message}</p>}
               {proposed.data && (
                 <>
-                  <div className="grid grid-cols-2 gap-3 text-caption">
-                    {[value.inputNode, inputNode(proposed.data.definition)].map(
-                      (entry, i) => (
-                        <div key={i}>
-                          <strong>
-                            {i === 0
-                              ? t(($) => $.instances.before)
-                              : t(($) => $.instances.after)}
-                          </strong>
-                          <p>
-                            {entry?.input_mode === "image"
-                              ? t(($) => $.instances.image)
-                              : t(($) => $.instances.text)}
-                          </p>
-                          <ul>
-                            {entry?.input_fields.map((f) => (
-                              <li key={f.key}>
-                                {[
-                                  f.label || f.key,
-                                  "(" + f.key + ")",
-                                  f.type,
-                                ].join(" · ")}{" "}
-                                {f.required ? "*" : ""} {f.options.join(", ")}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ),
-                    )}
-                  </div>
+                  <InputVersionDiff
+                    before={value.inputNode}
+                    after={inputNode(proposed.data.definition)}
+                  />
+                  {upgradeUnknown.map((key) => (
+                    <fieldset
+                      key={key}
+                      className="rounded border p-2 text-caption"
+                    >
+                      <legend>
+                        {t(($) => $.instances.unknown, { field: key })}
+                      </legend>
+                      <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words">
+                        {value.input[key]}
+                      </pre>
+                      <div className="flex gap-3">
+                        <label>
+                          <input
+                            type="radio"
+                            name={`upgrade-${key}`}
+                            checked={fieldDecisions[key] === "keep"}
+                            onChange={() =>
+                              setFieldDecisions({
+                                ...fieldDecisions,
+                                [key]: "keep",
+                              })
+                            }
+                          />{" "}
+                          {t(($) => $.authoring.keep_value)}
+                        </label>
+                        <label>
+                          <input
+                            type="radio"
+                            name={`upgrade-${key}`}
+                            checked={fieldDecisions[key] === "remove"}
+                            onChange={() =>
+                              setFieldDecisions({
+                                ...fieldDecisions,
+                                [key]: "remove",
+                              })
+                            }
+                          />{" "}
+                          {t(($) => $.instances.remove)}
+                        </label>
+                      </div>
+                    </fieldset>
+                  ))}
                   <p className="text-caption">
                     {t(($) => $.instances.keep_resources)}
                   </p>
                   <Button
+                    disabled={
+                      pending ||
+                      upgradeUnknown.some((key) => !fieldDecisions[key])
+                    }
                     onClick={() => {
+                      const input = { ...value.input };
+                      for (const key of upgradeUnknown)
+                        if (fieldDecisions[key] === "remove") delete input[key];
                       setValue({
                         ...value,
+                        input,
                         templateVersionId: upgrade,
                         inputNode: inputNode(proposed.data!.definition),
                       });

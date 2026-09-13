@@ -597,3 +597,18 @@ describe("property edits after changing connections", () => {
     expect(workingDefinition(edited).nodes.find((node) => node.key === "analyze")?.instruction).toBe("New requirements");
   });
 });
+it("renames a connected v2 port as one undoable graph edit", async () => {
+  const { WorkflowDefinitionSchema } = await import("@multica/core/workflows");
+  const definition = WorkflowDefinitionSchema.parse({ schema_version: 2, entry_node: "input", nodes: [
+    { key: "input", type: "input", next: ["end"], next_ids: ["flow"], output_ports: [{ id: "old", type: "string" }] },
+    { key: "end", type: "end", input_ports: [{ id: "value", type: "string" }] },
+  ], data_edges: [{ id: "edge", source: "input", source_port: "old", target: "end", target_port: "value", order: 0 }] });
+  const initial = seeded(definition);
+  const renamed = workflowEditorReducer(initial, { type: "rename_port", nodeKey: "input", direction: "output_ports", previous: "old", next: "new" });
+  expect(workingDefinition(renamed).data_edges![0]).toMatchObject({ id: "edge", source_port: "new" });
+  expect(renamed.past).toHaveLength(1);
+  expect(workingDefinition(workflowEditorReducer(renamed, { type: "undo" }))).toEqual(definition);
+  const deleted = workflowEditorReducer(renamed, { type: "patch_node", node: { ...workingDefinition(renamed).nodes[0]!, output_ports: [] } });
+  expect(workingDefinition(deleted).data_edges).toEqual([]);
+  expect(workingDefinition(workflowEditorReducer(deleted, { type: "undo" }))).toEqual(workingDefinition(renamed));
+});

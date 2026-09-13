@@ -724,5 +724,29 @@
     "wait_active": "有効な先行ノードをすべて待機",
     "reject": "却下",
     "rejected": "却下しました。依存する処理はスキップされます。"
+  },
+  "authoring": {
+    "rename": "名前変更を確定",
+    "invalid_port": "空白で囲まれていない一意のポート ID を入力してください。",
+    "source": "接続元の出力",
+    "disconnect": "接続を解除",
+    "join_hint": "有効化されたすべての先行ノードを待ちます。スキップされた分岐は待ちません。",
+    "added": "追加",
+    "removed": "削除",
+    "type": "型の変更",
+    "options": "選択肢の変更",
+    "required": "必須の変更",
+    "label": "ラベルの変更",
+    "no_field_changes": "入力フィールドに変更なし",
+    "compare": "バージョンを比較",
+    "from": "元のバージョン",
+    "to": "対象バージョン",
+    "version_failed": "読み込みに失敗しました。閉じて再度開いてください。",
+    "changed": "変更されたノード",
+    "schema": "形式の変更",
+    "entry": "入口の変更",
+    "limits": "制限の変更",
+    "bindings": "データ接続の変更",
+    "keep_value": "値を保持"
   }
 }

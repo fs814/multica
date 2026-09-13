@@ -1310,7 +1310,7 @@ func TestWorkflowTemplateValidateEndpoint(t *testing.T) {
 		t.Fatalf("the built-in graph must validate, got messages: %+v", resp.Messages)
 	}
 	// Non-nil so a client can iterate without a null check.
-	if resp.Messages == nil {
+	if resp.Messages == nil || resp.Diagnostics == nil {
 		t.Fatalf("expected an empty messages array on success, got null")
 	}
 	if len(resp.Messages) != 0 {
@@ -1327,6 +1327,20 @@ func TestWorkflowTemplateValidateEndpoint(t *testing.T) {
 	if len(resp.Messages) == 0 {
 		t.Fatalf("expected messages explaining why the graph is invalid")
 	}
+	if len(resp.Diagnostics) != len(resp.Messages) {
+		t.Fatalf("diagnostics must accompany legacy messages: %+v", resp)
+	}
+	found := false
+	for i, item := range resp.Diagnostics {
+		if item.Code != workflow.ErrCodeInvalidDefinition || item.Message != resp.Messages[i] || item.FieldPath == "" {
+			t.Fatalf("invalid diagnostic: %+v", item)
+		}
+		found = found || item.NodeKey != ""
+	}
+	if !found {
+		t.Fatal("node errors must expose a node key without parsing messages")
+	}
+
 	if joined := strings.Join(resp.Messages, "\n"); !strings.Contains(joined, "rework_targets") {
 		t.Fatalf("expected a rework_targets problem in messages, got:\n%s", joined)
 	}

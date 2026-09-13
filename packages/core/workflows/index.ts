@@ -85,3 +85,9 @@ export { workflowRunInputDefaults } from "./run-input-defaults";
 export { validateGraphV2, defaultOutputPorts } from "./graph-v2";
 
 export { workflowListOffset, workflowReturnPath } from "./location";
+
+export { WorkflowDiagnosticSchema } from "./schemas";
+export type { WorkflowDiagnostic } from "./schemas";
+export { diagnoseGraphV2 } from "./graph-v2";
+
+export * from "./authoring";

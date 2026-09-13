@@ -125,16 +125,18 @@ type ValidateWorkflowDefinitionRequest struct {
 // Messages is always a non-nil array so a client can iterate it without a null
 // check.
 type ValidateWorkflowDefinitionResponse struct {
-	Valid    bool     `json:"valid"`
-	Messages []string `json:"messages"`
+	Valid       bool                            `json:"valid"`
+	Messages    []string                        `json:"messages"`
+	Diagnostics []workflow.ValidationDiagnostic `json:"diagnostics"`
 }
 
 // workflowValidationResponse is the 422 body. The messages are the whole point
 // of the status code: the template editor points at the offending node, and
 // "invalid definition" alone would force the author to guess.
 type workflowValidationResponse struct {
-	Error    string   `json:"error"`
-	Messages []string `json:"messages"`
+	Error       string                          `json:"error"`
+	Messages    []string                        `json:"messages"`
+	Diagnostics []workflow.ValidationDiagnostic `json:"diagnostics"`
 }
 
 // emptyWorkflowDefinition is what the detail endpoint reports when a template
@@ -382,15 +384,17 @@ func parseAndValidateWorkflowDefinition(w http.ResponseWriter, raw []byte) (*wor
 		// A parse failure is a definition problem, not a malformed HTTP body:
 		// the client sent well-formed JSON that is not a well-formed graph.
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: []string{err.Error()},
+			Error:       "invalid workflow definition",
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return nil, false
 	}
 	if err := workflow.ValidateDraft(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: workflowValidationMessages(err),
+			Error:       "invalid workflow definition",
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return nil, false
 	}
@@ -927,15 +931,17 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
 	def, err := workflow.ParseDefinition(draft.Definition)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: []string{err.Error()},
+			Error:       "invalid workflow definition",
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return
 	}
 	if err := workflow.Validate(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: workflowValidationMessages(err),
+			Error:       "invalid workflow definition",
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return
 	}
@@ -1053,19 +1059,21 @@ func (h *Handler) ValidateWorkflowDefinition(w http.ResponseWriter, r *http.Requ
 	def, err := workflow.ParseDefinition(req.Definition)
 	if err != nil {
 		writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{
-			Valid:    false,
-			Messages: []string{err.Error()},
+			Valid:       false,
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return
 	}
 	if err := workflow.Validate(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{
-			Valid:    false,
-			Messages: workflowValidationMessages(err),
+			Valid:       false,
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{Valid: true, Messages: []string{}})
+	writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{Valid: true, Messages: []string{}, Diagnostics: []workflow.ValidationDiagnostic{}})
 }
 
 // UpdateWorkflowTemplate saves an editor draft: metadata onto the template row,
@@ -1298,4 +1306,12 @@ func workflowDefinitionSchemaVersion(raw json.RawMessage) int32 {
 		return 1
 	}
 	return header.SchemaVersion
+}
+
+func workflowValidationDiagnostics(err error, def *workflow.Definition) []workflow.ValidationDiagnostic {
+	var verrs *workflow.ValidationErrors
+	if errors.As(err, &verrs) {
+		return verrs.Diagnostics(def)
+	}
+	return []workflow.ValidationDiagnostic{{Code: workflow.ErrCodeInvalidDefinition, Message: err.Error(), FieldPath: "definition"}}
 }

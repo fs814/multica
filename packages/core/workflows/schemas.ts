@@ -44,8 +44,20 @@ export type WorkflowRouting = {
 };
 
 /** One condition edge. An empty `when_verdict` is the default branch. */
-export type WorkflowPort = { id: string; type: string; required?: boolean; multiple?: boolean };
-export type WorkflowDataEdge = { id: string; source: string; source_port: string; target: string; target_port: string; order: number };
+export type WorkflowPort = {
+  id: string;
+  type: string;
+  required?: boolean;
+  multiple?: boolean;
+};
+export type WorkflowDataEdge = {
+  id: string;
+  source: string;
+  source_port: string;
+  target: string;
+  target_port: string;
+  order: number;
+};
 
 export type WorkflowBranch = {
   id?: string;
@@ -151,13 +163,31 @@ const WorkflowRoutingSchema = z
   })
   .loose();
 
-const WorkflowPortSchema = z.object({ id: z.string(), type: z.string(), required: z.boolean().optional(), multiple: z.boolean().optional() }).loose();
-const WorkflowDataEdgeSchema = z.object({ id: z.string(), source: z.string(), source_port: z.string(), target: z.string(), target_port: z.string(), order: z.number().int() }).loose();
+const WorkflowPortSchema = z
+  .object({
+    id: z.string(),
+    type: z.string(),
+    required: z.boolean().optional(),
+    multiple: z.boolean().optional(),
+  })
+  .loose();
+const WorkflowDataEdgeSchema = z
+  .object({
+    id: z.string(),
+    source: z.string(),
+    source_port: z.string(),
+    target: z.string(),
+    target_port: z.string(),
+    order: z.number().int(),
+  })
+  .loose();
 
 const WorkflowBranchSchema = z
   .object({
     id: z.string().optional(),
-    predicate: z.object({ input_port: z.string(), equals: z.unknown() }).optional(),
+    predicate: z
+      .object({ input_port: z.string(), equals: z.unknown() })
+      .optional(),
     when_verdict: z.string().optional().default(""),
     target: z.string().optional().default(""),
   })
@@ -385,7 +415,31 @@ export type UpdateWorkflowTemplateRequest = {
  * not see two different descriptions of one problem depending on which side
  * reported it first.
  */
+export const WorkflowDiagnosticSchema = z
+  .object({
+    code: z.string(),
+    message: z.string(),
+    field_path: z.string(),
+    node_key: z.string().optional(),
+    edge_id: z.string().optional(),
+  })
+  .loose()
+  .transform(({ field_path, node_key, edge_id, ...rest }) => ({
+    ...rest,
+    fieldPath: field_path,
+    nodeKey: node_key,
+    edgeId: edge_id,
+  }));
+export type WorkflowDiagnostic = {
+  code: string;
+  message: string;
+  fieldPath: string;
+  nodeKey?: string;
+  edgeId?: string;
+};
+
 export type WorkflowValidationResult = {
+  diagnostics?: WorkflowDiagnostic[];
   valid: boolean;
   /** Non-empty whenever `valid` is false. Always an array, never null. */
   messages: string[];
@@ -411,6 +465,7 @@ export const WorkflowValidationResultSchema = z
   .object({
     valid: z.boolean(),
     messages: z.array(z.string()),
+    diagnostics: z.array(WorkflowDiagnosticSchema).optional().catch(undefined),
   })
   .loose();
 
@@ -547,10 +602,10 @@ export const EMPTY_WORKFLOW_TEMPLATE_DETAIL: WorkflowTemplateDetail = {
 /** Summary row for the runs list. Enriched with the template's identity so the
  *  list renders without a second fetch per row. */
 export type WorkflowRun = {
-  input_instance_id?:string|null;
-  input_instance_revision?:number|null;
-  input_instance_name?:string|null;
-  input_source?:string|null;
+  input_instance_id?: string | null;
+  input_instance_revision?: number | null;
+  input_instance_name?: string | null;
+  input_source?: string | null;
   id: string;
   workspace_id: string;
   /** null until/unless the run is attached to an issue. */
@@ -697,10 +752,10 @@ export type DecideWorkflowAcceptanceRequest = {
 
 export const WorkflowRunSchema = z
   .object({
-    input_instance_id:z.string().nullable().optional(),
-    input_instance_revision:z.number().nullable().optional(),
-    input_instance_name:z.string().nullable().optional(),
-    input_source:z.string().nullable().optional(),
+    input_instance_id: z.string().nullable().optional(),
+    input_instance_revision: z.number().nullable().optional(),
+    input_instance_name: z.string().nullable().optional(),
+    input_source: z.string().nullable().optional(),
     id: z.string(),
     workspace_id: z.string().optional().default(""),
     issue_id: z.string().nullable().optional().default(null),
@@ -886,4 +941,7 @@ export const EMPTY_WORKFLOW_RUN_DETAIL: WorkflowRunDetail = {
   acceptance: null,
 };
 
-export type PublishWorkflowTemplateRequest = { revision: number; draft_version_id: string };
+export type PublishWorkflowTemplateRequest = {
+  revision: number;
+  draft_version_id: string;
+};

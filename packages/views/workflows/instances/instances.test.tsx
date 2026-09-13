@@ -356,3 +356,23 @@ it("organizes workspace instances under their parent workflow with working detai
   fireEvent.click(within(groupA).getByRole("link", { name: "Input A1" }));
   expect(push).toHaveBeenCalledWith("/acme/workflow-instances/a1?return_to=%2Facme%2Fworkflow-instances%2Finstance");
 });
+
+it("requires an explicit keep/remove decision before applying an upgrade", async () => {
+  const instance = { ...row(), input: { ...row().input, legacy: "historical value", discard: "obsolete" } };
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(instance);
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Review latest published version" }));
+  const apply = await screen.findByRole("button", { name: "Apply version to this edit" });
+  expect(apply).toBeDisabled();
+  const keep = await screen.findAllByRole("radio", { name: "Keep value" });
+  fireEvent.click(keep[0]!);
+  expect(apply).toBeDisabled();
+  fireEvent.click(screen.getAllByRole("radio", { name: "Remove" })[1]!);
+  fireEvent.click(apply);
+  expect(api.saveWorkflowInputInstance).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.saveWorkflowInputInstance).toHaveBeenCalled());
+  expect(vi.mocked(api.saveWorkflowInputInstance).mock.calls[0]?.[1]).toMatchObject({ templateVersionId: "v2", input: { ...row().input, legacy: "historical value" } });
+  expect(vi.mocked(api.saveWorkflowInputInstance).mock.calls[0]?.[1].input).not.toHaveProperty("discard");
+  expect(instance.templateVersionId).toBe("v1");
+});

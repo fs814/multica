@@ -730,5 +730,29 @@
     "wait_active": "Waits for all active predecessors",
     "reject": "Reject",
     "rejected": "Rejected; dependent work will be skipped."
+  },
+  "authoring": {
+    "rename": "Confirm rename",
+    "invalid_port": "Use a unique, nonempty port ID without surrounding spaces.",
+    "source": "Source output",
+    "disconnect": "Disconnect binding",
+    "join_hint": "Waits for all activated predecessors; skipped branches are not awaited.",
+    "added": "Added",
+    "removed": "Removed",
+    "type": "Type changed",
+    "options": "Options changed",
+    "required": "Required changed",
+    "label": "Label changed",
+    "no_field_changes": "No input field changes",
+    "compare": "Compare versions",
+    "from": "Earlier version",
+    "to": "Later version",
+    "version_failed": "Could not load the version. Close and reopen to retry.",
+    "changed": "Changed nodes",
+    "schema": "Schema changed",
+    "entry": "Entry changed",
+    "limits": "Limits changed",
+    "bindings": "Data bindings changed",
+    "keep_value": "Keep value"
   }
 }

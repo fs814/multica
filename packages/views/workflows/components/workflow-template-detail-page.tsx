@@ -91,7 +91,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { AppLink, useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { WorkflowCanvas } from "../canvas/workflow-canvas";
-import { clientValidateGraph, type WorkflowNodeType } from "../graph";
+import { clientDiagnoseGraph, type WorkflowNodeType } from "../graph";
 import { AddNodeToolbar } from "../editor/add-node-toolbar";
 import {
   canRedo,
@@ -122,9 +122,16 @@ import { WorkflowStatusBadge } from "./workflow-status-badge";
  * anything was actually checked.
  */
 type ProblemReport = {
+  diagnostics?: WorkflowDiagnostic[];
   source: "client" | "server" | "save";
   messages: string[];
 };
+
+import { WorkflowVersionComparison } from "../editor/version-comparison";
+import {
+  WorkflowDiagnosticSchema,
+  type WorkflowDiagnostic,
+} from "@multica/core/workflows";
 
 export function WorkflowTemplateDetailPage({
   templateId,
@@ -172,6 +179,11 @@ export function WorkflowTemplateDetailPage({
   const setSection = (value: string) => location.update({ section: value });
   const [jsonDirty, setJsonDirty] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(true);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [focusRequest, setFocusRequest] = useState<{
+    nodeId: string;
+    sequence: number;
+  }>();
   const [saveConflict, setSaveConflict] = useState<WorkflowDefinition | null>(
     null,
   );
@@ -229,15 +241,23 @@ export function WorkflowTemplateDetailPage({
     // The client mirror runs first and unconditionally: it is synchronous, so the
     // author gets an answer on the same frame they asked, and if it finds a
     // problem the server round trip would only restate it.
-    const local = clientValidateGraph(working);
+    const local = clientDiagnoseGraph(working);
     if (local.length > 0) {
-      setProblems({ source: "client", messages: local });
+      setProblems({
+        source: "client",
+        messages: local.map((item) => item.message),
+        diagnostics: local,
+      });
       return;
     }
     setValidating(true);
     try {
       const result = await api.validateWorkflowDefinition(working);
-      setProblems({ source: "server", messages: result.messages });
+      setProblems({
+        source: "server",
+        messages: result.messages,
+        diagnostics: result.diagnostics,
+      });
     } catch (err) {
       // This endpoint answers "your graph is wrong" with a 200, so a throw here
       // is a transport failure, not a verdict. Reporting it as a validation
@@ -287,7 +307,11 @@ export function WorkflowTemplateDetailPage({
       // edge, got 2` names both the node and the rule.
       const messages = validationMessages(err);
       if (messages.length > 0) {
-        setProblems({ source: "save", messages });
+        setProblems({
+          source: "save",
+          messages,
+          diagnostics: validationDiagnostics(err),
+        });
         return;
       }
       toast.error(
@@ -381,7 +405,11 @@ export function WorkflowTemplateDetailPage({
       }
       const messages = validationMessages(err);
       if (messages.length > 0) {
-        setProblems({ source: "save", messages });
+        setProblems({
+          source: "save",
+          messages,
+          diagnostics: validationDiagnostics(err),
+        });
         return;
       }
       toast.error(
@@ -598,7 +626,10 @@ export function WorkflowTemplateDetailPage({
           <div className="mt-1 flex flex-wrap gap-2 text-caption text-muted-foreground">
             {data.current_version != null && (
               <span>
-                {t(($) => $.status.published)} {t(($) => $.detail.versions.label, { version: data.current_version })}
+                {t(($) => $.status.published)}{" "}
+                {t(($) => $.detail.versions.label, {
+                  version: data.current_version,
+                })}
               </span>
             )}
             {data.versions
@@ -606,7 +637,10 @@ export function WorkflowTemplateDetailPage({
               .slice(0, 1)
               .map((version) => (
                 <span key={version.id}>
-                  {t(($) => $.status.draft)} {t(($) => $.detail.versions.label, { version: version.version })}
+                  {t(($) => $.status.draft)}{" "}
+                  {t(($) => $.detail.versions.label, {
+                    version: version.version,
+                  })}
                 </span>
               ))}
           </div>
@@ -760,8 +794,33 @@ export function WorkflowTemplateDetailPage({
           </Button>
         </div>
       )}
+      {comparisonOpen && (
+        <WorkflowVersionComparison
+          wsId={wsId}
+          templateId={templateId}
+          versions={data.versions}
+          draft={working}
+        />
+      )}
       {problems ? (
-        <ProblemsStrip report={problems} onDismiss={() => setProblems(null)} />
+        <ProblemsStrip
+          report={problems}
+          onDismiss={() => setProblems(null)}
+          onLocate={(item) => {
+            const target = state.present.nodes.find(
+              (n) => n.data.node.key === item.nodeKey,
+            );
+            if (!target) return;
+            setSection("canvas");
+            setPropertiesOpen(true);
+            if (state.jsonOpen && !jsonDirty) dispatch({ type: "toggle_json" });
+            dispatch({ type: "select", nodeId: target.id });
+            setFocusRequest((prev) => ({
+              nodeId: target.id,
+              sequence: (prev?.sequence ?? 0) + 1,
+            }));
+          }}
+        />
       ) : null}
 
       <nav
@@ -786,6 +845,15 @@ export function WorkflowTemplateDetailPage({
         >
           {t(($) => $.instances.history)}
         </Button>
+        {data.versions.some((version) => version.status === "published") && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setComparisonOpen(!comparisonOpen)}
+          >
+            {t(($) => $.authoring.compare)}
+          </Button>
+        )}
         {section === "canvas" && (
           <Button
             className="ml-auto"
@@ -817,6 +885,7 @@ export function WorkflowTemplateDetailPage({
           </div>
         ) : (
           <WorkflowCanvas
+            focusRequest={focusRequest}
             nodes={state.present.nodes}
             edges={state.present.edges}
             selectedNodeId={state.selectedNodeId}
@@ -841,6 +910,35 @@ export function WorkflowTemplateDetailPage({
         {propertiesOpen && (
           <WorkflowPropertiesPanel
             node={selected}
+            onRenamePort={(direction, previous, next) => {
+              if (selected && !readOnly)
+                dispatch({
+                  type: "rename_port",
+                  nodeKey: selected.key,
+                  direction,
+                  previous,
+                  next,
+                });
+            }}
+            onBindPort={(source, sourcePort, targetPort) => {
+              if (selected && !readOnly)
+                handleConnect(
+                  source,
+                  selected.key,
+                  `out:${sourcePort}`,
+                  `in:${targetPort}`,
+                );
+            }}
+            onRemoveBinding={(edgeId) => {
+              if (!readOnly)
+                dispatch({
+                  type: "set_graph",
+                  nodes: state.present.nodes,
+                  edges: state.present.edges.filter(
+                    (edge) => edge.id !== edgeId,
+                  ),
+                });
+            }}
             definition={working}
             readOnly={readOnly}
             onChange={(node) => dispatch({ type: "patch_node", node })}
@@ -995,10 +1093,12 @@ export function WorkflowTemplateDetailPage({
  * count, dismiss - is translated as usual.
  */
 function ProblemsStrip({
+  onLocate,
   report,
   onDismiss,
 }: {
   report: ProblemReport;
+  onLocate(item: WorkflowDiagnostic): void;
   onDismiss(): void;
 }) {
   const { t } = useT("workflows");
@@ -1043,7 +1143,19 @@ function ProblemsStrip({
                 key={index}
                 className="font-mono text-micro leading-snug break-words text-muted-foreground"
               >
-                {message}
+                {report.diagnostics?.[index]?.nodeKey ? (
+                  <button
+                    className="text-left underline underline-offset-2 focus-visible:outline-2"
+                    onClick={() => onLocate(report.diagnostics![index]!)}
+                  >
+                    {message}{" "}
+                    <span className="text-muted-foreground">
+                      {report.diagnostics[index]!.fieldPath}
+                    </span>
+                  </button>
+                ) : (
+                  message
+                )}
               </li>
             ))}
           </ul>
@@ -1142,4 +1254,15 @@ function EditorSkeleton() {
       </div>
     </div>
   );
+}
+
+function validationDiagnostics(err: unknown): WorkflowDiagnostic[] {
+  if (!err || typeof err !== "object") return [];
+  const body = (err as { body?: { diagnostics?: unknown } }).body;
+  if (!Array.isArray(body?.diagnostics)) return [];
+  const parsed = body.diagnostics.map((item) =>
+    WorkflowDiagnosticSchema.safeParse(item),
+  );
+  if (parsed.some((item) => !item.success)) return [];
+  return parsed.flatMap((item) => (item.success ? [item.data] : []));
 }

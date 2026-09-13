@@ -24,13 +24,17 @@
  * labels and section headings around them are translated as usual.
  */
 
-import type { WorkflowDefinition, WorkflowNode } from "@multica/core/workflows";
+import type {
+  WorkflowDefinition,
+  WorkflowNode,
+  WorkflowDiagnostic,
+} from "@multica/core/workflows";
 import { isWorkflowNodeType } from "./types";
 import { legalReworkTargetNodes } from "./rework-targets";
 
 /** The only definition format any current server understands. */
 const SCHEMA_VERSION = 1;
-import { validateGraphV2 } from "@multica/core/workflows";
+import { diagnoseGraphV2 } from "@multica/core/workflows";
 
 /** Mirrors `DefaultSchemaRegistry` in the workflow package. */
 const KNOWN_SUBMISSION_SCHEMAS = new Set([
@@ -84,9 +88,65 @@ const VALID_INPUT_FIELD_TYPES = new Set(["", "text", "textarea", "select"]);
  * real error.
  */
 export function clientValidateGraph(def: WorkflowDefinition): string[] {
-  const problems: string[] = def.schema_version === 2 ? validateGraphV2(def) : [];
+  return clientDiagnoseGraph(def).map((item) => item.message);
+}
 
-  if (def.schema_version !== 0 && def.schema_version !== SCHEMA_VERSION && def.schema_version !== 2) {
+export function clientDiagnoseGraph(
+  def: WorkflowDefinition,
+): WorkflowDiagnostic[] {
+  const diagnostics: WorkflowDiagnostic[] = [];
+  const messages = collectGraphProblems(def, diagnostics);
+  // Global early returns have no node location, intentionally.
+  return messages.map(
+    (message, index) =>
+      diagnostics[index] ?? {
+        code: "workflow_invalid_definition",
+        message,
+        fieldPath: "definition",
+      },
+  );
+}
+
+type ProblemSink = {
+  readonly length: number;
+  push(...messages: string[]): number;
+};
+
+function collectGraphProblems(
+  def: WorkflowDefinition,
+  diagnostics: WorkflowDiagnostic[],
+): string[] {
+  let nodeKey: string | undefined;
+  const messages: string[] = [];
+  const problems: ProblemSink = {
+    get length() {
+      return messages.length;
+    },
+    push(...incoming) {
+      for (const message of incoming)
+        diagnostics.push({
+          code: "workflow_invalid_definition",
+          message,
+          fieldPath:
+            nodeKey === undefined
+              ? "definition"
+              : `nodes[${def.nodes.findIndex((n) => n.key === nodeKey)}]`,
+          nodeKey,
+        });
+      return messages.push(...incoming);
+    },
+  };
+  if (def.schema_version === 2) {
+    const detailed = diagnoseGraphV2(def);
+    diagnostics.push(...detailed);
+    messages.push(...detailed.map((item) => item.message));
+  }
+
+  if (
+    def.schema_version !== 0 &&
+    def.schema_version !== SCHEMA_VERSION &&
+    def.schema_version !== 2
+  ) {
     // A version mismatch makes every other check unreliable - node semantics may
     // differ - so stop rather than emit a cascade of misleading errors.
     return [
@@ -98,6 +158,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
 
   const byKey = new Map<string, WorkflowNode>();
   for (const node of def.nodes) {
+    nodeKey = node.key;
     if (node.key === "") {
       problems.push("node key is empty");
       continue;
@@ -119,8 +180,9 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
   }
   // Every later check dereferences byKey; with malformed keys or types their
   // output would be noise.
-  if (problems.length > 0) return problems;
+  if (problems.length > 0) return messages;
 
+  nodeKey = undefined;
   if (def.entry_node === "") {
     problems.push("entry_node is empty");
   } else if (!byKey.has(def.entry_node)) {
@@ -142,6 +204,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
   let endCount = 0;
   let inputCount = 0;
   for (const node of def.nodes) {
+    nodeKey = node.key;
     checkEdges(problems, node, byKey);
     checkReworkTargets(problems, def, node, byKey, canCheckReworkUpstream);
     const imageAttachmentId = (node.image_attachment_id ?? "").trim();
@@ -157,7 +220,11 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
     }
 
     const single = SINGLE_SUCCESSOR_TYPES[node.type];
-    if (single !== undefined && node.next.length !== 1 && (def.schema_version !== 2 || node.next.length === 0)) {
+    if (
+      single !== undefined &&
+      node.next.length !== 1 &&
+      (def.schema_version !== 2 || node.next.length === 0)
+    ) {
       problems.push(
         node.type === "fan_out"
           ? `FanOut node "${node.key}" must have exactly one outgoing edge (the node to expand), got ${node.next.length}`
@@ -290,6 +357,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
     }
   }
 
+  nodeKey = undefined;
   if (endCount === 0) {
     problems.push("definition has no End node, so a Run could never complete");
   }
@@ -311,7 +379,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
     checkAcyclic(problems, def, byKey);
   }
 
-  return problems;
+  return messages;
 }
 
 /**
@@ -319,7 +387,7 @@ export function clientValidateGraph(def: WorkflowDefinition): string[] {
  * deleted node is the most common authoring mistake.
  */
 function checkEdges(
-  problems: string[],
+  problems: ProblemSink,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
 ): void {
@@ -339,7 +407,7 @@ function checkEdges(
  * spin the same attempt without making progress), and must not be an input node.
  */
 function checkReworkTargets(
-  problems: string[],
+  problems: ProblemSink,
   definition: WorkflowDefinition,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
@@ -392,7 +460,7 @@ function checkReworkTargets(
  * receive - and the server's required-field check would then reject every run of
  * a template that looks correct on the canvas.
  */
-function checkInputFields(problems: string[], node: WorkflowNode): void {
+function checkInputFields(problems: ProblemSink, node: WorkflowNode): void {
   const seen = new Set<string>();
   for (const field of node.input_fields) {
     if (field.key === "") {
@@ -437,7 +505,7 @@ function checkInputFields(problems: string[], node: WorkflowNode): void {
 
 /** Routing completeness, mirroring `validateRouting`. */
 function checkRouting(
-  problems: string[],
+  problems: ProblemSink,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
 ): void {
@@ -498,7 +566,7 @@ function checkRouting(
 
 /** Condition branch rules: at least one branch, at most one default, known verdicts. */
 function checkBranches(
-  problems: string[],
+  problems: ProblemSink,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
   graphV2 = false,
@@ -535,7 +603,7 @@ function checkBranches(
 
 /** Join rules: a Join that waits on nothing passes instantly or hangs forever. */
 function checkJoin(
-  problems: string[],
+  problems: ProblemSink,
   node: WorkflowNode,
   byKey: ReadonlyMap<string, WorkflowNode>,
   graphV2 = false,
@@ -571,7 +639,7 @@ function checkJoin(
  * server would accept - a false negative from a non-authoritative validator is
  * far more expensive than a missed warning.
  */
-function checkLimits(problems: string[], def: WorkflowDefinition): void {
+function checkLimits(problems: ProblemSink, def: WorkflowDefinition): void {
   const limits: Array<[string, number]> = [
     ["max_attempts_per_node", def.limits.max_attempts_per_node],
     ["max_rework_rounds", def.limits.max_rework_rounds],
@@ -606,7 +674,7 @@ function outgoing(node: WorkflowNode): string[] {
  * either a typo or dead weight in an immutable published version).
  */
 function checkReachability(
-  problems: string[],
+  problems: ProblemSink,
   def: WorkflowDefinition,
   byKey: ReadonlyMap<string, WorkflowNode>,
 ): void {
@@ -659,7 +727,7 @@ function checkReachability(
  * so a deep graph cannot blow the JS stack.
  */
 function checkAcyclic(
-  problems: string[],
+  problems: ProblemSink,
   def: WorkflowDefinition,
   byKey: ReadonlyMap<string, WorkflowNode>,
 ): void {

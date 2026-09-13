@@ -1,6 +1,10 @@
 package workflow
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+)
 
 // Typed error codes (plan section 9). API handlers map these to stable
 // machine-readable codes so a client can distinguish "your graph is wrong" from
@@ -129,4 +133,48 @@ func IsInvalidTransition(err error) bool {
 func IsIdempotencyConflict(err error) bool {
 	e, ok := err.(*EngineError)
 	return ok && e.Code == ErrCodeIdempotencyConflict
+}
+
+// ValidationDiagnostic adds navigable pointers without changing legacy messages.
+// Pointers come from validator fields and the validated snapshot, never prose.
+type ValidationDiagnostic struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	FieldPath string `json:"field_path"`
+	NodeKey   string `json:"node_key,omitempty"`
+	EdgeID    string `json:"edge_id,omitempty"`
+}
+
+var diagnosticIndex = regexp.MustCompile(`^(nodes|data_edges)\[(\d+)\]`)
+
+var diagnosticEdgeIndex = regexp.MustCompile(`^nodes\[\d+\]\.(next|next_ids|branches)\[(\d+)\]`)
+
+func (v *ValidationErrors) Diagnostics(d *Definition) []ValidationDiagnostic {
+	out := make([]ValidationDiagnostic, 0, len(v.Errors))
+	for _, e := range v.Errors {
+		item := ValidationDiagnostic{Code: e.Code, Message: e.Error(), FieldPath: e.Field}
+		match := diagnosticIndex.FindStringSubmatch(e.Field)
+		if d != nil && len(match) == 3 {
+			i, _ := strconv.Atoi(match[2])
+			if match[1] == "nodes" && i < len(d.Nodes) {
+				item.NodeKey = d.Nodes[i].Key
+				edge := diagnosticEdgeIndex.FindStringSubmatch(e.Field)
+				if len(edge) == 3 {
+					j, _ := strconv.Atoi(edge[2])
+					if edge[1] == "branches" && j < len(d.Nodes[i].Branches) {
+						item.EdgeID = d.Nodes[i].Branches[j].ID
+					}
+					if (edge[1] == "next" || edge[1] == "next_ids") && j < len(d.Nodes[i].NextIDs) {
+						item.EdgeID = d.Nodes[i].NextIDs[j]
+					}
+				}
+			}
+			if match[1] == "data_edges" && i < len(d.DataEdges) {
+				item.EdgeID = d.DataEdges[i].ID
+				item.NodeKey = d.DataEdges[i].Target
+			}
+		}
+		out = append(out, item)
+	}
+	return out
 }

@@ -724,5 +724,29 @@
     "wait_active": "활성 선행 노드를 모두 기다립니다",
     "reject": "거부",
     "rejected": "거부되었습니다. 종속 작업은 건너뜁니다."
+  },
+  "authoring": {
+    "rename": "이름 변경 확인",
+    "invalid_port": "주변 공백 없이 고유하고 비어 있지 않은 포트 ID를 입력하세요.",
+    "source": "소스 출력",
+    "disconnect": "연결 해제",
+    "join_hint": "활성화된 모든 선행 노드를 기다립니다. 건너뛴 분기는 기다리지 않습니다.",
+    "added": "추가",
+    "removed": "삭제",
+    "type": "유형 변경",
+    "options": "옵션 변경",
+    "required": "필수 변경",
+    "label": "레이블 변경",
+    "no_field_changes": "입력 필드 변경 없음",
+    "compare": "버전 비교",
+    "from": "이전 버전",
+    "to": "대상 버전",
+    "version_failed": "버전을 불러오지 못했습니다. 닫고 다시 열어 주세요.",
+    "changed": "변경된 노드",
+    "schema": "스키마 변경",
+    "entry": "진입점 변경",
+    "limits": "제한 변경",
+    "bindings": "데이터 연결 변경",
+    "keep_value": "값 유지"
   }
 }
