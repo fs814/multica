@@ -645,8 +645,7 @@ export async function handleInboxNew(
  * new WSClient instance is detected (workspace switch) to recover events
  * missed while disconnected.
  */
-function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
-  const wsId = getCurrentWsId();
+function invalidateWorkspaceScopedQueries(qc: QueryClient, wsId = getCurrentWsId()): void {
   if (wsId) {
     qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
     // Through the inbox's own entry point, not a plain invalidate: a reconnect
@@ -766,6 +765,9 @@ export function useRealtimeSync(
   useEffect(() => {
     if (!ws) return;
 
+    // Coarse workflow reports carry only run_id. Bind their fallback to this
+    // subscription, including events arriving during a workspace transition.
+    const connectionWorkspaceId = getCurrentWsId();
     const refreshMap: Record<string, () => void> = {
       inbox: () => {
         const wsId = getCurrentWsId();
@@ -1006,7 +1008,7 @@ export function useRealtimeSync(
       // Capture workspace identity before debouncing; tab switches cannot redirect it.
       if (prefix === "workflow") {
         const payload = msg.payload as { workspace_id?: string } | undefined;
-        const wsId = payload?.workspace_id || getCurrentWsId();
+        const wsId = payload?.workspace_id || connectionWorkspaceId;
         if (wsId) debouncedRefresh(`workflow:${wsId}`, () => {
           void qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
           void qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
@@ -1778,10 +1780,11 @@ export function useRealtimeSync(
   useEffect(() => {
     if (!ws) return;
 
+    const connectionWorkspaceId = getCurrentWsId();
     const unsub = ws.onReconnect(async () => {
       logger.info("reconnected, refetching all data");
       try {
-        invalidateWorkspaceScopedQueries(qc);
+        invalidateWorkspaceScopedQueries(qc, connectionWorkspaceId);
       } catch (e) {
         logger.error("reconnect refetch failed", e);
       }

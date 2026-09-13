@@ -15,8 +15,9 @@ import {
 import { autopilotKeys } from "../autopilots/queries";
 import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
 
+const workspace = vi.hoisted(() => ({ id: "ws-1" }));
 vi.mock("../platform/workspace-storage", () => ({
-  getCurrentWsId: () => "ws-1",
+  getCurrentWsId: () => workspace.id,
   getCurrentSlug: () => "test-ws",
   registerForWorkspaceRehydration: () => {},
 }));
@@ -43,11 +44,15 @@ function createRecordingWs(): {
     on: vi.fn(() => () => {}),
     onAny: vi.fn((handler: (msg: WSMessage) => void) => {
       anyHandler = handler;
-      return () => {};
+      return () => {
+        anyHandler = undefined;
+      };
     }),
     onReconnect: vi.fn((handler: () => void) => {
       reconnectHandler = handler;
-      return () => {};
+      return () => {
+        reconnectHandler = undefined;
+      };
     }),
   } as unknown as WSClient;
   return {
@@ -99,6 +104,7 @@ describe("useRealtimeSync - workflow run events", () => {
   let qc: QueryClient;
 
   beforeEach(() => {
+    workspace.id = "ws-1";
     vi.useFakeTimers();
     qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   });
@@ -198,6 +204,7 @@ describe("useRealtimeSync - workflow run events", () => {
 
 describe("workflow projections", () => {
   it("refreshes only the event workspace and keeps immutable versions fresh", () => {
+    workspace.id = "ws-1";
     vi.useFakeTimers();
     const qc = new QueryClient();
     const listA = [...workflowInstanceKeys.all("ws-a"), "list"];
@@ -238,4 +245,46 @@ it("recovers instance history immediately after reconnect without invalidating v
   expect(qc.getQueryState(version)?.isInvalidated).toBe(false);
   mounted.unmount();
   qc.clear();
+});
+
+it("binds run_changed without workspace_id to the connection across switching and teardown", () => {
+  vi.useFakeTimers();
+  workspace.id = "ws-a";
+  const qc = new QueryClient();
+  const a = workflowRunKeys.all("ws-a"),
+    b = workflowRunKeys.all("ws-b");
+  qc.setQueryData(a, { status: "completed" });
+  qc.setQueryData(b, { status: "running" });
+  const old = createRecordingWs();
+  const stores = createStores();
+  const hook = renderHook(({ ws }) => useRealtimeSync(ws, stores), {
+    initialProps: { ws: old.ws },
+    wrapper: createWrapper(qc),
+  });
+  try {
+    workspace.id = "ws-b";
+    old.emit("workflow:run_changed", { run_id: "run-a" });
+    vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(a)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(b)?.isInvalidated).toBe(false);
+    expect(qc.getQueryData(a)).toEqual({ status: "completed" });
+    old.emit("workflow:run_changed", { run_id: "run-a" });
+    const next = createRecordingWs();
+    hook.rerender({ ws: next.ws });
+    qc.setQueryData(a, { status: "completed" });
+    qc.setQueryData(b, { status: "completed" });
+    old.emit("workflow:run_changed", { run_id: "late-a" });
+    old.reconnect();
+    vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(a)?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(b)?.isInvalidated).toBe(false);
+    next.emit("workflow:run_changed", { run_id: "run-b" });
+    vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(b)?.isInvalidated).toBe(true);
+  } finally {
+    hook.unmount();
+    qc.clear();
+    workspace.id = "ws-1";
+    vi.useRealTimers();
+  }
 });
