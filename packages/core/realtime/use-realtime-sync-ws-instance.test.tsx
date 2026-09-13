@@ -131,8 +131,8 @@ describe("useRealtimeSync — ws instance change", () => {
     // Recovery must refresh this workspace's instance cache exactly once;
     // the aggregate count alone could hide a missing or duplicate refresh.
     const instanceKeys = invalidateSpy.mock.calls
-      .map((call) => (call[0] as { queryKey?: readonly unknown[] })?.queryKey)
-      .filter((key) => key?.[0] === workflowInstanceKeys.all("ws-1")[0]);
+      .map((call: [{ queryKey?: readonly unknown[] }?]) => call[0]?.queryKey)
+      .filter((key: readonly unknown[] | undefined) => key?.[0] === workflowInstanceKeys.all("ws-1")[0]);
     expect(instanceKeys).toEqual([workflowInstanceKeys.all("ws-1")]);
   });
 
