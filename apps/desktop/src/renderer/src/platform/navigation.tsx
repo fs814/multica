@@ -204,6 +204,7 @@ export function DesktopNavigationProvider({
         if (tryRouteToOtherWorkspace(path)) return;
         useTabStore.getState().navigateActiveSession(path, { replace: true });
       },
+      guardsHistory: true,
       back: () => {
         useTabStore.getState().goBack();
       },

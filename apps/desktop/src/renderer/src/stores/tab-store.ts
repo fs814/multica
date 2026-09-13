@@ -958,6 +958,17 @@ export const useTabStore = create<TabStore>()(
 
       closeOtherTabs(tabId) {
         const { byWorkspace } = get();
+        const hit = findTabLocation(byWorkspace, tabId);
+        if (!hit) return;
+        // Only the active tab is mounted. Check it before any batch mutation.
+        const active = getActiveTab(get());
+        if (
+          active &&
+          active.id !== tabId &&
+          hit.group.tabs.some((tab) => tab.id === active.id) &&
+          !allowHistoryLeave(active.url)
+        )
+          return;
         const next = buildCloseOtherTabsResult(byWorkspace, tabId);
         if (!next) return;
         set({ byWorkspace: next });
@@ -1471,6 +1482,18 @@ export function mergePersistedTabs<T extends PersistedTabState>(
   return { ...currentState, byWorkspace, activeWorkspaceSlug };
 }
 
+function allowHistoryLeave(url: string, destination?: string): boolean {
+  return (
+    typeof window === "undefined" ||
+    window.dispatchEvent(
+      new CustomEvent("multica:before-navigate", {
+        cancelable: true,
+        detail: { pathname: url.split(/[?#]/)[0], destination },
+      }),
+    )
+  );
+}
+
 function stepHistory(
   get: () => TabStore,
   set: (partial: Partial<TabStore>) => void,
@@ -1502,6 +1525,7 @@ function setHistoryIndex(
     return;
   }
   const url = current.history.stack[historyIndex];
+  if (!allowHistoryLeave(current.url, url)) return;
   const next: TabSession = {
     ...current,
     url,

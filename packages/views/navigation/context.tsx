@@ -54,10 +54,11 @@ export function NavigationProvider({
           startTransition(() => value.replace(path));
       },
       back: () => {
-        if (canNavigate(value.pathname)) value.back();
+        if (value.guardsHistory || canNavigate(value.pathname)) value.back();
       },
       forward: () => {
-        if (canNavigate(value.pathname)) value.forward?.();
+        if (value.guardsHistory || canNavigate(value.pathname))
+          value.forward?.();
       },
     }),
     [value],

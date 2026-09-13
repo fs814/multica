@@ -2,6 +2,8 @@ export interface NavigationAdapter {
   push(path: string): void;
   replace(path: string): void;
   back(): void;
+  /** Platform history entry points already dispatch the cancellable leave guard. */
+  guardsHistory?: boolean;
   pathname: string;
   searchParams: URLSearchParams;
   /**

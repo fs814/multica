@@ -79,7 +79,7 @@ function NavigationProviderInner({ children }: { children: React.ReactNode }) {
   useInternalLinkHandler(router);
   useEffect(() => {
     // Chromium's Navigation API can cancel browser back/forward before Next
-    // unmounts the editor. Adapter-driven traversal already has its own guard.
+    // unmounts the editor. Both browser and adapter traversal use this one guard.
     const browser = (window as unknown as { navigation?: EventTarget })
       .navigation;
     const traverse = (event: Event) => {
@@ -113,6 +113,10 @@ function NavigationProviderInner({ children }: { children: React.ReactNode }) {
   const adapter: NavigationAdapter = {
     push: router.push,
     replace: router.replace,
+    guardsHistory:
+      typeof window !== "undefined" &&
+      typeof (window as unknown as { navigation?: EventTarget }).navigation
+        ?.addEventListener === "function",
     back: router.back,
     forward: router.forward,
     canGoBack: canGoBackInApp,
