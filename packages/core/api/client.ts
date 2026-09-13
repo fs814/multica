@@ -1,3 +1,4 @@
+import type { PublishWorkflowTemplateRequest } from "../workflows/schemas";
 import type { z } from "zod";
 import { WorkflowInstanceRunListSchema, WorkflowInstancePageSchema, WorkflowInstanceValidationSchema, WorkflowInstanceVersionSchema, type WorkflowInstanceFilters, type RunWorkflowInstance } from "../workflows/input-instance-schemas";
 import { WorkflowInputInstanceSchema, WorkflowInputInstanceListSchema, type SaveWorkflowInputInstance, type WorkflowInputInstance } from "../workflows/input-instance-schemas";
@@ -4519,10 +4520,10 @@ export class ApiClient {
    *  then on so a run can pin the exact graph it started with. The response is
    *  the full detail (including the new `current_version`), so callers refresh
    *  without a second round-trip. */
-  async publishWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
+  async publishWorkflowTemplate(id: string, body: PublishWorkflowTemplateRequest): Promise<WorkflowTemplateDetail> {
     const raw = await this.fetch<unknown>(
       `/api/workflow-templates/${encodeURIComponent(id)}/publish`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(body) },
     );
     return parseWithFallback(
       raw,

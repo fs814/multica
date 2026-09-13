@@ -1,9 +1,11 @@
+import { workflowInstanceKeys } from "./input-instances";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useWorkspaceId } from "../hooks";
 import { workflowKeys, workflowRunKeys } from "./queries";
 import { WorkflowDefinitionSchema } from "./schemas";
 import type {
+  PublishWorkflowTemplateRequest,
   CreateWorkflowTemplateRequest,
   DecideWorkflowAcceptanceRequest,
   RunWorkflowTemplateRequest,
@@ -124,9 +126,13 @@ export function usePublishWorkflowTemplate() {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   return useMutation({
-    mutationFn: (id: string) => api.publishWorkflowTemplate(id),
-    onSuccess: (published, id) => {
-      if (!published.id) return;
+    mutationFn: ({
+      id,
+      ...body
+    }: { id: string } & PublishWorkflowTemplateRequest) =>
+      api.publishWorkflowTemplate(id, body),
+    onSuccess: (published, { id }) => {
+      if (!published.key) return;
       // Publish flips `status` and `current_version` and appends a version row,
       // so the response is a strictly better detail than what is cached.
       qc.setQueryData<WorkflowTemplateDetail>(
@@ -134,7 +140,7 @@ export function usePublishWorkflowTemplate() {
         published,
       );
     },
-    onSettled: (_data, _err, id) => {
+    onSettled: (_data, _err, { id }) => {
       qc.invalidateQueries({ queryKey: workflowKeys.detail(wsId, id) });
       qc.invalidateQueries({ queryKey: workflowKeys.list(wsId) });
     },
@@ -224,6 +230,7 @@ export function useRunWorkflowTemplate() {
     },
     onSettled: (_data, _err, { templateId }) => {
       qc.invalidateQueries({ queryKey: workflowRunKeys.list(wsId) });
+      qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
       qc.invalidateQueries({ queryKey: workflowKeys.detail(wsId, templateId) });
     },
   });
@@ -252,6 +259,7 @@ export function useCancelWorkflowRun() {
     onSettled: (_data, _err, id) => {
       qc.invalidateQueries({ queryKey: workflowRunKeys.detail(wsId, id) });
       qc.invalidateQueries({ queryKey: workflowRunKeys.list(wsId) });
+      qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
     },
   });
 }
@@ -286,6 +294,7 @@ export function useDecideWorkflowAcceptance() {
     onSettled: (_data, _err, { runId }) => {
       qc.invalidateQueries({ queryKey: workflowRunKeys.detail(wsId, runId) });
       qc.invalidateQueries({ queryKey: workflowRunKeys.list(wsId) });
+      qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
     },
   });
 }

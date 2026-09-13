@@ -157,3 +157,14 @@ describe("WebNavigationProvider hash", () => {
     expect(adapter().hash).toBe("#comment-c2");
   });
 });
+
+
+it("allows the dirty-page guard to cancel an internal content link", () => {
+  const prevent = (event: Event) => event.preventDefault();
+  window.addEventListener("multica:before-navigate", prevent);
+  try {
+    render(<WebNavigationProvider>{null}</WebNavigationProvider>);
+    navigate("/acme/workflows/other");
+    expect(router.push).not.toHaveBeenCalled();
+  } finally { window.removeEventListener("multica:before-navigate", prevent); }
+});

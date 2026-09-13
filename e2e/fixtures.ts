@@ -352,6 +352,13 @@ export class TestApiClient {
     return this.email;
   }
 
+  async workflowRequest(path: string, init?: RequestInit) {
+    if (!path.startsWith("/api/workflow-")) throw new Error("Expected a workflow API path");
+    const response = await this.authedFetch(path, init);
+    if (!response.ok) throw new Error(`Workflow API ${response.status}: ${await response.text()}`);
+    return response.json();
+  }
+
   private async authedFetch(path: string, init?: RequestInit) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

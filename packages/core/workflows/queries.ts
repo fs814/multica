@@ -129,3 +129,11 @@ export function workflowRunDetailOptions(
     enabled: (options?.enabled ?? true) && id !== "",
   });
 }
+
+/** Paginated consumers retain the envelope; existing array consumers stay unchanged. */
+export function workflowRunPageOptions(wsId: string, params: WorkflowRunListParams) {
+  return queryOptions({
+    queryKey: [...workflowRunKeys.list(wsId), params] as const,
+    queryFn: () => api.listWorkflowRuns(params),
+  });
+}

@@ -28,6 +28,7 @@ import {
   inputNode,
   useInstanceLeaveWarning,
 } from "./instance-form";
+import { useWorkflowLocation, workflowReturnPath } from "../use-workflow-location";
 import { WorkflowRunStatusBadge } from "../runs/components/run-status-badge";
 
 function editable(
@@ -88,6 +89,7 @@ function InstanceEditor({
   const ws = useWorkspaceId();
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
+  const location = useWorkflowLocation();
   const { t } = useT("workflows");
   const [uploading, setUploading] = useState(false);
   const [base, setBase] = useState(row);
@@ -201,10 +203,10 @@ function InstanceEditor({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       <header className="flex flex-wrap items-center gap-3 border-b p-4">
-        <AppLink href={paths.workflowInstances()}>
+        <AppLink href={workflowReturnPath(location.params.get("return_to"), paths.workflowInstances(), [paths.workflowInstances(), paths.workflowDetail(row.templateId)])}>
           {t(($) => $.instances.all)}
         </AppLink>
-        <AppLink href={paths.workflowDetail(row.templateId)}>
+        <AppLink href={paths.workflowDetail(row.templateId) + "?section=instances"}>
           {tpl.data?.name ?? t(($) => $.page.title)}
         </AppLink>
         <h1 className="min-w-0 flex-1 truncate font-semibold">{value.name}</h1>

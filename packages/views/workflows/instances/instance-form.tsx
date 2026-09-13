@@ -58,7 +58,7 @@ export function inputSchema(node: WorkflowNode | null) {
       : null,
   );
 }
-export function useInstanceLeaveWarning(dirty: boolean) {
+export function useInstanceLeaveWarning(dirty: boolean, allowSamePage = false) {
   const navigation = useNavigation();
   const bypass = useRef(false);
   const { t } = useT("workflows");
@@ -69,8 +69,9 @@ export function useInstanceLeaveWarning(dirty: boolean) {
       event.returnValue = "";
     };
     const navigate = (event: Event) => {
-      const target = (event as CustomEvent<{ pathname: string }>).detail
-        ?.pathname;
+      const detail = (event as CustomEvent<{ pathname: string; destination?: string }>).detail;
+      const target = detail?.pathname;
+      if (allowSamePage && detail?.destination?.split(/[?#]/)[0] === navigation.pathname) return;
       if (target !== navigation.pathname || bypass.current) return;
       if (!window.confirm(t(($) => $.instances.leave))) event.preventDefault();
     };
@@ -80,7 +81,7 @@ export function useInstanceLeaveWarning(dirty: boolean) {
       window.removeEventListener("beforeunload", unload);
       window.removeEventListener("multica:before-navigate", navigate);
     };
-  }, [dirty, t, navigation.pathname]);
+  }, [dirty, t, navigation.pathname, allowSamePage]);
   return (action: () => void) => {
     bypass.current = true;
     try {

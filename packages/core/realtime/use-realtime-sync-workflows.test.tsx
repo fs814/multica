@@ -8,6 +8,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { WSClient } from "../api/ws-client";
 import type { WSMessage } from "../types/events";
 import { workflowKeys, workflowRunKeys } from "../workflows/queries";
+import {
+  workflowInstanceKeys,
+  workflowInstanceVersionOptions,
+} from "../workflows/input-instances";
 import { autopilotKeys } from "../autopilots/queries";
 import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
 
@@ -31,7 +35,9 @@ vi.mock("../paths", () => ({
 function createRecordingWs(): {
   ws: WSClient;
   emit: (type: string, payload?: unknown) => void;
+  reconnect: () => void;
 } {
+  let reconnectHandler: (() => void) | undefined;
   let anyHandler: ((msg: WSMessage) => void) | undefined;
   const ws = {
     on: vi.fn(() => () => {}),
@@ -39,10 +45,14 @@ function createRecordingWs(): {
       anyHandler = handler;
       return () => {};
     }),
-    onReconnect: vi.fn(() => () => {}),
+    onReconnect: vi.fn((handler: () => void) => {
+      reconnectHandler = handler;
+      return () => {};
+    }),
   } as unknown as WSClient;
   return {
     ws,
+    reconnect: () => reconnectHandler?.(),
     emit: (type: string, payload: unknown = {}) =>
       anyHandler?.({ type, payload } as unknown as WSMessage),
   };
@@ -184,4 +194,48 @@ describe("useRealtimeSync - workflow run events", () => {
 
     expect(qc.getQueryState(runDetailKey)?.isInvalidated).toBe(true);
   });
+});
+
+describe("workflow projections", () => {
+  it("refreshes only the event workspace and keeps immutable versions fresh", () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const listA = [...workflowInstanceKeys.all("ws-a"), "list"];
+    const historyA = [...workflowInstanceKeys.detail("ws-a", "i"), "runs", 0];
+    const listB = [...workflowInstanceKeys.all("ws-1"), "list"];
+    const version = workflowInstanceVersionOptions("ws-a", "t", "v").queryKey;
+    for (const key of [listA, historyA, listB, version])
+      qc.setQueryData(key, {});
+    const rec = createRecordingWs();
+    const mounted = renderHook(() => useRealtimeSync(rec.ws, createStores()), {
+      wrapper: createWrapper(qc),
+    });
+    rec.emit("workflow:run_completed", { workspace_id: "ws-a" });
+    rec.emit("workflow:run_started", { workspace_id: "ws-a" });
+    vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(listA)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(historyA)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(listB)?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(version)?.isInvalidated).toBe(false);
+    mounted.unmount();
+    qc.clear();
+    vi.useRealTimers();
+  });
+});
+
+it("recovers instance history immediately after reconnect without invalidating versions", () => {
+  const qc = new QueryClient();
+  const history = [...workflowInstanceKeys.detail("ws-1", "i"), "runs", 0];
+  const version = workflowInstanceVersionOptions("ws-1", "t", "v").queryKey;
+  qc.setQueryData(history, {});
+  qc.setQueryData<unknown>(version, {});
+  const rec = createRecordingWs();
+  const mounted = renderHook(() => useRealtimeSync(rec.ws, createStores()), {
+    wrapper: createWrapper(qc),
+  });
+  rec.reconnect();
+  expect(qc.getQueryState(history)?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(version)?.isInvalidated).toBe(false);
+  mounted.unmount();
+  qc.clear();
 });

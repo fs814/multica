@@ -27,6 +27,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
 import type {
+  WorkflowDefinition,
   WorkflowRunDetail,
   WorkflowStep,
 } from "@multica/core/workflows";
@@ -45,6 +46,10 @@ const TEST_RESOURCES = {
   },
 };
 
+const versionRef = vi.hoisted(() => ({ current: null as {id:string;version:number;definition:WorkflowDefinition} | null }));
+vi.mock("./workflow-run-graph", () => ({
+  WorkflowRunGraph: ({ onSelect }: { onSelect(key: string): void }) => <button onClick={() => onSelect("analyze")}>Select analyze</button>,
+}));
 const runRef = vi.hoisted(() => ({ current: null as WorkflowRunDetail | null }));
 const cancelMock = vi.hoisted(() => vi.fn());
 const decideMock = vi.hoisted(() => vi.fn());
@@ -69,6 +74,8 @@ vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws-1" }));
 vi.mock("@multica/core/paths", () => ({
   useCurrentWorkspace: () => ({ id: "ws-1", name: "Acme", slug: "acme" }),
   useWorkspacePaths: () => ({
+    workflowDetail: (id: string) => `/acme/workflows/${id}`,
+    workflowInstanceDetail: (id: string) => `/acme/workflow-instances/${id}`,
     workflowRuns: () => "/acme/workflow-runs",
     workflowRunDetail: (id: string) => `/acme/workflow-runs/${id}`,
     issueDetail: (id: string) => `/acme/issues/${id}`,
@@ -87,6 +94,7 @@ vi.mock("@multica/core/workflows", async () => {
     );
   return {
     ...actual,
+    workflowInstanceVersionOptions: () => ({ queryKey: ["pinned-version"], queryFn: () => versionRef.current ? Promise.resolve(versionRef.current) : Promise.reject(new Error("unavailable")), retry: false }),
     workflowRunDetailOptions: (wsId: string, id: string) => ({
       queryKey: ["workflow-runs", wsId, "detail", id],
       queryFn: () =>
@@ -113,6 +121,7 @@ vi.mock("sonner", () => ({
   },
 }));
 
+import { WorkflowDefinitionSchema } from "@multica/core/workflows";
 import { WorkflowRunDetailPage } from "./workflow-run-detail-page";
 import { WorkflowRunDialog } from "./workflow-run-dialog";
 
@@ -239,6 +248,7 @@ function renderDialog(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  versionRef.current = null;
   runRef.current = run();
   cancelMock.mockResolvedValue(run({ status: "cancelled" }));
   decideMock.mockResolvedValue(run({ status: "completed" }));
@@ -790,4 +800,31 @@ describe("run dialog", () => {
     );
     expect(pushMock).not.toHaveBeenCalled();
   });
+});
+
+
+it("retains custom input and three attempts when the pinned graph is unavailable", async () => {
+  runRef.current = run({input:{title:"Pinned inputs",region:"APAC",extra:"Historical extra"}, steps:[
+    step({id:"one",attempt:1}),step({id:"two",attempt:2}),step({id:"three",attempt:3}),
+  ]});
+  renderRun();
+  expect(await screen.findByText("APAC")).toBeInTheDocument();
+  expect(await screen.findByText("Historical extra")).toBeInTheDocument();
+  expect(await screen.findByText(/Could not load the pinned graph/)).toBeInTheDocument();
+  expect(screen.getByText("attempt 2")).toBeInTheDocument();
+  expect(screen.getByText("attempt 3")).toBeInTheDocument();
+});
+
+
+it("selecting a graph node retains all three attempts and can restore the full trace", async () => {
+  versionRef.current = {id:"version-a",version:1,definition:WorkflowDefinitionSchema.parse({schema_version:2,entry_node:"analyze",nodes:[{key:"analyze",type:"agent"}]})};
+  runRef.current = run({steps:[step({id:"one",attempt:1}),step({id:"two",attempt:2}),step({id:"three",attempt:3}),step({id:"other",node_key:"unrelated"})]});
+  renderRun();
+  expect(await screen.findByText("unrelated")).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button",{name:"Select analyze"}));
+  expect(screen.getByText("attempt 3")).toBeInTheDocument();
+  expect(screen.getByText("attempt 2")).toBeInTheDocument();
+  expect(screen.queryByText("unrelated")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button",{name:"Show all attempts"}));
+  expect(screen.getByText("unrelated")).toBeInTheDocument();
 });

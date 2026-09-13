@@ -885,3 +885,5 @@ export const EMPTY_WORKFLOW_RUN_DETAIL: WorkflowRunDetail = {
   steps: [],
   acceptance: null,
 };
+
+export type PublishWorkflowTemplateRequest = { revision: number; draft_version_id: string };

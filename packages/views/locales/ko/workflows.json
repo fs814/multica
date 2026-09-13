@@ -452,7 +452,8 @@
       "retry": "다시 시도",
       "not_started": "—",
       "duration_running": "{{duration}} 경과",
-      "back": "실행 목록으로"
+      "back": "실행 목록으로",
+      "all_statuses": "모든 상태"
     },
     "status": {
       "pending": "대기",
@@ -555,7 +556,10 @@
       "submission_validation_errors": "서버가 이 제출을 거부했습니다:",
       "view_log": "에이전트 로그 보기",
       "started_at": "시작 {{date}}",
-      "completed_at": "종료 {{date}}"
+      "completed_at": "종료 {{date}}",
+      "pinned_graph": "이번 실행의 게시된 그래프",
+      "graph_failed": "고정된 버전의 그래프를 불러올 수 없습니다. 아래에서 실행 기록을 계속 확인할 수 있습니다.",
+      "all_attempts": "모든 시도 표시"
     },
     "acceptance": {
       "title": "검토가 필요합니다",
@@ -617,7 +621,8 @@
       "cancel": "계속 편집",
       "publish_saved": "저장된 그래프 게시",
       "save_and_publish": "저장 후 게시"
-    }
+    },
+    "properties_toggle": "속성"
   },
   "input_instances": {
     "definition_failed": "게시된 워크플로의 입력 필드를 불러올 수 없습니다. 저장하거나 실행하기 전에 다시 시도하세요.",

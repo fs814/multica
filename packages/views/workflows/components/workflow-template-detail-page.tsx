@@ -1,4 +1,6 @@
 "use client";
+import { useInstanceLeaveWarning } from "../instances/instance-form";
+import { useWorkflowLocation } from "../use-workflow-location";
 import { connectWorkflow } from "../graph/connect";
 
 /**
@@ -37,7 +39,14 @@ import { connectWorkflow } from "../graph/connect";
  * so it gets a dialog offering to save first rather than a toast afterwards.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   CircleAlert,
@@ -62,7 +71,10 @@ import {
   workflowTemplateRunOptions,
   workflowRunInputDefaults,
 } from "@multica/core/workflows";
-import type { WorkflowDefinition } from "@multica/core/workflows";
+import type {
+  WorkflowDefinition,
+  WorkflowTemplateDetail,
+} from "@multica/core/workflows";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -79,10 +91,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { AppLink, useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { WorkflowCanvas } from "../canvas/workflow-canvas";
-import {
-  clientValidateGraph,
-  type WorkflowNodeType,
-} from "../graph";
+import { clientValidateGraph, type WorkflowNodeType } from "../graph";
 import { AddNodeToolbar } from "../editor/add-node-toolbar";
 import {
   canRedo,
@@ -133,10 +142,14 @@ export function WorkflowTemplateDetailPage({
 
   const published = useQuery({
     ...workflowTemplateRunOptions(wsId, templateId, data?.current_version),
-    enabled: Boolean(data?.versions.some((version) => version.status === "published")),
+    enabled: Boolean(
+      data?.versions.some((version) => version.status === "published"),
+    ),
     // Keep an open form on its immutable graph while a newer publication loads.
     placeholderData: (previous) =>
-      previous?.id === templateId && previous.workspace_id === wsId ? previous : undefined,
+      previous?.id === templateId && previous.workspace_id === wsId
+        ? previous
+        : undefined,
   });
 
   const [state, dispatch] = useReducer(
@@ -144,12 +157,21 @@ export function WorkflowTemplateDetailPage({
     undefined,
     initialWorkflowEditorState,
   );
+  const confirmed = useRef<WorkflowTemplateDetail | null>(null);
   const [problems, setProblems] = useState<ProblemReport | null>(null);
   const [validating, setValidating] = useState(false);
   const [publishPrompt, setPublishPrompt] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
-  const [instanceOpen,setInstanceOpen] = useState(false);
-  const [section,setSection] = useState<"canvas"|"instances"|"runs">("canvas");
+  const [instanceOpen, setInstanceOpen] = useState(false);
+  const location = useWorkflowLocation();
+  const section = ["instances", "runs"].includes(
+    location.params.get("section") ?? "",
+  )
+    ? location.params.get("section")!
+    : "canvas";
+  const setSection = (value: string) => location.update({ section: value });
+  const [jsonDirty, setJsonDirty] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(true);
   const [saveConflict, setSaveConflict] = useState<WorkflowDefinition | null>(
     null,
   );
@@ -166,31 +188,15 @@ export function WorkflowTemplateDetailPage({
   const readable = data?.key !== undefined && data.key !== "";
   useEffect(() => {
     if (!readable || !definition) return;
+    if (confirmed.current?.id !== templateId) confirmed.current = data ?? null;
     dispatch({ type: "hydrate", templateId, definition });
-  }, [readable, definition, templateId]);
+  }, [readable, definition, templateId, data]);
 
   const working = useMemo(() => workingDefinition(state), [state]);
   const dirty = useMemo(() => isDirty(state), [state]);
   const selected = useMemo(() => selectedWorkflowNode(state), [state]);
 
-  // Editor state is a plain reducer with no persistence, so a closed tab or
-  // window takes the unsaved graph with it and there is nothing to recover from.
-  // The page already treats losing unsaved work as serious enough to warrant a
-  // dialog before publishing; a tab close loses strictly more, so it gets the
-  // browser's own confirmation. In-app navigation is not covered here â€” the
-  // router would have to own that â€” but this catches the destructive cases the
-  // page can actually intercept (tab close, reload, desktop window close).
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      // Assigning returnValue is what actually triggers the prompt in Chromium;
-      // the string itself is ignored by every current browser.
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  useInstanceLeaveWarning(dirty || jsonDirty, true);
 
   // Role gate, reusing the pattern the runtimes and squads pages already use
   // (find self in the cached member list, compare role) rather than introducing a
@@ -238,7 +244,12 @@ export function WorkflowTemplateDetailPage({
       // problem would tell the author their graph is broken when it may be fine.
       setProblems({
         source: "server",
-        messages: [errorMessage(err, t(($) => $.editor.validate_failed))],
+        messages: [
+          errorMessage(
+            err,
+            t(($) => $.editor.validate_failed),
+          ),
+        ],
       });
     } finally {
       setValidating(false);
@@ -248,15 +259,17 @@ export function WorkflowTemplateDetailPage({
   const handleSave = useCallback(async () => {
     const sent = working;
     try {
-      await saveTemplate.mutateAsync({
+      const saved = await saveTemplate.mutateAsync({
         id: templateId,
         definition: sent,
-        revision: data?.revision ?? 0,
+        revision: confirmed.current?.revision ?? 0,
       });
       // `sent`, not the response's `definition`: a save over a published
       // template returns the *published* bytes because the new draft is
       // deliberately invisible to Runs until publish (see api/client.ts). Using
       // the response would make the author's own edit appear to vanish.
+      if (!saved.key) throw new Error(t(($) => $.editor.toast_save_failed));
+      confirmed.current = saved;
       dispatch({ type: "mark_saved", definition: sent });
       setProblems(null);
       toast.success(t(($) => $.editor.toast_saved));
@@ -277,9 +290,14 @@ export function WorkflowTemplateDetailPage({
         setProblems({ source: "save", messages });
         return;
       }
-      toast.error(errorMessage(err, t(($) => $.editor.toast_save_failed)));
+      toast.error(
+        errorMessage(
+          err,
+          t(($) => $.editor.toast_save_failed),
+        ),
+      );
     }
-  }, [data?.revision, saveTemplate, templateId, working, t]);
+  }, [saveTemplate, templateId, working, t]);
 
   const copyConflictedJSON = useCallback(async () => {
     if (!saveConflict) return;
@@ -299,6 +317,7 @@ export function WorkflowTemplateDetailPage({
       toast.error(t(($) => $.editor.conflict.reload_failed));
       return;
     }
+    confirmed.current = result.data;
     dispatch({
       type: "reload_from_server",
       templateId,
@@ -316,11 +335,13 @@ export function WorkflowTemplateDetailPage({
       return;
     }
     try {
-      await saveTemplate.mutateAsync({
+      const saved = await saveTemplate.mutateAsync({
         id: templateId,
         definition: saveConflict,
         revision: result.data.revision,
       });
+      if (!saved.key) throw new Error(t(($) => $.editor.toast_save_failed));
+      confirmed.current = saved;
       dispatch({ type: "mark_saved", definition: saveConflict });
       setSaveConflict(null);
       setProblems(null);
@@ -338,28 +359,51 @@ export function WorkflowTemplateDetailPage({
   }, [refetch, saveConflict, saveTemplate, t, templateId]);
 
   const runPublish = useCallback(async () => {
+    const snapshot = confirmed.current;
+    const draft = snapshot?.versions.find(
+      (version) => version.status === "draft",
+    );
     try {
-      await publishTemplate.mutateAsync(templateId);
+      if (!snapshot || !draft)
+        throw new Error(t(($) => $.detail.toast_publish_failed));
+      const published = await publishTemplate.mutateAsync({
+        id: templateId,
+        revision: snapshot.revision,
+        draft_version_id: draft.id,
+      });
+      if (!published.key)
+        throw new Error(t(($) => $.detail.toast_publish_failed));
       toast.success(t(($) => $.detail.toast_published));
     } catch (err) {
+      if (isWorkflowTemplateRevisionConflict(err)) {
+        setSaveConflict(working);
+        return;
+      }
       const messages = validationMessages(err);
       if (messages.length > 0) {
         setProblems({ source: "save", messages });
         return;
       }
-      toast.error(errorMessage(err, t(($) => $.detail.toast_publish_failed)));
+      toast.error(
+        errorMessage(
+          err,
+          t(($) => $.detail.toast_publish_failed),
+        ),
+      );
     }
-  }, [publishTemplate, templateId, t]);
+  }, [publishTemplate, templateId, t, working]);
 
   /** Save, then publish - the "publish what I can see" answer to the dialog. */
   const saveThenPublish = useCallback(async () => {
     const sent = working;
     try {
-      await saveTemplate.mutateAsync({
+      const saved = await saveTemplate.mutateAsync({
         id: templateId,
         definition: sent,
-        revision: data?.revision ?? 0,
+        revision: confirmed.current?.revision ?? 0,
       });
+      if (!saved.key) throw new Error(t(($) => $.editor.toast_save_failed));
+      confirmed.current = saved;
       dispatch({ type: "mark_saved", definition: sent });
     } catch (err) {
       const messages = validationMessages(err);
@@ -368,7 +412,12 @@ export function WorkflowTemplateDetailPage({
         messages:
           messages.length > 0
             ? messages
-            : [errorMessage(err, t(($) => $.editor.toast_save_failed))],
+            : [
+                errorMessage(
+                  err,
+                  t(($) => $.editor.toast_save_failed),
+                ),
+              ],
       });
       // Deliberately does NOT fall through to publish. Publishing after a failed
       // save would freeze the older graph - exactly the outcome the dialog exists
@@ -376,7 +425,7 @@ export function WorkflowTemplateDetailPage({
       return;
     }
     await runPublish();
-  }, [data?.revision, saveTemplate, templateId, working, runPublish, t]);
+  }, [saveTemplate, templateId, working, runPublish, t]);
 
   const handlePublish = useCallback(() => {
     if (dirty) {
@@ -397,7 +446,12 @@ export function WorkflowTemplateDetailPage({
       toast.success(t(($) => $.detail.toast_duplicated));
       navigation.push(wsPaths.workflowDetail(copied.id));
     } catch (err) {
-      toast.error(errorMessage(err, t(($) => $.detail.toast_duplicate_failed)));
+      toast.error(
+        errorMessage(
+          err,
+          t(($) => $.detail.toast_duplicate_failed),
+        ),
+      );
     }
   }, [data?.id, duplicateTemplate, navigation, t, wsPaths]);
 
@@ -413,11 +467,34 @@ export function WorkflowTemplateDetailPage({
   }, []);
 
   const handleConnect = useCallback(
-    (source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string) => {
-      const result = connectWorkflow(state.present.nodes, state.present.edges, state.present.base, source, target, sourceHandle, targetHandle, replacing);
-      if (result.error) { toast.error(result.error); return; }
-      dispatch({type:"set_graph",nodes:state.present.nodes,edges:result.edges});
-    }, [state.present],
+    (
+      source: string,
+      target: string,
+      sourceHandle?: string | null,
+      targetHandle?: string | null,
+      replacing?: string,
+    ) => {
+      const result = connectWorkflow(
+        state.present.nodes,
+        state.present.edges,
+        state.present.base,
+        source,
+        target,
+        sourceHandle,
+        targetHandle,
+        replacing,
+      );
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      dispatch({
+        type: "set_graph",
+        nodes: state.present.nodes,
+        edges: result.edges,
+      });
+    },
+    [state.present],
   );
 
   // ---- render -------------------------------------------------------------
@@ -500,7 +577,9 @@ export function WorkflowTemplateDetailPage({
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <h1 className="min-w-0 truncate text-body font-medium">{data.name}</h1>
+            <h1 className="min-w-0 truncate text-body font-medium">
+              {data.name}
+            </h1>
             <WorkflowStatusBadge status={data.status} />
             {builtin ? (
               <Badge variant="secondary">
@@ -516,23 +595,45 @@ export function WorkflowTemplateDetailPage({
           <p className="mt-0.5 truncate font-mono text-micro text-muted-foreground">
             {t(($) => $.editor.key_line, { key: data.key })}
           </p>
+          <div className="mt-1 flex flex-wrap gap-2 text-caption text-muted-foreground">
+            {data.current_version != null && (
+              <span>
+                {t(($) => $.status.published)} {t(($) => $.detail.versions.label, { version: data.current_version })}
+              </span>
+            )}
+            {data.versions
+              .filter((version) => version.status === "draft")
+              .slice(0, 1)
+              .map((version) => (
+                <span key={version.id}>
+                  {t(($) => $.status.draft)} {t(($) => $.detail.versions.label, { version: version.version })}
+                </span>
+              ))}
+          </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <WorkflowEditorToolbar
-            dirty={dirty}
-            saving={saveTemplate.isPending}
-            validating={validating}
-            readOnly={readOnly}
-            onValidate={() => void handleValidate()}
-            onAutoLayout={() => dispatch({ type: "auto_layout" })}
-            onToggleJson={() => dispatch({ type: "toggle_json" })}
-            onSave={() => void handleSave()}
-            onUndo={() => dispatch({ type: "undo" })}
-            onRedo={() => dispatch({ type: "redo" })}
-            canUndo={canUndo(state)}
-            canRedo={canRedo(state)}
-          />
+          {section === "canvas" && (
+            <WorkflowEditorToolbar
+              dirty={dirty}
+              saving={saveTemplate.isPending}
+              validating={validating}
+              readOnly={readOnly}
+              onValidate={() => void handleValidate()}
+              onAutoLayout={() => dispatch({ type: "auto_layout" })}
+              onToggleJson={() => {
+                if (jsonDirty && !window.confirm(t(($) => $.instances.leave)))
+                  return;
+                setJsonDirty(false);
+                dispatch({ type: "toggle_json" });
+              }}
+              onSave={() => void handleSave()}
+              onUndo={() => dispatch({ type: "undo" })}
+              onRedo={() => dispatch({ type: "redo" })}
+              canUndo={canUndo(state)}
+              canRedo={canRedo(state)}
+            />
+          )}
           {builtin ? (
             <Button
               size="sm"
@@ -612,7 +713,13 @@ export function WorkflowTemplateDetailPage({
         </div>
       </header>
 
-      <div className="flex shrink-0 items-center gap-3 border-b px-4 py-2">
+      <div
+        className={
+          section === "canvas"
+            ? "flex shrink-0 flex-wrap items-center gap-3 border-b px-4 py-2"
+            : "hidden"
+        }
+      >
         {/* The working graph, not the fetched one: the toolbar disables its
             "+ Input" pill when an input node already exists, and the node the
             author added a moment ago is only in the working copy until a save
@@ -639,9 +746,16 @@ export function WorkflowTemplateDetailPage({
       </div>
 
       {published.isError && (
-        <div role="alert" className="flex items-center gap-2 px-4 py-2 text-caption text-destructive">
+        <div
+          role="alert"
+          className="flex items-center gap-2 px-4 py-2 text-caption text-destructive"
+        >
           {t(($) => $.input_instances.definition_failed)}
-          <Button size="sm" variant="outline" onClick={() => void published.refetch()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void published.refetch()}
+          >
             {t(($) => $.page.retry)}
           </Button>
         </div>
@@ -650,14 +764,44 @@ export function WorkflowTemplateDetailPage({
         <ProblemsStrip report={problems} onDismiss={() => setProblems(null)} />
       ) : null}
 
-      <nav className="flex gap-2 border-b px-4 py-2" aria-label={t($=>$.page.title)}>
-        <Button variant={section==="canvas"?"secondary":"ghost"} onClick={()=>setSection("canvas")}>{t($=>$.instances.canvas)}</Button>
-        <Button variant={section==="instances"?"secondary":"ghost"} onClick={()=>setSection("instances")}>{t($=>$.instances.all)}</Button>
-        <Button variant={section==="runs"?"secondary":"ghost"} onClick={()=>setSection("runs")}>{t($=>$.instances.history)}</Button>
+      <nav
+        className="flex flex-wrap gap-2 border-b px-4 py-2"
+        aria-label={t(($) => $.page.title)}
+      >
+        <Button
+          variant={section === "canvas" ? "secondary" : "ghost"}
+          onClick={() => setSection("canvas")}
+        >
+          {t(($) => $.instances.canvas)}
+        </Button>
+        <Button
+          variant={section === "instances" ? "secondary" : "ghost"}
+          onClick={() => setSection("instances")}
+        >
+          {t(($) => $.instances.all)}
+        </Button>
+        <Button
+          variant={section === "runs" ? "secondary" : "ghost"}
+          onClick={() => setSection("runs")}
+        >
+          {t(($) => $.instances.history)}
+        </Button>
+        {section === "canvas" && (
+          <Button
+            className="ml-auto"
+            variant="ghost"
+            aria-expanded={propertiesOpen}
+            onClick={() => setPropertiesOpen(!propertiesOpen)}
+          >
+            {t(($) => $.editor.properties_toggle)}
+          </Button>
+        )}
       </nav>
-      {section==="instances"&&<WorkflowInstancesPage templateId={templateId}/>}
-      {section==="runs"&&<WorkflowRunsPage templateId={templateId}/>}
-      <div className={section==="canvas"?"flex min-h-0 flex-1":"hidden"}>
+      {section === "instances" && (
+        <WorkflowInstancesPage templateId={templateId} />
+      )}
+      {section === "runs" && <WorkflowRunsPage templateId={templateId} />}
+      <div className={section === "canvas" ? "flex min-h-0 flex-1" : "hidden"}>
         {state.jsonOpen ? (
           // The JSON view replaces the canvas rather than sitting beside it: both
           // are full editors for the same graph, and two live editors for one
@@ -668,6 +812,7 @@ export function WorkflowTemplateDetailPage({
               definition={working}
               readOnly={readOnly}
               onApply={handleApplyJson}
+              onDirtyChange={setJsonDirty}
             />
           </div>
         ) : (
@@ -693,38 +838,59 @@ export function WorkflowTemplateDetailPage({
           />
         )}
 
-        <WorkflowPropertiesPanel
-          node={selected}
-          definition={working}
-          readOnly={readOnly}
-          onChange={(node) => dispatch({ type: "patch_node", node })}
-          onDelete={() => {
-            if (!readOnly && state.selectedNodeId) {
-              dispatch({ type: "delete_node", nodeId: state.selectedNodeId });
-            }
-          }}
-          onSetEntry={() => {
-            if (!readOnly && state.selectedNodeId) {
-              dispatch({ type: "set_entry", nodeId: state.selectedNodeId });
-            }
-          }}
-        />
+        {propertiesOpen && (
+          <WorkflowPropertiesPanel
+            node={selected}
+            definition={working}
+            readOnly={readOnly}
+            onChange={(node) => dispatch({ type: "patch_node", node })}
+            onDelete={() => {
+              if (!readOnly && state.selectedNodeId) {
+                dispatch({ type: "delete_node", nodeId: state.selectedNodeId });
+              }
+            }}
+            onSetEntry={() => {
+              if (!readOnly && state.selectedNodeId) {
+                dispatch({ type: "set_entry", nodeId: state.selectedNodeId });
+              }
+            }}
+          />
+        )}
       </div>
 
-      <CreateInstanceDialog templateId={templateId} templateName={data.name}
-        definition={working} publishedDefinition={published.data?.definition}
-        versionId={published.data?.versions.find(v=>v.status==="published"&&v.version===published.data?.current_version)?.id}
-        open={instanceOpen} onOpenChange={setInstanceOpen}/>
+      <CreateInstanceDialog
+        templateId={templateId}
+        templateName={data.name}
+        definition={working}
+        publishedDefinition={published.data?.definition}
+        versionId={
+          published.data?.versions.find(
+            (v) =>
+              v.status === "published" &&
+              v.version === published.data?.current_version,
+          )?.id
+        }
+        open={instanceOpen}
+        onOpenChange={setInstanceOpen}
+      />
       <WorkflowRunDialog
         templateId={templateId}
         templateName={data.name}
-        templateVersionId={published.data?.versions.find((version) => version.status === "published" && version.version === published.data?.current_version)?.id}
+        templateVersionId={
+          published.data?.versions.find(
+            (version) =>
+              version.status === "published" &&
+              version.version === published.data?.current_version,
+          )?.id
+        }
         // The published definition, independently fetched from the editor draft. A run pins the
         // published version, so the intake form must be read off the graph a run
         // would actually pin - collecting fields from an unsaved draft would show a
         // form whose values the pinned graph never declared and whose required ones
         // the engine would not check.
-        definition={hasPublishedVersion ? published.data?.definition : data.definition}
+        definition={
+          hasPublishedVersion ? published.data?.definition : data.definition
+        }
         inputDefaults={workflowRunInputDefaults(working, data.name)}
         runnable={runnable}
         refusal={runRefusal}

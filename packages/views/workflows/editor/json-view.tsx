@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleAlert, Check, RotateCcw } from "lucide-react";
 import {
   WorkflowDefinitionSchema,
@@ -80,10 +80,12 @@ export function WorkflowJsonView({
   definition,
   readOnly,
   onApply,
+  onDirtyChange,
 }: {
   definition: WorkflowDefinition;
   readOnly: boolean;
   onApply(next: WorkflowDefinition): void;
+  onDirtyChange?(dirty: boolean): void;
 }) {
   const { t } = useT("workflows");
 
@@ -111,6 +113,7 @@ export function WorkflowJsonView({
   // Unapplied edits, and meanwhile the definition changed elsewhere. Applying
   // now would revert that change, so the author is told before they can.
   const stale = !untouched && draft.seed !== seed;
+  useEffect(() => { onDirtyChange?.(!untouched); }, [untouched, onDirtyChange]);
 
   const handleChange = (value: string) => {
     setDraft({ text: value, seed });

@@ -23,6 +23,11 @@ RETURNING *;
 SELECT * FROM workflow_template
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: GetWorkflowTemplateForUpdate :one
+SELECT * FROM workflow_template
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE;
+
 -- name: GetWorkflowTemplateByKey :one
 -- Case-insensitive to match idx_workflow_template_ws_key; external intake
 -- resolves templates by key (plan section 9).

@@ -385,14 +385,15 @@ describe("publishWorkflowTemplate", () => {
         },
       ],
     });
-    const detail = await client().publishWorkflowTemplate("wft-1");
+    const detail = await client().publishWorkflowTemplate("wft-1", { revision: 1, draft_version_id: "v1" });
     expect(detail.current_version).toBe(2);
     expect(detail.versions).toHaveLength(2);
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))).toEqual({ revision: 1, draft_version_id: "v1" });
   });
 
   it("falls back to a placeholder carrying the id when unreadable", async () => {
     stubFetchJson({ wrong: "shape" });
-    const detail = await client().publishWorkflowTemplate("wft-1");
+    const detail = await client().publishWorkflowTemplate("wft-1", { revision: 1, draft_version_id: "v1" });
     expect(detail.id).toBe("wft-1");
     expect(detail.current_version).toBeNull();
   });

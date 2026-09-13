@@ -452,7 +452,8 @@
       "retry": "再試行",
       "not_started": "—",
       "duration_running": "経過 {{duration}}",
-      "back": "実行一覧へ戻る"
+      "back": "実行一覧へ戻る",
+      "all_statuses": "すべての状態"
     },
     "status": {
       "pending": "待機中",
@@ -555,7 +556,10 @@
       "submission_validation_errors": "サーバーはこの提出を受け付けませんでした:",
       "view_log": "エージェントのログを見る",
       "started_at": "開始 {{date}}",
-      "completed_at": "終了 {{date}}"
+      "completed_at": "終了 {{date}}",
+      "pinned_graph": "この実行の公開済みグラフ",
+      "graph_failed": "固定バージョンのグラフを読み込めません。以下の実行履歴は引き続き確認できます。",
+      "all_attempts": "すべての試行を表示"
     },
     "acceptance": {
       "title": "レビューが必要です",
@@ -617,7 +621,8 @@
       "cancel": "編集を続ける",
       "publish_saved": "保存済みのグラフを公開",
       "save_and_publish": "保存して公開"
-    }
+    },
+    "properties_toggle": "プロパティ"
   },
   "input_instances": {
     "definition_failed": "公開済みワークフローの入力欄を読み込めません。保存または実行する前に再試行してください。",

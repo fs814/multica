@@ -348,11 +348,11 @@ it("organizes workspace instances under their parent workflow with working detai
   mount(<WorkflowInstancesPage />);
   const groupA = await screen.findByRole("region", { name: "Workflow A" });
   const groupB = screen.getByRole("region", { name: "Workflow B" });
-  expect(within(groupA).getByRole("link", { name: "Input A1" })).toHaveAttribute("href", "/acme/workflow-instances/a1");
+  expect(within(groupA).getByRole("link", { name: "Input A1" })).toHaveAttribute("href", "/acme/workflow-instances/a1?return_to=%2Facme%2Fworkflow-instances%2Finstance");
   expect(within(groupA).getByRole("link", { name: "Input A2" })).toBeInTheDocument();
   expect(within(groupA).queryByText("Input B1")).not.toBeInTheDocument();
   expect(within(groupB).getByRole("link", { name: "Input B1" })).toBeInTheDocument();
   expect(within(groupA).getByRole("link", { name: "Workflow A" })).toHaveAttribute("href", "/acme/workflows/workflow-a");
   fireEvent.click(within(groupA).getByRole("link", { name: "Input A1" }));
-  expect(push).toHaveBeenCalledWith("/acme/workflow-instances/a1");
+  expect(push).toHaveBeenCalledWith("/acme/workflow-instances/a1?return_to=%2Facme%2Fworkflow-instances%2Finstance");
 });

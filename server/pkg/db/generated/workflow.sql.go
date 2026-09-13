@@ -1663,6 +1663,38 @@ func (q *Queries) GetWorkflowTemplateByKey(ctx context.Context, arg GetWorkflowT
 	return i, err
 }
 
+const getWorkflowTemplateForUpdate = `-- name: GetWorkflowTemplateForUpdate :one
+SELECT id, workspace_id, key, name, description, status, current_version, created_by_type, created_by_id, archived_at, created_at, updated_at, revision FROM workflow_template
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE
+`
+
+type GetWorkflowTemplateForUpdateParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetWorkflowTemplateForUpdate(ctx context.Context, arg GetWorkflowTemplateForUpdateParams) (WorkflowTemplate, error) {
+	row := q.db.QueryRow(ctx, getWorkflowTemplateForUpdate, arg.ID, arg.WorkspaceID)
+	var i WorkflowTemplate
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Key,
+		&i.Name,
+		&i.Description,
+		&i.Status,
+		&i.CurrentVersion,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.ArchivedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Revision,
+	)
+	return i, err
+}
+
 const getWorkflowTemplateVersion = `-- name: GetWorkflowTemplateVersion :one
 SELECT id, workspace_id, template_id, version, definition, schema_version, status, published_by_type, published_by_id, published_at, created_at, updated_at FROM workflow_template_version
 WHERE id = $1 AND workspace_id = $2

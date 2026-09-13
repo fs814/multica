@@ -457,7 +457,8 @@
       "retry": "Retry",
       "not_started": "—",
       "duration_running": "{{duration}} so far",
-      "back": "Back to runs"
+      "back": "Back to runs",
+      "all_statuses": "All statuses"
     },
     "status": {
       "pending": "Pending",
@@ -560,7 +561,10 @@
       "submission_validation_errors": "The server refused this submission:",
       "view_log": "View the agent's log",
       "started_at": "Started {{date}}",
-      "completed_at": "Finished {{date}}"
+      "completed_at": "Finished {{date}}",
+      "pinned_graph": "Published graph for this run",
+      "graph_failed": "Could not load the pinned graph. The trace is still available below.",
+      "all_attempts": "Show all attempts"
     },
     "acceptance": {
       "title": "Your review is needed",
@@ -623,7 +627,8 @@
       "cancel": "Keep editing",
       "publish_saved": "Publish the saved graph",
       "save_and_publish": "Save, then publish"
-    }
+    },
+    "properties_toggle": "Properties"
   },
   "input_instances": {
     "definition_failed": "Unable to load the published workflow inputs. Retry before saving or running.",

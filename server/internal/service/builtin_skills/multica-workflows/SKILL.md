@@ -114,3 +114,5 @@ Incomplete v2 drafts can be saved, but publishing and starting validate the
 complete graph. Combined control/data cycles, invalid ports, duplicate IDs and
 ambiguous collection bindings are rejected. Running instances keep their pinned
 published version.
+
+For editor publication preconditions, URL state and pinned run graphs, see [references/editor.md](references/editor.md).

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { WorkflowRunGraph } from "./workflow-run-graph";
+import { useEffect, useState } from "react";
 import { AlertCircle, Ban, XCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   useCancelWorkflowRun,
   workflowRunDetailOptions,
+  workflowInstanceVersionOptions,
 } from "@multica/core/workflows";
 import type { WorkflowStep } from "@multica/core/workflows";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -15,6 +17,10 @@ import type { AgentTask } from "@multica/core/types/agent";
 import { Badge } from "@multica/ui/components/ui/badge";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import {
+  useWorkflowLocation,
+  workflowReturnPath,
+} from "../../use-workflow-location";
 import { AppLink } from "../../../navigation";
 import { BreadcrumbHeader } from "../../../layout/breadcrumb-header";
 import { TranscriptButton } from "../../../common/task-transcript";
@@ -84,12 +90,22 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
   const { t, i18n } = useT("workflows");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
+  const location = useWorkflowLocation();
   const explainReason = useExplainReason();
 
   const { data, isLoading, error } = useQuery(
     workflowRunDetailOptions(wsId, runId),
   );
 
+  const version = useQuery(
+    workflowInstanceVersionOptions(
+      wsId,
+      data?.template_id ?? "",
+      data?.template_version_id ?? "",
+    ),
+  );
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  useEffect(() => setSelectedNode(null), [runId]);
   const cancelRun = useCancelWorkflowRun();
   const [cancelling, setCancelling] = useState(false);
 
@@ -176,7 +192,18 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
       )}
       <BreadcrumbHeader
         segments={[
-          { href: wsPaths.workflowRuns(), label: t(($) => $.runs.page.title) },
+          {
+            href: workflowReturnPath(
+              location.params.get("return_to"),
+              wsPaths.workflowRuns(),
+              [wsPaths.workflowRuns(), wsPaths.workflowDetail(run.template_id)],
+            ),
+            label: t(($) => $.runs.page.title),
+          },
+          {
+            href: wsPaths.workflowDetail(run.template_id) + "?section=runs",
+            label: run.template_name || run.template_key,
+          },
         ]}
         leaf={
           <>
@@ -215,7 +242,54 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-6">
+          <div className="flex flex-wrap items-center gap-3 text-caption text-muted-foreground">
+            <Badge variant="outline">
+              {version.data
+                ? `v${version.data.version}`
+                : run.template_version_id}
+            </Badge>
+            {run.input_instance_id && (
+              <AppLink
+                className="underline"
+                href={wsPaths.workflowInstanceDetail(run.input_instance_id)}
+              >
+                {run.input_instance_name || t(($) => $.input_instances.label)}
+              </AppLink>
+            )}
+          </div>
+          <details open className="min-w-0">
+            <summary className="mb-3 cursor-pointer text-body font-medium">
+              {t(($) => $.runs.detail.pinned_graph)}
+            </summary>
+            {version.data ? (
+              <WorkflowRunGraph
+                key={run.id}
+                definition={version.data.definition}
+                steps={run.steps}
+                selected={selectedNode}
+                onSelect={setSelectedNode}
+              />
+            ) : (
+              <p
+                role={version.isError ? "alert" : "status"}
+                className="text-caption text-muted-foreground"
+              >
+                {version.isError || !run.template_version_id
+                  ? t(($) => $.runs.detail.graph_failed)
+                  : t(($) => $.instances.loading)}
+                {version.isError && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void version.refetch()}
+                  >
+                    {t(($) => $.page.retry)}
+                  </Button>
+                )}
+              </p>
+            )}
+          </details>
           {/* Terminal reason first — see the header comment. */}
           {run.blocked_reason ? (
             <TerminalReason
@@ -264,7 +338,7 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
                 </code>
               </div>
             ) : null}
-            {inputTitle === "" && inputDescription === "" ? (
+            {Object.keys(run.input).length === 0 ? (
               <p className="text-caption text-muted-foreground">
                 {t(($) => $.runs.detail.input_empty)}
               </p>
@@ -294,6 +368,30 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
                 ) : null}
               </div>
             )}
+            <dl className="grid min-w-0 gap-3">
+              {Object.entries(run.input)
+                .filter(([key]) => key !== "title" && key !== "description")
+                .map(([key, value]) => {
+                  const field = version.data?.definition.nodes
+                    .find((node) => node.type === "input")
+                    ?.input_fields.find((field) => field.key === key);
+                  return (
+                    <div key={key} className="min-w-0 rounded-lg border p-3">
+                      <dt className="text-caption text-muted-foreground">
+                        {field?.label || key}
+                        {field?.label && field.label !== key ? ` (${key})` : ""}
+                      </dt>
+                      <dd>
+                        <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words text-caption">
+                          {typeof value === "string"
+                            ? value
+                            : JSON.stringify(value, null, 2)}
+                        </pre>
+                      </dd>
+                    </div>
+                  );
+                })}
+            </dl>
             {run.issue_id ? (
               <AppLink
                 href={wsPaths.issueDetail(run.issue_id)}
@@ -344,6 +442,24 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
               </div>
             </div>
 
+            {selectedNode && (
+              <div className="flex items-center gap-2 text-caption">
+                <code>{selectedNode}</code>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedNode(null)}
+                >
+                  {t(($) => $.runs.detail.all_attempts)}
+                </Button>
+              </div>
+            )}
+            {selectedNode &&
+              !run.steps.some((step) => step.node_key === selectedNode) && (
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.runs.detail.trace_empty)}
+                </p>
+              )}
             {run.steps.length === 0 ? (
               // The two empty traces are NOT the same claim, and conflating them
               // is how "we lost the trace" reads as "nothing has happened".
@@ -358,11 +474,15 @@ export function WorkflowRunDetailPage({ runId }: { runId: string }) {
               </p>
             ) : (
               <ol className="flex flex-col gap-2">
-                {run.steps.map((step) => (
-                  <li key={step.id}>
-                    <StepRow step={step} runStatus={run.status} />
-                  </li>
-                ))}
+                {run.steps
+                  .filter(
+                    (step) => !selectedNode || step.node_key === selectedNode,
+                  )
+                  .map((step) => (
+                    <li key={step.id}>
+                      <StepRow step={step} runStatus={run.status} />
+                    </li>
+                  ))}
               </ol>
             )}
           </section>
@@ -641,7 +761,10 @@ function StepRow({
             </pre>
           ) : null}
           {submission.raw_result && (
-            <details className="rounded-md border p-3" open={Boolean(submission.validation_errors?.length)}>
+            <details
+              className="rounded-md border p-3"
+              open={Boolean(submission.validation_errors?.length)}
+            >
               <summary className="cursor-pointer text-caption font-medium">
                 {t(($) => $.runs.detail.submission_raw_result)}
               </summary>
@@ -687,7 +810,7 @@ function RunSkeleton() {
         <Skeleton className="h-5 w-20 rounded-full" />
       </div>
       <div className="flex-1 overflow-hidden">
-        <div className="mx-auto flex max-w-4xl flex-col gap-6 p-6">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-6">
           <div className="flex flex-col gap-3">
             <Skeleton className="h-3 w-16" />
             <Skeleton className="h-24 w-full rounded-lg" />

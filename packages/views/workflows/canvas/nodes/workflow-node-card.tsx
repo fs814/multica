@@ -30,6 +30,7 @@
  *     and what a rework loop produces) would otherwise be unreadable.
  */
 
+import { WorkflowStepStatusBadge } from "../../runs/components/run-status-badge";
 import { useEffect, useRef } from "react";
 import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
 import { cn } from "@multica/ui/lib/utils";
@@ -126,6 +127,7 @@ export function WorkflowNodeCard({
           </code>
         </div>
 
+        {data.executionStatus && <WorkflowStepStatusBadge status={data.executionStatus} />}
         {data.isEntry ? (
           <span className="inline-flex w-fit items-center rounded border border-dashed px-1 py-px text-micro text-muted-foreground">
             {t(($) => $.canvas.entry_badge)}
