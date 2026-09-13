@@ -6,6 +6,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { TestApiClient } from "./fixtures";
+import { verifyWorkflowLifecycle } from "./workflow-lifecycle";
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
@@ -79,7 +80,8 @@ async function exerciseWorkflow(
       definition: definition("Original finish"),
     }),
   });
-  await navigate(`/${ws.slug}/workflows/${tpl.id}`);
+  await navigate(`/${ws.slug}/workflows`);
+  await page.getByText("Release checks", { exact: true }).click();
   await page
     .getByRole("button", { name: "Toggle the JSON view", exact: true })
     .click();
@@ -90,10 +92,181 @@ async function exerciseWorkflow(
   await page.getByRole("button", { name: "Apply", exact: true }).click();
   // Reject a real platform navigation while the graph is dirty.
   page.once("dialog", (dialog) => dialog.dismiss());
-  await page.getByRole("link", { name: "Workflows", exact: true }).first().click();
+  await page
+    .getByRole("link", { name: "Workflows", exact: true })
+    .first()
+    .click();
   await expect(json).toHaveValue(/Approved finish/);
+  // Exercise the actual shell/browser entry points, preserving both graph and raw JSON.
+  const pendingJson = JSON.stringify(
+    definition("Unapplied draft " + "long text ".repeat(80)),
+    null,
+    2,
+  );
+  await json.fill(pendingJson);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await json.press("End");
+  await json.press("Delete");
+  await expect(json).toHaveValue(pendingJson);
+  const rejectNavigation = async (action: () => Promise<unknown>) => {
+    let count = 0;
+    const dismiss = async (dialog: import("@playwright/test").Dialog) => {
+      count++;
+      await dialog.dismiss();
+    };
+    page.on("dialog", dismiss);
+    try {
+      await action();
+      await expect.poll(() => count).toBe(1);
+      await expect(json).toHaveValue(pendingJson);
+      expect(count).toBe(1);
+      // Let the cancelled browser traversal settle before another history command.
+      await page.waitForTimeout(150);
+    } finally {
+      page.off("dialog", dismiss);
+    }
+  };
+  if (desktop) {
+    await rejectNavigation(() =>
+      page.getByRole("button", { name: "Go back", exact: true }).click(),
+    );
+    await rejectNavigation(async () => {
+      await json.blur();
+      await page.keyboard.press("Meta+ArrowLeft");
+    });
+    await rejectNavigation(() =>
+      page.evaluate(() =>
+        window.dispatchEvent(new MouseEvent("mouseup", { button: 3 })),
+      ),
+    );
+    await page
+      .getByRole("button", { name: "Go back", exact: true })
+      .click({ button: "right" });
+    await rejectNavigation(() =>
+      page
+        .getByRole("menuitem")
+        .filter({ hasText: "Workflows" })
+        .first()
+        .click(),
+    );
+    await page
+      .getByRole("link", { name: "Workflows", exact: true })
+      .first()
+      .click({ modifiers: ["Meta"] });
+    const keepTab = page
+      .getByRole("button", { name: "Workflows", exact: true })
+      .last();
+    await expect(keepTab).toBeVisible();
+    await rejectNavigation(() => keepTab.click());
+    await keepTab.click({ button: "right" });
+    await rejectNavigation(() =>
+      page
+        .getByRole("menuitem", { name: "Close other tabs", exact: true })
+        .click(),
+    );
+  } else {
+    await rejectNavigation(() => page.evaluate(() => history.back()));
+    await rejectNavigation(async () => {
+      await json.blur();
+      await page.keyboard.press("Meta+[");
+    });
+  }
+  await page
+    .getByRole("button", { name: "Workflow instances", exact: true })
+    .click();
+  if (!desktop) await expect(page).toHaveURL(/section=instances/);
+  await page.getByRole("button", { name: "Canvas", exact: true }).click();
+  await expect(json).toHaveValue(pendingJson);
+  await page.screenshot({
+    path: testInfo.outputPath(`dirty-json-${viewport.width}.png`),
+    fullPage: true,
+  });
+  await json.fill(JSON.stringify(definition("Approved finish"), null, 2));
+  await page.getByRole("button", { name: "Apply", exact: true }).focus();
+  await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("Draft saved", { exact: true })).toBeVisible();
+  let cleanPrompts = 0;
+  const cleanDialog = async (dialog: import("@playwright/test").Dialog) => {
+    cleanPrompts++;
+    await dialog.dismiss();
+  };
+  page.on("dialog", cleanDialog);
+  await page
+    .getByRole("button", { name: "Workflow instances", exact: true })
+    .click();
+  if (!desktop) await expect(page).toHaveURL(/section=instances/);
+  if (desktop)
+    await page.getByRole("button", { name: "Go back", exact: true }).click();
+  else await page.evaluate(() => history.back());
+  await expect(json).toBeVisible();
+  await page
+    .getByRole("link", { name: "Workflows", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByText("Release checks", { exact: true }).last(),
+  ).toBeVisible();
+  if (!desktop)
+    await expect(page).toHaveURL(new RegExp(`/${ws.slug}/workflows$`));
+  if (desktop)
+    await page.getByRole("button", { name: "Go back", exact: true }).click();
+  else await page.evaluate(() => history.back());
+  await expect(
+    page.getByRole("button", { name: "Toggle the JSON view", exact: true }),
+  ).toBeVisible();
+  page.off("dialog", cleanDialog);
+  expect(cleanPrompts).toBe(0);
+  await page
+    .getByRole("button", { name: "Toggle the JSON view", exact: true })
+    .click();
+  await json.fill(pendingJson);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  if (desktop) {
+    await rejectNavigation(() =>
+      page.getByRole("button", { name: "Go forward", exact: true }).click(),
+    );
+    await rejectNavigation(async () => {
+      await json.blur();
+      await page.keyboard.press("Meta+ArrowRight");
+    });
+    await rejectNavigation(() =>
+      page.evaluate(() =>
+        window.dispatchEvent(new MouseEvent("mouseup", { button: 4 })),
+      ),
+    );
+    await page
+      .getByRole("button", { name: "Go forward", exact: true })
+      .click({ button: "right" });
+    await rejectNavigation(() =>
+      page
+        .getByRole("menuitem")
+        .filter({ hasText: "Workflows" })
+        .first()
+        .click(),
+    );
+  } else {
+    await rejectNavigation(() => page.evaluate(() => history.forward()));
+    await rejectNavigation(async () => {
+      await json.blur();
+      await page.keyboard.down("Meta");
+      await page.keyboard.press("BracketRight");
+      await page.keyboard.up("Meta");
+    });
+  }
+  await json.fill(JSON.stringify(definition("Approved finish"), null, 2));
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(
     page.getByText("Workflow published", { exact: true }),
@@ -174,7 +347,9 @@ async function exerciseWorkflow(
   });
   await page.getByRole("button", { name: "Dark", exact: true }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await expect(page.getByRole("button", { name: "Light", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Light", exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath(`run-${viewport.width}-dark.png`),
     fullPage: true,
@@ -243,6 +418,7 @@ async function exerciseWorkflow(
     await expect(page).toHaveURL(/section=runs.*status=completed/);
   }
 
+  await verifyWorkflowLifecycle(page, testInfo, api, ws.slug, navigate);
   await api.cleanup();
 }
 
@@ -304,6 +480,7 @@ for (const viewport of [
       await page.waitForLoadState("domcontentloaded");
       await exerciseWorkflow(page, testInfo, viewport, true);
     } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
       await page.screenshot({
         path: testInfo.outputPath("desktop-failure.png"),
         fullPage: true,
@@ -314,6 +491,8 @@ for (const viewport of [
       );
       throw error;
     } finally {
+      // Dirty-page beforeunload prompts must not block test-process cleanup.
+      await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
       await app.close();
     }
   });
@@ -393,7 +572,7 @@ test("100 node / 150 edge editor response sample", async ({
     samplesMs: samples,
     p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1],
     firstScreenMs,
-    mode: "Next.js development build; click dispatch to selected properties visible, sampled at animation frames",
+    mode: `Next.js ${process.env.WORKFLOW_WEB_BUILD ?? "development"} build; click dispatch to selected properties visible, sampled at animation frames`,
     viewport: { width: 1440, height: 900 },
   };
   await writeFile(
