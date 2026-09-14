@@ -106,3 +106,11 @@ describe("condition input execution contracts", () => {
     expect(renameWorkflowPort(before, "gate", "input_ports", "x", "result")).toBe(before);
   });
 });
+
+it("retains directory script inputs when binding a published version", () => {
+ const node = graph().nodes[0]!;
+ node.input_mode = "scripts";
+ const input = { script_directory: "C:/scripts", script_platform: "windows", script_steps: '["run"]', clone_script: "", build_script: "", run_script: "run.ps1", script_timeout_seconds: "3600", stale: "review me" };
+ expect(unknownInputKeys(input, node)).toEqual(["stale"]);
+ expect(unknownInputKeys(input, { ...node, input_mode: "text" })).toContain("script_directory");
+});

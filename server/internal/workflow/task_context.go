@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // The Agent Task brief for a workflow Step.
@@ -53,8 +55,9 @@ const TaskContextType = "workflow_step"
 //     submission block. See SubmissionContractInstructions for why this is not
 //     optional.
 type TaskContext struct {
-	BoundInputs map[string]any `json:"bound_inputs,omitempty"`
-	Type        string         `json:"type"`
+	ScriptPipeline *scriptpipeline.Config `json:"script_pipeline,omitempty"`
+	BoundInputs    map[string]any         `json:"bound_inputs,omitempty"`
+	Type           string                 `json:"type"`
 
 	// RunID / StepInstanceID / NodeKey identify the workflow position. The agent
 	// echoes StepInstanceID in its submission.
@@ -256,6 +259,11 @@ func ParseRunInputFor(raw []byte, entry *Node) RunInput {
 // `entry` nil (a template with no input node) means there is nothing declared, so
 // nothing to reject: the freeform path keeps behaving exactly as it did.
 func ValidateRunInput(raw []byte, entry *Node) error {
+	if entry != nil && entry.EffectiveInputMode() == InputModeScripts {
+		if _, err := scriptpipeline.Resolve(entry.ScriptPipeline, raw); err != nil {
+			return newEngineError(ErrCodeInvalidSubmission, err.Error())
+		}
+	}
 	if entry == nil || len(entry.InputFields) == 0 {
 		return nil
 	}

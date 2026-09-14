@@ -488,6 +488,7 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 			"cli_version":  req.CLIVersion,
 			"launched_by":  req.LaunchedBy,
 			"capabilities": requestClientCapabilities(r),
+			"os":           r.Header.Get("X-Client-OS"),
 		})
 
 		var registered db.AgentRuntime
@@ -694,6 +695,7 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 					"cli_version":                        req.CLIVersion,
 					"launched_by":                        req.LaunchedBy,
 					"capabilities":                       requestClientCapabilities(r),
+					"os":                                 r.Header.Get("X-Client-OS"),
 					"runtime_profile_registration_error": true,
 					"runtime_profile_failure_reason":     reason,
 					"command_name":                       resolvedCommandName,
@@ -3145,6 +3147,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		if wf, ok := workflow.ParseTaskContext(task.Context); ok {
 			hasWorkflowStep = true
 			resp.WorkflowPrompt = wf.RenderPrompt()
+			resp.WorkflowScriptPipeline = wf.ScriptPipeline
 			resp.WorkflowRunID = wf.RunID
 			resp.WorkflowStepInstanceID = wf.StepInstanceID
 			resp.WorkflowNodeKey = wf.NodeKey

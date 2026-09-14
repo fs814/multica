@@ -96,6 +96,22 @@ export type WorkflowInputField = {
   placeholder: string;
 };
 
+export type ScriptPipelineConfig = {
+  directory: string;
+  platform: string;
+  steps: string[];
+  scripts: Record<string, string>;
+  timeout_seconds: number;
+};
+
+export const ScriptPipelineConfigSchema = z.object({
+ directory: z.string().default(""),
+ platform: z.string().default("auto"),
+ steps: z.array(z.string()).default(["clone", "build", "run"]),
+ scripts: z.record(z.string(), z.string()).default({}),
+ timeout_seconds: z.number().default(3600),
+}).loose();
+
 export type WorkflowNode = {
   key: string;
   /** "agent" | "condition" | "fan_out" | "join" | "acceptance" | "end" | "input". */
@@ -125,6 +141,7 @@ export type WorkflowNode = {
   fan_out_max: number;
   /** "text" | "image" on input nodes. Absent means legacy text mode. */
   input_mode?: string;
+  script_pipeline?: ScriptPipelineConfig;
   /** Stable attachment selected on an image-mode input node. */
   image_attachment_id?: string;
   /**
@@ -234,6 +251,7 @@ export const WorkflowNodeSchema = z
     // input_mode on agent/condition/... nodes and the strict server validator
     // correctly rejects those nodes on the next save.
     input_mode: z.string().optional(),
+    script_pipeline: ScriptPipelineConfigSchema.optional().catch(undefined),
     // The image is selected while authoring the node, ComfyUI-style. Persist
     // only the attachment id; previews derive a fresh download URL from it.
     image_attachment_id: z.string().optional().default(""),

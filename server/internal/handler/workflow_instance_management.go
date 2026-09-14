@@ -227,6 +227,7 @@ func (h *Handler) RunWorkflowInstance(w http.ResponseWriter, r *http.Request) {
 		ProjectID         *string            `json:"project_id,omitempty"`
 		ImageAttachmentID *string            `json:"image_attachment_id,omitempty"`
 		HistoryRunID      *string            `json:"history_run_id,omitempty"`
+		ScriptStep        string             `json:"script_step,omitempty"`
 		IdempotencyKey    string             `json:"idempotency_key"`
 	}
 	if !decodeInstanceBody(w, r, &req) {
@@ -244,7 +245,7 @@ func (h *Handler) RunWorkflowInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "saved and history runs cannot override input")
 		return
 	}
-	intent := &workflow.InstanceStart{ID: row.ID, Revision: req.Revision, Mode: req.Mode, ImageAttachmentID: req.ImageAttachmentID}
+	intent := &workflow.InstanceStart{ID: row.ID, Revision: req.Revision, Mode: req.Mode, ImageAttachmentID: req.ImageAttachmentID, ScriptStep: req.ScriptStep}
 	if req.ProjectID != nil && *req.ProjectID != "" {
 		intent.ProjectID, ok = parseUUIDOrBadRequest(w, *req.ProjectID, "project id")
 		if !ok {

@@ -1,4 +1,6 @@
 "use client";
+import { DeleteInstanceButton } from "./delete-instance-button";
+import { ScriptPipelineStepActions } from "../components/script-pipeline-step-actions";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -138,6 +140,7 @@ function InstanceEditor({
   const start = async (
     mode: RunWorkflowInstance["mode"],
     historyRunId?: string,
+    scriptStep?: RunWorkflowInstance["script_step"],
   ) => {
     if (busy.current) return;
     busy.current = true;
@@ -145,6 +148,7 @@ function InstanceEditor({
     const intent = {
       mode,
       revision: base.revision,
+      ...(scriptStep ? { script_step: scriptStep } : {}),
       ...(mode === "temporary"
         ? {
             input: value.input,
@@ -256,6 +260,12 @@ function InstanceEditor({
             ? t(($) => $.instances.restore)
             : t(($) => $.instances.archive)}
         </Button>
+        <DeleteInstanceButton row={row} disabled={pending} onDeleted={() =>
+          navigateAfterAction(() => navigation.replace(workflowReturnPath(
+            location.params.get("return_to"), paths.workflowInstances(),
+            [paths.workflowInstances(), paths.workflowDetail(row.templateId)],
+          )))
+        } />
       </header>
       <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
         <section className="flex min-w-0 flex-col gap-4">
@@ -275,8 +285,16 @@ function InstanceEditor({
                 setUpgrade(latest.id);
               }}
             >
-              {t(($) => $.instances.upgrade)}
+              {base.templateVersionId ? t(($) => $.instances.upgrade) : t(($) => $.instances.bind_version)}
             </Button>
+          )}
+          {!base.templateVersionId && (
+            <div role="status" className="rounded-md border p-3 text-caption">
+              <p>{t(($) => $.instances.binding_required)}</p>
+              <AppLink className="underline" href={paths.workflowDetail(row.templateId) + "?section=canvas"}>
+                {t(($) => $.instances.configure_workflow)}
+              </AppLink>
+            </div>
           )}
           {upgrade && (
             <div className="flex flex-col gap-3 rounded-md border p-3">
@@ -398,6 +416,7 @@ function InstanceEditor({
               {t(($) => $.instances.reload)}
             </Button>
           )}
+          {!dirty && <p className="text-caption text-muted-foreground">{t(($) => $.instances.no_changes)}</p>}
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={
@@ -439,6 +458,15 @@ function InstanceEditor({
               {t(($) => $.instances.run_temporary)}
             </Button>
           </div>
+          {value.inputNode?.input_mode === "scripts" && (
+            <>
+              <ScriptPipelineStepActions
+                disabled={pending || archived || unavailable || !base.templateVersionId || value.templateVersionId !== base.templateVersionId}
+                onRun={(step) => void start(dirty ? "temporary" : "saved", undefined, step)}
+              />
+              <p className="text-caption text-muted-foreground">{t(($) => $.scripts.single_step_hint)}</p>
+            </>
+          )}
           <p className="text-caption text-muted-foreground">
             {t(($) => $.instances.temporary_hint)}
           </p>

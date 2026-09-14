@@ -559,7 +559,13 @@
       "completed_at": "종료 {{date}}",
       "pinned_graph": "이번 실행의 게시된 그래프",
       "graph_failed": "고정된 버전의 그래프를 불러올 수 없습니다. 아래에서 실행 기록을 계속 확인할 수 있습니다.",
-      "all_attempts": "모든 시도 표시"
+      "all_attempts": "모든 시도 표시",
+      "rerun": "다시 실행",
+      "rerunning": "시작 중…",
+      "edit_instance_inputs": "입력 수정 후 실행",
+      "rerun_hint": "이 실행의 원래 입력과 워크플로 버전으로 새 실행을 만듭니다.",
+      "rerun_archived": "다시 실행하려면 보관된 인스턴스를 복원하세요.",
+      "rerun_instance_unavailable": "원본 인스턴스를 불러올 수 없습니다."
     },
     "acceptance": {
       "title": "검토가 필요합니다",
@@ -704,7 +710,12 @@
     "revision": "리비전",
     "source_saved": "저장된 입력",
     "source_temporary": "이번 실행의 임시 입력",
-    "source_history": "이전 실행의 입력"
+    "source_history": "이전 실행의 입력",
+    "bind_version": "게시 버전 연결",
+    "binding_required": "실행하려면 동일한 입력 모드와 실행 에이전트가 설정된 워크플로를 게시한 후 해당 버전을 연결하세요.",
+    "configure_workflow": "워크플로 설정 및 게시",
+    "no_changes": "저장하지 않은 변경 사항이 없습니다. 입력을 수정하면 저장하거나 이번에만 실행할 수 있습니다.",
+    "delete_confirmation": "활성 인스턴스 목록에서 “{{name}}”을 삭제하시겠습니까? 실행 기록은 유지됩니다. 보관된 항목 포함을 선택하면 복원할 수 있습니다."
   },
   "graph_v2": {
     "ports": "포트",
@@ -782,5 +793,31 @@
     "enabled": "새 초안 시험 실행 허용",
     "save": "설정 저장",
     "retry_after": "{{seconds}}초 후에 다시 시도하세요."
+  },
+  "scripts": {
+    "mode": "디렉터리 스크립트",
+    "directory": "실행 컴퓨터의 스크립트 디렉터리",
+    "directory_placeholder": "예: C:\\sourcecode\\Settings\\winbuild\\ai\\aiworkflow\\multica",
+    "browse": "로컬 디렉터리 선택",
+    "pick_failed": "디렉터리를 선택할 수 없습니다. 경로를 입력하세요.",
+    "directory_hint": "winbuild, macbuild, linuxbuild의 프로젝트 또는 스크립트가 있는 절대 경로를 지정하세요. 원격 컴퓨터는 해당 컴퓨터의 경로가 필요합니다.",
+    "platform": "실행 플랫폼",
+    "auto_platform": "디렉터리에서 감지하거나 선택한 컴퓨터 사용",
+    "steps": "실행 단계",
+    "select_step": "단계를 하나 이상 선택하세요.",
+    "order_hint": "선택한 단계를 clone → build → run 순서로 실행하고 실패하면 중지합니다.",
+    "script_path": "{{step}} 스크립트",
+    "auto_script": "비워 두면 자동 감지, 또는 상대/절대 경로 입력",
+    "timeout": "파이프라인 제한 시간(초)",
+    "runtime_hint": "Input을 에이전트 노드 하나에 연결하고 실행 컴퓨터를 선택하세요. 데몬이 스크립트를 직접 실행합니다. 저장 및 게시 후 실행하세요.",
+    "windows_platform": "Windows / winbuild",
+    "macos_platform": "macOS / macbuild",
+    "linux_platform": "Linux / linuxbuild",
+    "run_step": {
+      "clone": "Clone만 실행",
+      "build": "Build만 실행",
+      "run": "Run만 실행"
+    },
+    "single_step_hint": "현재 입력으로 선택한 단계만 실행합니다. 저장된 단계 설정은 변경하지 않습니다."
   }
 }

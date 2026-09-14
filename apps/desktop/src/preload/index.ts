@@ -206,8 +206,8 @@ const desktopAPI = {
   setRendererRouteContext: (context: RendererRouteContextInput) =>
     ipcRenderer.send(RENDERER_ROUTE_CONTEXT_CHANNEL, context),
   /** Open the OS folder picker and return the chosen absolute path. */
-  pickDirectory: (defaultPath?: string) =>
-    ipcRenderer.invoke("local-directory:pick", defaultPath),
+  pickDirectory: (defaultPath?: string, purpose?: "script_pipeline") =>
+    ipcRenderer.invoke("local-directory:pick", defaultPath, purpose),
   /** Validate that a path is an existing readable+writable directory. */
   validateLocalDirectory: (path: string) =>
     ipcRenderer.invoke("local-directory:validate", path),

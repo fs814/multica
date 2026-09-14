@@ -12,6 +12,8 @@ import (
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/workflow"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // WorkflowRouter chooses the Agent that runs an Agent node.
@@ -169,7 +171,7 @@ func (r *WorkflowRouter) routeExplicit(
 	if err != nil {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %s not found in this workspace", reasonPrefix, agentID)
 	}
-	if reason, ok := r.eligible(ctx, q, agent, actor, requiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest); !ok {
+	if reason, ok := r.eligible(ctx, q, agent, actor, requiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest, req.ScriptPipeline); !ok {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %q is not eligible: %s", reasonPrefix, agent.Name, reason)
 	}
 	return workflow.RouteResult{
@@ -256,7 +258,7 @@ func (r *WorkflowRouter) routeCapability(
 
 	var rejections []string
 	for _, agent := range candidates {
-		reason, ok := r.eligible(ctx, q, agent, actor, req.RequiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest)
+		reason, ok := r.eligible(ctx, q, agent, actor, req.RequiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest, req.ScriptPipeline)
 		if ok {
 			return workflow.RouteResult{
 				AgentID:   agent.ID,
@@ -278,7 +280,7 @@ func (r *WorkflowRouter) routeCapability(
 // transient, self-healing case and reporting it is more useful than reporting a
 // permission problem the operator would then chase for an agent that could not
 // have run anyway.
-func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor, requiresVision, requiresDebug bool) (string, bool) {
+func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor, requiresVision, requiresDebug bool, scripts ...*scriptpipeline.Config) (string, bool) {
 	// Upstream reshaped AgentReadiness to take a RuntimeLookup (so each
 	// admission path is distinguishable in multica_agent_runtime_lookup_total)
 	// and to return a verdict struct. The lookup MUST carry the caller's
@@ -302,6 +304,34 @@ func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.A
 		// enumerating why a specific person is excluded from someone else's
 		// agent leaks the allow-list's shape.
 		return "the run's accountable user may not invoke this agent", false
+	}
+	if len(scripts) > 0 && scripts[0] != nil {
+		rt, err := q.GetAgentRuntime(ctx, agent.RuntimeID)
+		if err != nil {
+			return "could not verify script runtime", false
+		}
+		var metadata struct {
+			Capabilities []string `json:"capabilities"`
+			OS           string   `json:"os"`
+		}
+		if json.Unmarshal(rt.Metadata, &metadata) != nil {
+			return "upgrade the runtime to support directory script pipelines", false
+		}
+		capable := false
+		for _, c := range metadata.Capabilities {
+			if c == scriptpipeline.Capability {
+				capable = true
+			}
+		}
+		if !capable {
+			return "upgrade the runtime to support directory script pipelines", false
+		}
+		if metadata.OS == "macos" {
+			metadata.OS = "darwin"
+		}
+		if target := scripts[0].TargetPlatform(); target != "auto" && metadata.OS != target {
+			return "script platform does not match the runtime operating system", false
+		}
 	}
 	if requiresDebug {
 		runtime, err := q.GetAgentRuntime(ctx, agent.RuntimeID)

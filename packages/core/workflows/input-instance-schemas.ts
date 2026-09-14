@@ -77,6 +77,7 @@ export type WorkflowInstanceFilters = {
   limit?: number;
 };
 export type RunWorkflowInstance = {
+  script_step?: "clone" | "build" | "run";
   revision: number;
   mode: "saved" | "temporary" | "history";
   idempotency_key: string;

@@ -10,11 +10,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // InstanceStart is an intent, never a caller-supplied saved snapshot. StartRun
 // resolves and locks its authoritative row inside the issue/run transaction.
 type InstanceStart struct {
+	ScriptStep        string
 	ID                pgtype.UUID
 	Revision          int64
 	Mode              string
@@ -78,6 +81,11 @@ func ValidateInstanceInput(ctx context.Context, q *db.Queries, ws pgtype.UUID, v
 		return newEngineError(ErrCodeInvalidSubmission, "description is required and must be 20000 characters or fewer")
 	}
 	keys := map[string]bool{"title": true, "description": true}
+	if entry.EffectiveInputMode() == InputModeScripts {
+		for _, key := range scriptpipeline.InputKeys {
+			keys[key] = true
+		}
+	}
 	for _, f := range entry.InputFields {
 		keys[f.Key] = true
 	}
@@ -175,6 +183,12 @@ func (e *Engine) resolveInstanceStart(ctx context.Context, q *db.Queries, in *St
 	version, err := e.resolveVersion(ctx, q, in.WorkspaceID, row.TemplateID, in.TemplateVersionID)
 	if err != nil {
 		return nil, err
+	}
+	if intent.ScriptStep != "" {
+		in.Input, err = singleScriptStepInput(version.Definition, in.Input, intent.ScriptStep)
+		if err != nil {
+			return nil, err
+		}
 	}
 	var imageID *string
 	if image.Valid {

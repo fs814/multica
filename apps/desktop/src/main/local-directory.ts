@@ -2,6 +2,7 @@ import { ipcMain, dialog, BrowserWindow } from "electron";
 import { access, stat } from "fs/promises";
 import { constants as fsConstants } from "fs";
 import { basename, dirname, isAbsolute, join } from "path";
+import { homedir } from "os";
 
 export interface PickDirectoryResult {
   ok: boolean;
@@ -96,11 +97,16 @@ export function setupLocalDirectory(
 ): void {
   ipcMain.handle(
     "local-directory:pick",
-    async (event, defaultPath?: string): Promise<PickDirectoryResult> => {
+    async (event, defaultPath?: string, purpose?: "script_pipeline"): Promise<PickDirectoryResult> => {
       const win =
         BrowserWindow.fromWebContents(event.sender) ?? windowGetter();
       if (!win) return { ok: false, reason: "no_window" };
       try {
+        if (purpose === "script_pipeline" && !defaultPath) {
+          defaultPath = process.platform === "win32"
+            ? "C:\\sourcecode\\Settings\\winbuild"
+            : join(homedir(), "sourcecode", "Settings", process.platform === "darwin" ? "macbuild" : "linuxbuild");
+        }
         const result = await dialog.showOpenDialog(win, {
           // Multiple-selection is intentionally disabled — a project_resource
           // points at a single directory, and the create flow expects one

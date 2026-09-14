@@ -564,7 +564,13 @@
       "completed_at": "Finished {{date}}",
       "pinned_graph": "Published graph for this run",
       "graph_failed": "Could not load the pinned graph. The trace is still available below.",
-      "all_attempts": "Show all attempts"
+      "all_attempts": "Show all attempts",
+      "rerun": "Run again",
+      "rerunning": "Starting…",
+      "edit_instance_inputs": "Edit inputs and run",
+      "rerun_hint": "Create a new run using this run’s original inputs and workflow version.",
+      "rerun_archived": "Restore the archived instance before running it again.",
+      "rerun_instance_unavailable": "The source instance could not be loaded."
     },
     "acceptance": {
       "title": "Your review is needed",
@@ -710,7 +716,12 @@
     "revision": "Revision",
     "source_saved": "Saved inputs",
     "source_temporary": "Temporary inputs",
-    "source_history": "Historical inputs"
+    "source_history": "Historical inputs",
+    "bind_version": "Bind published version",
+    "binding_required": "To run this instance, publish a workflow with the same input mode and an execution agent, then bind its published version.",
+    "configure_workflow": "Configure and publish workflow",
+    "no_changes": "No unsaved changes. Edit an input to enable Save changes and Run these changes once.",
+    "delete_confirmation": "Delete “{{name}}” from the active instance list? Existing workflow runs will be kept. You can restore it by enabling Include archived."
   },
   "graph_v2": {
     "ports": "Ports",
@@ -788,5 +799,31 @@
     "enabled": "Allow new draft trials",
     "save": "Save settings",
     "retry_after": "Retry after {{seconds}} seconds."
+  },
+  "scripts": {
+    "mode": "Directory scripts",
+    "directory": "Script directory on the execution machine",
+    "directory_placeholder": "For example C:\\sourcecode\\Settings\\winbuild\\ai\\aiworkflow\\multica",
+    "browse": "Choose local directory",
+    "pick_failed": "Could not choose a directory. Enter its path instead.",
+    "directory_hint": "Use a project directory under winbuild, macbuild or linuxbuild, or any absolute directory containing scripts. Remote machines need their own paths.",
+    "platform": "Execution platform",
+    "auto_platform": "Detect from directory, otherwise use the selected machine",
+    "steps": "Steps to execute",
+    "select_step": "Select at least one step.",
+    "order_hint": "Selected steps run in clone → build → run order and stop on failure.",
+    "script_path": "{{step}} script",
+    "auto_script": "Leave empty to detect, or enter a relative/absolute script path",
+    "timeout": "Pipeline timeout (seconds)",
+    "runtime_hint": "Connect Input to one agent node and use it to choose the execution machine. The daemon runs scripts directly. Save and publish before running.",
+    "windows_platform": "Windows / winbuild",
+    "macos_platform": "macOS / macbuild",
+    "linux_platform": "Linux / linuxbuild",
+    "run_step": {
+      "clone": "Clone only",
+      "build": "Build only",
+      "run": "Run only"
+    },
+    "single_step_hint": "Use the current inputs for this step only. Saved step selections stay unchanged."
   }
 }

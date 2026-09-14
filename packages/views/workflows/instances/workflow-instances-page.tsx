@@ -1,4 +1,5 @@
 "use client";
+import { DeleteInstanceButton } from "./delete-instance-button";
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -130,7 +131,8 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
             )}
             <div className="divide-y">
               {group.instances.map((row) => (
-                <InstanceRow key={row.id} row={row} templateName={group.name} />
+                <InstanceRow key={row.id} row={row} templateName={group.name}
+                  onDeleted={() => { if (list.data?.instances.length === 1 && offset > 0) setOffset(Math.max(0, offset - 30)); }} />
               ))}
             </div>
           </section>
@@ -159,9 +161,11 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
 function InstanceRow({
   row,
   templateName,
+  onDeleted,
 }: {
   row: WorkflowInputInstance;
   templateName: string;
+  onDeleted(): void;
 }) {
   const { t } = useT("workflows");
   const ws = useWorkspaceId();
@@ -287,6 +291,7 @@ function InstanceRow({
           ? t(($) => $.instances.restore)
           : t(($) => $.instances.archive)}
       </Button>
+      <DeleteInstanceButton row={row} disabled={busy} onDeleted={onDeleted} />
     </article>
   );
 }

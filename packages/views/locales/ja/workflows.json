@@ -559,7 +559,13 @@
       "completed_at": "終了 {{date}}",
       "pinned_graph": "この実行の公開済みグラフ",
       "graph_failed": "固定バージョンのグラフを読み込めません。以下の実行履歴は引き続き確認できます。",
-      "all_attempts": "すべての試行を表示"
+      "all_attempts": "すべての試行を表示",
+      "rerun": "再実行",
+      "rerunning": "開始中…",
+      "edit_instance_inputs": "入力を編集して実行",
+      "rerun_hint": "この実行の元の入力とワークフローバージョンで新しい実行を作成します。",
+      "rerun_archived": "再実行するには、アーカイブ済みのインスタンスを復元してください。",
+      "rerun_instance_unavailable": "元のインスタンスを読み込めませんでした。"
     },
     "acceptance": {
       "title": "レビューが必要です",
@@ -704,7 +710,12 @@
     "revision": "リビジョン",
     "source_saved": "保存済み入力",
     "source_temporary": "今回のみの入力",
-    "source_history": "過去の入力"
+    "source_history": "過去の入力",
+    "bind_version": "公開バージョンを関連付ける",
+    "binding_required": "実行するには、同じ入力モードと実行エージェントを持つワークフローを公開し、そのバージョンを関連付けてください。",
+    "configure_workflow": "ワークフローを設定して公開",
+    "no_changes": "未保存の変更はありません。入力を編集すると、保存または今回のみの実行が可能になります。",
+    "delete_confirmation": "「{{name}}」をアクティブなインスタンス一覧から削除しますか？実行履歴は保持されます。「アーカイブ済みを含める」から復元できます。"
   },
   "graph_v2": {
     "ports": "ポート",
@@ -782,5 +793,31 @@
     "enabled": "新規下書き試行を許可",
     "save": "設定を保存",
     "retry_after": "{{seconds}} 秒後に再試行してください。"
+  },
+  "scripts": {
+    "mode": "ディレクトリのスクリプト",
+    "directory": "実行マシン上のスクリプトディレクトリ",
+    "directory_placeholder": "例: C:\\sourcecode\\Settings\\winbuild\\ai\\aiworkflow\\multica",
+    "browse": "ローカルディレクトリを選択",
+    "pick_failed": "ディレクトリを選択できません。パスを入力してください。",
+    "directory_hint": "winbuild、macbuild、linuxbuild 内のプロジェクト、またはスクリプトを含む絶対パスを指定します。リモートの場合は実行先のパスを入力してください。",
+    "platform": "実行プラットフォーム",
+    "auto_platform": "ディレクトリから判定、または選択したマシン",
+    "steps": "実行するステップ",
+    "select_step": "ステップを1つ以上選択してください。",
+    "order_hint": "clone → build → run の順に選択したステップを実行し、失敗時に停止します。",
+    "script_path": "{{step}} スクリプト",
+    "auto_script": "空欄で自動検出、または相対・絶対パスを入力",
+    "timeout": "パイプラインのタイムアウト（秒）",
+    "runtime_hint": "Input を1つのエージェントノードに接続し、実行マシンを選択します。デーモンが直接実行します。保存・公開後に実行してください。",
+    "windows_platform": "Windows / winbuild",
+    "macos_platform": "macOS / macbuild",
+    "linux_platform": "Linux / linuxbuild",
+    "run_step": {
+      "clone": "Clone のみ",
+      "build": "Build のみ",
+      "run": "Run のみ"
+    },
+    "single_step_hint": "現在の入力で選択したステップのみ実行します。保存済みのステップ設定は変更しません。"
   }
 }

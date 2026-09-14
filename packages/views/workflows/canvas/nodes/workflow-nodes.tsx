@@ -83,7 +83,7 @@ export const InputNode = memo(function InputNode({
           {/* An empty declaration is legal - the node documents where work enters
               and the Run dialog falls back to the freeform pair - so this reads as
               a statement rather than as a problem. */}
-          {imageMode
+          {data.node.input_mode === "scripts" ? t(($) => $.scripts.mode) : imageMode
             ? t(($) => $.canvas.summary.input_image)
             : fields.length === 0
               ? t(($) => $.canvas.summary.input_freeform)

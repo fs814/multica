@@ -559,7 +559,13 @@
       "completed_at": "结束于 {{date}}",
       "pinned_graph": "本次运行的固定版本",
       "graph_failed": "无法加载固定版本。仍可查看下方运行历史。",
-      "all_attempts": "显示全部尝试"
+      "all_attempts": "显示全部尝试",
+      "rerun": "重新运行",
+      "rerunning": "正在启动…",
+      "edit_instance_inputs": "修改输入后运行",
+      "rerun_hint": "使用本次记录的原始输入和工作流版本创建新的运行。",
+      "rerun_archived": "请先恢复已归档的实例，再重新运行。",
+      "rerun_instance_unavailable": "无法加载来源实例。"
     },
     "acceptance": {
       "title": "需要你来验收",
@@ -704,7 +710,12 @@
     "revision": "修订号",
     "source_saved": "已保存输入",
     "source_temporary": "本次临时输入",
-    "source_history": "历史输入"
+    "source_history": "历史输入",
+    "bind_version": "绑定发布版本",
+    "binding_required": "运行前，请先发布输入模式一致且已配置执行智能体的工作流，再绑定其发布版本。",
+    "configure_workflow": "配置并发布工作流",
+    "no_changes": "当前没有未保存的修改。修改输入后，可保存修改或仅运行本次修改。",
+    "delete_confirmation": "确定从活动实例列表中删除“{{name}}”吗？已有运行记录会保留，之后可勾选“包含已归档”恢复该实例。"
   },
   "graph_v2": {
     "ports": "端口",
@@ -782,5 +793,31 @@
     "enabled": "允许新草稿试运行",
     "save": "保存设置",
     "retry_after": "请在 {{seconds}} 秒后重试。"
+  },
+  "scripts": {
+    "mode": "目录脚本",
+    "directory": "执行机器上的脚本目录",
+    "directory_placeholder": "例如 C:\\sourcecode\\Settings\\winbuild\\ai\\aiworkflow\\multica",
+    "browse": "选择本机目录",
+    "pick_failed": "无法选择目录，请直接填写路径。",
+    "directory_hint": "填写 winbuild、macbuild、linuxbuild 下的项目目录，或包含脚本的任意绝对目录。远程机器请填写它自己的路径。",
+    "platform": "执行平台",
+    "auto_platform": "从目录识别，否则使用所选机器",
+    "steps": "执行步骤",
+    "select_step": "至少选择一个步骤。",
+    "order_hint": "按 clone → build → run 执行所选步骤；任一步失败即停止。",
+    "script_path": "{{step}} 脚本",
+    "auto_script": "留空自动识别，或填写相对／绝对脚本路径",
+    "timeout": "整条流水线超时（秒）",
+    "runtime_hint": "将 Input 连接到一个智能体节点，通过该节点选择执行机器。脚本由守护进程直接执行；保存并发布后运行。",
+    "windows_platform": "Windows / winbuild",
+    "macos_platform": "macOS / macbuild",
+    "linux_platform": "Linux / linuxbuild",
+    "run_step": {
+      "clone": "只 Clone",
+      "build": "只 Build",
+      "run": "只运行"
+    },
+    "single_step_hint": "使用当前输入单独执行所选步骤，不修改实例保存的步骤配置。"
   }
 }

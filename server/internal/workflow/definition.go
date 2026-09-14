@@ -18,6 +18,8 @@ package workflow
 import (
 	"bytes"
 	"encoding/json"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // SchemaVersion is the definition format this server understands. It is stored
@@ -82,8 +84,9 @@ type InputFieldType string
 type InputMode string
 
 const (
-	InputModeText  InputMode = "text"
-	InputModeImage InputMode = "image"
+	InputModeScripts InputMode = "scripts"
+	InputModeText    InputMode = "text"
+	InputModeImage   InputMode = "image"
 )
 
 func (n *Node) EffectiveInputMode() InputMode {
@@ -93,7 +96,7 @@ func (n *Node) EffectiveInputMode() InputMode {
 	return n.InputMode
 }
 
-var validInputModes = map[InputMode]bool{InputModeText: true, InputModeImage: true}
+var validInputModes = map[InputMode]bool{InputModeText: true, InputModeImage: true, InputModeScripts: true}
 
 const (
 	// InputFieldText is a single-line value.
@@ -266,7 +269,8 @@ type Node struct {
 	FanOutMax int `json:"fan_out_max,omitempty"`
 
 	// InputMode is versioned with the graph. Image mode stores only an attachment reference in the Run, never image bytes or temporary URLs.
-	InputMode InputMode `json:"input_mode,omitempty"`
+	InputMode      InputMode              `json:"input_mode,omitempty"`
+	ScriptPipeline *scriptpipeline.Config `json:"script_pipeline,omitempty"`
 
 	// ImageAttachmentID is the durable image selected while authoring an
 	// image-mode input node. The pinned definition, not the Run request, chooses

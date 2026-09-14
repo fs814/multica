@@ -1,4 +1,5 @@
 import type { WorkflowDefinition, WorkflowNode } from "./schemas";
+import { scriptPipelineInputKeys } from "./script-pipeline";
 
 /** Output IDs name produced values, not labels. Without an explicit producer
  * mapping, output/coupled input renames lose data. Conditions also consume the
@@ -122,6 +123,7 @@ export function unknownInputKeys(
     "title",
     "description",
     ...(node?.input_fields ?? []).map((f) => f.key),
+    ...(node?.input_mode === "scripts" ? scriptPipelineInputKeys : []),
   ]);
   return Object.keys(input).filter((key) => !known.has(key));
 }

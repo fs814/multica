@@ -1,4 +1,6 @@
 "use client";
+import { scriptPipelineFromInput, scriptPipelineInput, scriptPipelineInputKeys, scriptPipelineReady } from "@multica/core/workflows";
+import { ScriptPipelineFields } from "../../components/script-pipeline-fields";
 
 import { useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FolderKanban, Play } from "lucide-react";
@@ -202,6 +204,9 @@ function WorkflowRunDialogForm({
   const runAttempt = useRef<{ body: string; key: string } | null>(null);
   const submitting = useRef(false);
 
+  const entry = definition?.nodes.find((node) => node.key === definition.entry_node);
+  const scriptMode = entry?.input_mode === "scripts";
+  const pipeline = scriptPipelineFromInput(entry?.script_pipeline, values);
   const declared = entryInputFields(definition);
   const fields = resolveRunFormFields(declared, {
     titleLabel: t(($) => $.runs.dialog.title_label),
@@ -246,11 +251,11 @@ function WorkflowRunDialogForm({
     if (problem !== undefined) problems.set(field.key, problem);
   }
 
-  const fieldKeys = new Set(fields.map((field) => field.key));
+  const fieldKeys = new Set([...fields.map((field) => field.key), ...(scriptMode ? scriptPipelineInputKeys : [])]);
   const removedKeys = Object.keys(values).filter((key) => !fieldKeys.has(key));
   const versionChanged = Boolean(templateVersionId && loadedVersion !== undefined && loadedVersion !== templateVersionId);
   const needsReview = versionChanged || removedKeys.length > 0;
-  const canSubmit = runnable && !needsReview && problems.size === 0 && !runTemplate.isPending;
+  const canSubmit = (!scriptMode || scriptPipelineReady(pipeline)) && runnable && !needsReview && problems.size === 0 && !runTemplate.isPending;
 
   const reset = () => {
     runAttempt.current = null;
@@ -264,7 +269,7 @@ function WorkflowRunDialogForm({
   const handleSubmit = async () => {
     if (!canSubmit || submitting.current) return;
     submitting.current = true;
-    const body = { ...runRequestBody(fields, values, projectId), ...(templateVersionId ? { templateVersionId } : {}) };
+    const body = { ...runRequestBody(fields, values, projectId), ...(scriptMode ? scriptPipelineInput(pipeline) : {}), ...(templateVersionId ? { templateVersionId } : {}) };
     const serialized = JSON.stringify(body);
     if (runAttempt.current?.body !== serialized) {
       runAttempt.current = { body: serialized, key: crypto.randomUUID() };
@@ -385,6 +390,7 @@ function WorkflowRunDialogForm({
               }}>{t(($) => $.input_instances.review)}</Button>
             </div>
           )}
+          {scriptMode && <ScriptPipelineFields value={pipeline} disabled={runTemplate.isPending} onChange={(next) => setValues({ ...overrides, ...scriptPipelineInput(next) })} />}
           {fields.map((field) => (
             <RunFormControl
               key={field.key}

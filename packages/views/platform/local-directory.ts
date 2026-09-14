@@ -32,7 +32,7 @@ export type ValidateLocalDirectoryResult = {
 };
 
 interface DesktopLocalDirectoryAPI {
-  pickDirectory?: (defaultPath?: string) => Promise<PickDirectoryResult>;
+  pickDirectory?: (defaultPath?: string, purpose?: "script_pipeline") => Promise<PickDirectoryResult>;
   validateLocalDirectory?: (
     path: string,
   ) => Promise<ValidateLocalDirectoryResult>;
@@ -55,10 +55,11 @@ export function isDesktopShell(): boolean {
 
 export async function pickDirectory(
   defaultPath?: string,
+  purpose?: "script_pipeline",
 ): Promise<PickDirectoryResult> {
   const api = readDesktopAPI();
   if (!api?.pickDirectory) return { ok: false, reason: "unsupported" };
-  return api.pickDirectory(defaultPath);
+  return api.pickDirectory(defaultPath, purpose);
 }
 
 export async function validateLocalDirectory(

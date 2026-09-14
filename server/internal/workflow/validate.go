@@ -301,12 +301,22 @@ func Validate(d *Definition, policy WorkspacePolicy, schemas SchemaRegistry) err
 		if n.Type != NodeTypeInput && n.InputMode != "" {
 			v.add(field+".input_mode", fmt.Sprintf("node %q is a %s node and must not declare input_mode; only an input node collects input", n.Key, n.Type))
 		}
+		if n.ScriptPipeline != nil && (n.Type != NodeTypeInput || n.EffectiveInputMode() != InputModeScripts) {
+			v.add(field+".script_pipeline", "script_pipeline belongs only to a scripts input node")
+		}
+		if n.Type == NodeTypeInput && n.EffectiveInputMode() == InputModeScripts {
+			if len(n.Next) != 1 {
+				v.add(field+".next", "scripts input must connect to exactly one agent execution node")
+			} else if target, ok := d.NodeByKey(n.Next[0]); !ok || target.Type != NodeTypeAgent {
+				v.add(field+".next", "scripts input must connect directly to an agent execution node")
+			}
+		}
 		imageAttachmentID := strings.TrimSpace(n.ImageAttachmentID)
 		if n.Type != NodeTypeInput && imageAttachmentID != "" {
 			v.add(field+".image_attachment_id", fmt.Sprintf("node %q is a %s node and must not declare image_attachment_id; only an image input node owns an image", n.Key, n.Type))
 		}
 		if n.Type == NodeTypeInput && !validInputModes[n.EffectiveInputMode()] {
-			v.add(field+".input_mode", fmt.Sprintf("input node %q has unknown input_mode %q (want text or image)", n.Key, n.InputMode))
+			v.add(field+".input_mode", fmt.Sprintf("input node %q has unknown input_mode %q (want text, image or scripts)", n.Key, n.InputMode))
 		}
 		if n.Type == NodeTypeInput && n.EffectiveInputMode() == InputModeImage && imageAttachmentID == "" {
 			v.add(field+".image_attachment_id", fmt.Sprintf("image input node %q must select an image", n.Key))

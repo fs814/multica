@@ -87,6 +87,7 @@ export function graphToDefinition(
     // offers the author the repair save that must happen before publish.
     if (definitionNode.type !== "input") {
       delete definitionNode.input_mode;
+      delete definitionNode.script_pipeline;
     }
 
     return definitionNode;

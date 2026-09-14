@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -46,7 +47,8 @@ func TestWorkflowInputInstancesCRUD(t *testing.T) {
 	}
 	call := func(method, id, body, workspace string, handler http.HandlerFunc) *httptest.ResponseRecorder {
 		t.Helper()
-		req := newRequest(method, "/api/workflow-templates/"+templateID+"/input-instances", json.RawMessage(body))
+		req := newRequest(method, "/api/workflow-templates/"+templateID+"/input-instances", nil)
+		req.Body = io.NopCloser(strings.NewReader(body))
 		req.Header.Set("X-Workspace-ID", workspace)
 		route := chi.NewRouteContext()
 		route.URLParams.Add("id", templateID)
@@ -146,4 +148,36 @@ func TestWorkflowInputInstancesCRUD(t *testing.T) {
 	if runs != 0 {
 		t.Fatal("saving an input instance started a workflow")
 	}
+	t.Run("directory script instance retains its configuration", func(t *testing.T) {
+		body := `{"name":"Windows pipeline","description":"Run selected scripts","input":{"title":"Windows pipeline","description":"build only","script_directory":"C:\\sourcecode\\Settings\\winbuild","script_steps":"[\"build\"]","build_script":"build_project.ps1"},"input_node":{"key":"input","type":"input","input_mode":"scripts","script_pipeline":{"directory":"C:\\sourcecode\\Settings\\winbuild","platform":"windows","steps":["build"],"scripts":{"build":"build_project.ps1"},"timeout_seconds":3600}},"template_version_id":null,"project_id":null,"image_attachment_id":""}`
+		response := call("POST", "", body, testWorkspaceID, h.SaveWorkflowInputInstance)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("create scripts instance: %d %s", response.Code, response.Body.String())
+		}
+		var row workflowInputInstanceResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &row); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(row.InputNode, []byte(`"script_pipeline"`)) || !bytes.Contains(row.Input, []byte("build_project.ps1")) {
+			t.Fatalf("lost script settings: %s", response.Body.String())
+		}
+		if response := call("DELETE", row.ID, "", testWorkspaceID, h.DeleteWorkflowInputInstance); response.Code != http.StatusNoContent {
+			t.Fatalf("cleanup: %s", response.Body.String())
+		}
+	})
+	for _, tc := range []struct{ body, detail string }{
+		{`{"name":"invalid","input":{"count":3}}`, "field \"input\" must be string"},
+		{`{"name":"invalid","input":{},"input_node":{"key":"input","type":"input","future_setting":true}}`, "unrecognized field \"future_setting\""},
+		{`{"name":"invalid","input":{}} {}`, "expected exactly one JSON object"},
+	} {
+		response := call("POST", "", tc.body, testWorkspaceID, h.SaveWorkflowInputInstance)
+		var message struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(response.Body.Bytes(), &message)
+		if response.Code != http.StatusBadRequest || !strings.Contains(message.Error, tc.detail) {
+			t.Fatalf("expected actionable validation %q, got %d %s", tc.detail, response.Code, response.Body.String())
+		}
+	}
+
 }

@@ -1,4 +1,6 @@
 "use client";
+import { ScriptPipelineFields } from "../components/script-pipeline-fields";
+import { scriptPipelineConfig } from "@multica/core/workflows";
 
 /**
  * The `INTAKE FIELDS` section: what an input node asks a human for.
@@ -97,7 +99,7 @@ export function InputFieldsSection({
 }) {
   const { t } = useT("workflows");
   const fields = node.input_fields;
-  const inputMode = node.input_mode === "image" ? "image" : "text";
+  const inputMode = node.input_mode === "scripts" ? "scripts" : node.input_mode === "image" ? "image" : "text";
   const imageAttachmentId = node.image_attachment_id ?? "";
   const imageInputRef = useRef<HTMLInputElement>(null);
   const latestNodeRef = useRef(node);
@@ -191,6 +193,7 @@ export function InputFieldsSection({
         options={[
           { value: "text", label: t(($) => $.panel.input_mode.text) },
           { value: "image", label: t(($) => $.panel.input_mode.image) },
+          { value: "scripts", label: t(($) => $.scripts.mode) },
         ]}
         onChange={(next) =>
           // Fields belong to the text form. Clearing them on a mode change keeps
@@ -199,6 +202,7 @@ export function InputFieldsSection({
           onChange({
             ...node,
             input_mode: next,
+            script_pipeline: next === "scripts" ? scriptPipelineConfig(node.script_pipeline) : undefined,
             input_fields: [],
             image_attachment_id: "",
           })
@@ -206,7 +210,7 @@ export function InputFieldsSection({
         disabled={readOnly}
         ariaLabel={t(($) => $.panel.input_mode.aria)}
       />
-      {inputMode === "image" ? (
+      {inputMode === "scripts" ? (<ScriptPipelineFields value={scriptPipelineConfig(node.script_pipeline)} disabled={readOnly} onChange={(value) => onChange({ ...node, script_pipeline: value })} />) : inputMode === "image" ? (
         <>
           <input
             ref={imageInputRef}

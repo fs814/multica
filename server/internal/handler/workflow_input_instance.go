@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -103,11 +104,11 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&req); err != nil {
-		writeError(w, 400, "invalid input instance body")
+		writeError(w, 400, inputInstanceDecodeMessage(err))
 		return
 	}
 	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeError(w, 400, "invalid input instance body")
+		writeError(w, 400, "invalid input instance body: expected exactly one JSON object")
 		return
 	}
 	for _, value := range req.Input {
@@ -263,4 +264,24 @@ func (h *Handler) DeleteWorkflowInputInstance(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Explain schema mismatches without returning input values or the request body.
+func inputInstanceDecodeMessage(err error) string {
+	const prefix = "invalid input instance body: "
+	var sizeErr *http.MaxBytesError
+	if errors.As(err, &sizeErr) {
+		return prefix + "request exceeds 1 MiB"
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return prefix + fmt.Sprintf("field %q must be %s", typeErr.Field, typeErr.Type)
+	}
+	if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		if len(field) > 128 {
+			field = field[:128] + "..."
+		}
+		return prefix + "unrecognized field " + field + "; check the field name and ensure the client and server are up to date"
+	}
+	return prefix + "expected valid JSON with string-valued input fields"
 }

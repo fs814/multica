@@ -265,7 +265,10 @@ function collectGraphProblems(
             `Input node "${node.key}" must not declare rework_targets; it cannot fail, so a rework edge out of it is unreachable`,
           );
         }
-        if (node.input_mode === "image" && imageAttachmentId === "") {
+        if (node.input_mode === "scripts" && (node.next.length !== 1 || !def.nodes.some((target) => target.key === node.next[0] && target.type === "agent"))) {
+ problems.push(`scripts input "${node.key}" must connect directly to one agent execution node`);
+ }
+ if (node.input_mode === "image" && imageAttachmentId === "") {
           problems.push(`image input node "${node.key}" must select an image`);
         }
         if (node.input_mode !== "image" && imageAttachmentId !== "") {

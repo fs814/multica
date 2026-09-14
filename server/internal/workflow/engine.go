@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // Engine executes the workflow commands from plan section 7: StartRun,
@@ -101,6 +103,7 @@ type RouteRequest struct {
 	// RequiresVision is true only for a validated image intake. It forces every
 	// agent that receives the attachment reference to advertise the vision label.
 	RequiresVision bool
+	ScriptPipeline *scriptpipeline.Config
 }
 
 // RouteResult is the routing outcome.
@@ -1129,6 +1132,10 @@ func (e *Engine) dispatchAgentStep(ctx context.Context, q *db.Queries, in activa
 		return db.WorkflowStepInstance{}, newEngineError(ErrCodeRoutingFailed, "engine has no router configured")
 	}
 
+	pipeline, err := ScriptPipelineForNode(in.Def, in.Node, in.Run.Input)
+	if err != nil {
+		return db.WorkflowStepInstance{}, err
+	}
 	prior, err := e.priorAgentsByNode(ctx, q, run)
 	if err != nil {
 		return db.WorkflowStepInstance{}, err
@@ -1141,6 +1148,7 @@ func (e *Engine) dispatchAgentStep(ctx context.Context, q *db.Queries, in activa
 		AccountableUserID: run.AccountableUserID,
 		PriorAgentByNode:  prior,
 		RequiresVision:    brief.ImageAttachment != nil,
+		ScriptPipeline:    pipeline,
 	})
 	if err == nil && run.ExecutionMode == ExecutionDraftTest {
 		err = e.validateDebugEnvironment(ctx, q, run)
@@ -1310,7 +1318,9 @@ func (e *Engine) latestSubmissionForRun(ctx context.Context, q *db.Queries, run 
 // correct work with a rejected result.
 func (e *Engine) buildTaskContext(in activateInput, step db.WorkflowStepInstance, brief agentBrief) TaskContext {
 	stepID := uuidString(step.ID)
+	pipeline, _ := ScriptPipelineForNode(in.Def, in.Node, in.Run.Input)
 	tc := TaskContext{
+		ScriptPipeline:     pipeline,
 		BoundInputs:        in.GraphDecision.Inputs,
 		Type:               TaskContextType,
 		RunID:              uuidString(in.Run.ID),

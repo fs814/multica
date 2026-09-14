@@ -4168,6 +4168,17 @@ func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.Ag
 	if issueChange != nil {
 		s.broadcastIssueUpdated(ctx, issueChange.Issue, issueChange.PreviousStatus)
 	}
+	// Project task start after commit so task/step locks cannot invert the
+	// workflow engine's run -> step -> task order. Terminal steps are never revived.
+	if task.WorkflowStepInstanceID.Valid {
+		workspaceID, _ := util.ParseUUID(s.ResolveTaskWorkspaceID(ctx, task))
+		step, err := s.Queries.MarkWorkflowStepRunning(ctx, db.MarkWorkflowStepRunningParams{ID: task.WorkflowStepInstanceID, WorkspaceID: workspaceID})
+		if err == nil {
+			NewWorkflowNotifier(s.Bus, s).WorkflowChanged(ctx, util.UUIDToString(step.WorkspaceID), util.UUIDToString(step.RunID))
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("workflow task start projection failed", "task_id", util.UUIDToString(task.ID), "error", err)
+		}
+	}
 	// The cancelDeferredEscalationsForTask call that used to sit here is gone:
 	// upstream removed the deferred-escalation mechanism wholesale, so there is
 	// no longer anything to cancel at task start.

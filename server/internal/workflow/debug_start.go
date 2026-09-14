@@ -168,6 +168,9 @@ func (e *Engine) StartDraftTest(ctx context.Context, ws, user, templateID pgtype
 				return err
 			}
 			entry, _ := def.NodeByKey(def.EntryNode)
+			if entry.EffectiveInputMode() == InputModeScripts {
+				return newEngineError(ErrCodeInvalidSubmission, "publish the script pipeline before running it")
+			}
 			var input map[string]any
 			if json.Unmarshal(in.Input, &input) != nil || input == nil {
 				return newEngineError("debug_bad_request", "input must be an object")

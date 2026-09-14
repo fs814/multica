@@ -712,3 +712,16 @@ it("keeps edits and requires review if the publication changes while the form is
   fireEvent.click(screen.getByRole("button", { name: "Use current fields" }));
   expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
 });
+
+it("submits a directory script pipeline using the values already on the node", async () => {
+ const definition = intakeDefinition();
+ const node = definition.nodes[0]!;
+ node.input_mode = "scripts";
+ node.input_fields = [];
+ node.script_pipeline = { directory: "D:/winbuild/project", platform: "windows", steps: ["build"], scripts: { build: "build_project.ps1" }, timeout_seconds: 600 };
+ renderDialog({ definition });
+ fireEvent.click(screen.getByRole("button", { name: "Run" }));
+ await waitFor(() => expect(runTemplateMock).toHaveBeenCalledWith(expect.objectContaining({
+  script_directory: "D:/winbuild/project", script_steps: '["build"]', build_script: "build_project.ps1", script_timeout_seconds: "600",
+ })));
+});

@@ -5,6 +5,8 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // AgentEntry describes a single available agent CLI.
@@ -153,12 +155,13 @@ type Task struct {
 	// consequence here is total: without WorkflowPrompt the agent is never told to
 	// emit the delimited submission block, so every step of every run blocks with
 	// submission_contract_invalid even though the work was done correctly.
-	WorkflowExecutionID    string `json:"workflow_execution_id,omitempty"`
-	WorkflowExecutionMode  string `json:"workflow_execution_mode,omitempty"`
-	WorkflowPrompt         string `json:"workflow_prompt,omitempty"`
-	WorkflowRunID          string `json:"workflow_run_id,omitempty"`
-	WorkflowStepInstanceID string `json:"workflow_step_instance_id,omitempty"`
-	WorkflowNodeKey        string `json:"workflow_node_key,omitempty"`
+	WorkflowExecutionID    string                 `json:"workflow_execution_id,omitempty"`
+	WorkflowExecutionMode  string                 `json:"workflow_execution_mode,omitempty"`
+	WorkflowPrompt         string                 `json:"workflow_prompt,omitempty"`
+	WorkflowScriptPipeline *scriptpipeline.Config `json:"workflow_script_pipeline,omitempty"`
+	WorkflowRunID          string                 `json:"workflow_run_id,omitempty"`
+	WorkflowStepInstanceID string                 `json:"workflow_step_instance_id,omitempty"`
+	WorkflowNodeKey        string                 `json:"workflow_node_key,omitempty"`
 
 	SquadID               string `json:"squad_id,omitempty"`                // when the picker was a squad, the squad's UUID; Agent is still the resolved leader
 	SquadName             string `json:"squad_name,omitempty"`              // display name for the picker squad, used in prompt text

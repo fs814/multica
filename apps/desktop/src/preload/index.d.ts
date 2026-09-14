@@ -78,6 +78,7 @@ interface DesktopAPI {
    *  Used by the Project settings "Add local directory" flow. */
   pickDirectory: (
     defaultPath?: string,
+    purpose?: "script_pipeline",
   ) => Promise<{
     ok: boolean;
     path?: string;

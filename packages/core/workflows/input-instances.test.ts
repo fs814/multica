@@ -194,3 +194,10 @@ it("groups by parent ID even when workflows share a name or are absent from the 
   ]);
   expect(groupWorkflowInstances([a1], [{ id: "a", name: "Renamed workflow" }])[0]?.name).toBe("Renamed workflow");
 });
+
+it("passes a single-step history intent without overriding its input snapshot", async () => {
+ respond({id:"run",status:"running"});
+ const body = {mode:"history" as const,revision:3,history_run_id:"original",script_step:"build" as const,idempotency_key:"build-only"};
+ await new ApiClient("https://api.example.test").runWorkflowInstance("a",body);
+ expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0]![1]?.body))).toEqual(body);
+});

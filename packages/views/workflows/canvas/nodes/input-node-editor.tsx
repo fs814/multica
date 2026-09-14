@@ -1,5 +1,7 @@
 "use client";
 
+import { scriptPipelineConfig } from "@multica/core/workflows";
+import { ScriptPipelineFields } from "../../components/script-pipeline-fields";
 import type { WorkflowNode } from "@multica/core/workflows";
 import { Input } from "@multica/ui/components/ui/input";
 import { Textarea } from "@multica/ui/components/ui/textarea";
@@ -29,6 +31,15 @@ export function InputNodeEditor({ node, onChange }: {
         </label>
       )}
       <label className="flex flex-col gap-1 text-caption">
+        {t(($) => $.panel.input_mode.aria)}
+        <select className="rounded-md border bg-background p-2" disabled={!onChange} value={node.input_mode || "text"} onChange={(event) => onChange?.({ ...node, input_mode: event.target.value, input_fields: [], image_attachment_id: "", script_pipeline: event.target.value === "scripts" ? scriptPipelineConfig(node.script_pipeline) : undefined })}>
+          <option value="text">{t(($) => $.panel.input_mode.text)}</option>
+          <option value="image">{t(($) => $.panel.input_mode.image)}</option>
+          <option value="scripts">{t(($) => $.scripts.mode)}</option>
+        </select>
+      </label>
+      {node.input_mode === "scripts" && <ScriptPipelineFields value={scriptPipelineConfig(node.script_pipeline)} onChange={onChange ? (value) => onChange({ ...node, script_pipeline: value }) : undefined} />}
+      <label className="flex flex-col gap-1 text-caption">
         {t(($) => $.canvas.input_editor.content)}
         {onChange ? (
           <Textarea
@@ -44,7 +55,7 @@ export function InputNodeEditor({ node, onChange }: {
           </span>
         )}
       </label>
-      {onChange && (
+      {onChange && node.input_mode !== "scripts" && (
         <details className="text-caption">
           <summary className="cursor-pointer text-muted-foreground">
             {t(($) => $.canvas.input_editor.configure)}

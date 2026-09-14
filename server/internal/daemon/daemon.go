@@ -7388,6 +7388,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, fmt.Errorf("refusing to spawn agent: task has no workspace_id (task_id=%s)", task.ID)
 	}
 
+	if task.WorkflowScriptPipeline != nil {
+		if task.WorkflowRunID == "" || task.WorkflowStepInstanceID == "" || task.WorkflowExecutionMode == "draft_test" {
+			return TaskResult{}, fmt.Errorf("script execution requires a published workflow task")
+		}
+		return d.runScriptPipelineTask(ctx, task, taskLog)
+	}
+
 	prepareTimeout := d.effectiveTaskPrepareTimeout()
 	prepareCtx, cancelPrepare := context.WithTimeoutCause(ctx, prepareTimeout, errTaskPrepareTimeout)
 	prepareComplete := false

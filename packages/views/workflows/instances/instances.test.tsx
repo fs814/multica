@@ -31,12 +31,14 @@ vi.mock("@multica/core/api", () => ({
     validateWorkflowInstance: vi.fn(),
     listWorkflowInstanceRuns: vi.fn(),
     saveWorkflowInputInstance: vi.fn(),
+    deleteWorkflowInputInstance: vi.fn(),
     runWorkflowInstance: vi.fn(),
     runWorkflowTemplate: vi.fn(),
     getBaseUrl: () => "",
   },
 }));
 const push = vi.hoisted(() => vi.fn());
+const replace = vi.hoisted(() => vi.fn());
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "ws" }));
 vi.mock("@multica/core/paths", () => ({
   useCurrentWorkspace: () => ({ id: "ws", name: "Acme" }),
@@ -91,7 +93,7 @@ function mount(ui: React.ReactNode) {
       <NavigationProvider
         value={{
           push,
-          replace: vi.fn(),
+          replace,
           back: vi.fn(),
           pathname: "/acme/workflow-instances/instance",
           searchParams: new URLSearchParams(),
@@ -109,6 +111,9 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   push.mockReset();
+  replace.mockReset();
+  vi.mocked(api.deleteWorkflowInputInstance).mockReset();
+  vi.mocked(api.deleteWorkflowInputInstance).mockResolvedValue(undefined);
   vi.spyOn(api, "getWorkflowInstance").mockResolvedValue(row());
   vi.spyOn(api, "getWorkflowInstanceVersion").mockResolvedValue({
     id: "v1",
@@ -414,4 +419,106 @@ it.each(["constructor", "toString", "__proto__", "legacy"].flatMap(key => ["keep
   expect(saved.templateVersionId).toBe("v2");
   expect(instance.input[key]).toBe("historical value");
   expect(instance.templateVersionId).toBe("v1");
+});
+
+describe("directory script instance actions", () => {
+ function scriptsRow(bound: boolean) {
+  const result = row();
+  result.templateVersionId = bound ? "v1" : null;
+  result.inputNode = WorkflowDefinitionSchema.parse({entry_node:"input",nodes:[{key:"input",type:"input",input_mode:"scripts",script_pipeline:{directory:"C:/scripts",platform:"windows",steps:["run"],scripts:{},timeout_seconds:60}}]}).nodes[0]!;
+  result.input = {title:"ACP UI",description:"Launch",script_directory:"C:/scripts",script_platform:"windows",script_steps:'["run"]',script_timeout_seconds:"60"};
+  return result;
+ }
+ it.each(["clone", "build", "run"] as const)("runs only %s without saving edited inputs", async (step) => {
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(scriptsRow(true));
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  const directory = await screen.findByLabelText(enWorkflows.scripts.directory);
+  const button = screen.getByRole("button", {name: enWorkflows.scripts.run_step[step]});
+  fireEvent.click(button);
+  await waitFor(() => expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance", expect.objectContaining({mode:"saved",script_step:step,revision:1})));
+  expect(vi.mocked(api.runWorkflowInstance).mock.lastCall![1]).not.toHaveProperty("input");
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.change(directory,{target:{value:"C:/edited"}});
+  fireEvent.click(button);
+  await waitFor(() => expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance", expect.objectContaining({mode:"temporary",script_step:step,input:expect.objectContaining({script_directory:"C:/edited"})})));
+  expect(api.saveWorkflowInputInstance).not.toHaveBeenCalled();
+ });
+ it("allows editing and saving an unbound instance and shows how to enable running", async () => {
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(scriptsRow(false));
+  vi.mocked(api.validateWorkflowInstance).mockResolvedValue({ready:false,problems:["instance needs a published version binding"],revision:1});
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  const directory = await screen.findByLabelText(enWorkflows.scripts.directory);
+  expect(screen.getByRole("button",{name:enWorkflows.input_instances.update})).toBeDisabled();
+  expect(screen.getByRole("button",{name:enWorkflows.instances.run_saved})).toBeDisabled();
+  expect(screen.getByRole("link",{name:enWorkflows.instances.configure_workflow})).toHaveAttribute("href","/acme/workflows/template?section=canvas");
+  fireEvent.change(directory,{target:{value:"C:/scripts/acpui"}});
+  expect(screen.getByRole("button",{name:enWorkflows.input_instances.update})).toBeEnabled();
+  fireEvent.click(screen.getByRole("button",{name:enWorkflows.input_instances.update}));
+  await waitFor(()=>expect(api.saveWorkflowInputInstance).toHaveBeenCalledWith("template",expect.objectContaining({input:expect.objectContaining({script_directory:"C:/scripts/acpui"})}),"instance"));
+ });
+ it("runs a bound saved instance and submits changed directories only for a temporary run", async () => {
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(scriptsRow(true));
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  const directory = await screen.findByLabelText(enWorkflows.scripts.directory);
+  await waitFor(()=>expect(screen.getByRole("button",{name:enWorkflows.instances.run_saved})).toBeEnabled());
+  fireEvent.click(screen.getByRole("button",{name:enWorkflows.instances.run_saved}));
+  await waitFor(()=>expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance",expect.objectContaining({mode:"saved",revision:1})));
+  expect(vi.mocked(api.runWorkflowInstance).mock.lastCall![1]).not.toHaveProperty("input");
+  fireEvent.change(directory,{target:{value:"C:/scripts/acpui"}});
+  await waitFor(()=>expect(screen.getByRole("button",{name:enWorkflows.instances.run_temporary})).toBeEnabled());
+  fireEvent.click(screen.getByRole("button",{name:enWorkflows.instances.run_temporary}));
+  await waitFor(()=>expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance",expect.objectContaining({mode:"temporary",input:expect.objectContaining({script_directory:"C:/scripts/acpui"})})));
+  expect(api.saveWorkflowInputInstance).not.toHaveBeenCalled();
+ });
+});
+
+
+describe("instance deletion", () => {
+  it("names the instance and allows cancelling without sending a request", async () => {
+    mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Scenario A");
+    expect(dialog).toHaveTextContent("Include archived");
+    fireEvent.click(within(dialog).getByRole("button", {name:"Cancel"}));
+    expect(api.deleteWorkflowInputInstance).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+  it("refreshes the active list after the server confirms deletion", async () => {
+    vi.mocked(api.listWorkflowTemplates).mockResolvedValue({templates:[],total:0});
+    vi.mocked(api.browseWorkflowInstances).mockResolvedValue({instances:[row()],total:1});
+    vi.mocked(api.deleteWorkflowInputInstance).mockImplementation(async () => {
+      vi.mocked(api.browseWorkflowInstances).mockResolvedValue({instances:[],total:0});
+    });
+    mount(<WorkflowInstancesPage />);
+    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", {name:"Delete instance"}));
+    await waitFor(() => expect(api.deleteWorkflowInputInstance).toHaveBeenCalledWith("template", "instance"));
+    await waitFor(() => expect(screen.queryByRole("link", {name:"Scenario A"})).not.toBeInTheDocument());
+    expect(api.browseWorkflowInstances).toHaveBeenCalledTimes(2);
+  });
+  it("keeps a failed deletion open and navigates only after successful retry", async () => {
+    vi.mocked(api.deleteWorkflowInputInstance).mockRejectedValueOnce(new Error("Deletion failed"));
+    mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", {name:"Delete instance"}));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Deletion failed");
+    expect(replace).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", {name:"Delete instance"}));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/acme/workflow-instances"));
+    expect(api.deleteWorkflowInputInstance).toHaveBeenCalledTimes(2);
+  });
+  it("prevents duplicate deletion requests while waiting for the server", async () => {
+    vi.mocked(api.deleteWorkflowInputInstance).mockImplementation(() => new Promise(() => {}));
+    mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
+    const dialog = await screen.findByRole("alertdialog");
+    const confirm = within(dialog).getByRole("button", {name:"Delete instance"});
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    await waitFor(() => expect(api.deleteWorkflowInputInstance).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(confirm).toBeDisabled());
+    expect(replace).not.toHaveBeenCalled();
+  });
 });

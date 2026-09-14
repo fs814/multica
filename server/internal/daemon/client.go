@@ -17,6 +17,8 @@ import (
 	"github.com/multica-ai/multica/server/pkg/agent"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // requestError is returned by postJSON/getJSON when the server responds with an error status.
@@ -205,6 +207,7 @@ func daemonHTTPClientCapabilities() string {
 
 func daemonCommonCapabilities() []string {
 	return []string{
+		scriptpipeline.Capability,
 		"workflow_debug_stop_receipt_v1",
 		"workflow_debug_fixed_environment_v1",
 		protocol.DaemonCapabilitySkillBundlesV1,

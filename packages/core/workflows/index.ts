@@ -18,6 +18,7 @@ export {
   UNREADABLE_WORKFLOW_VALIDATION_RESULT,
 } from "./schemas";
 export type {
+  ScriptPipelineConfig,
   WorkflowPort,
   WorkflowDataEdge,
   WorkflowNode,
@@ -94,3 +95,5 @@ export * from "./authoring";
 
 export * from "./debug-schemas";
 export * from "./debug-runs";
+
+export * from "./script-pipeline";

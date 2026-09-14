@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkflowRunInstanceActions } from "./workflow-run-instance-actions";
 import { WorkflowRunGraph } from "./workflow-run-graph";
 import { useEffect, useState } from "react";
 import { AlertCircle, Ban, XCircle } from "lucide-react";
@@ -286,6 +287,9 @@ export function WorkflowRunPresentation({
                   : t(($) => $.runs.detail.cancel)}
               </span>
             </Button>
+          ) : !debug && run.input_instance_id && ["failed", "cancelled", "completed"].includes(run.status) ? (
+            <WorkflowRunInstanceActions key={run.id} runId={run.id} instanceId={run.input_instance_id}
+              scripts={version.data?.definition.nodes.some((node) => node.key === version.data?.definition.entry_node && node.input_mode === "scripts") === true} />
           ) : null
         }
       />

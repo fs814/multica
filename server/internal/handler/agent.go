@@ -29,6 +29,8 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
+
+	"github.com/multica-ai/multica/server/pkg/scriptpipeline"
 )
 
 // Mirrors AGENT_DESCRIPTION_MAX_LENGTH in packages/core/agents/constants.ts
@@ -498,9 +500,10 @@ type AgentTaskResponse struct {
 	// something an older build assembles wrongly or not at all, and a workflow
 	// step whose agent was not told the submission format blocks the whole run
 	// with submission_contract_invalid.
-	WorkflowExecutionID   string `json:"workflow_execution_id,omitempty"`
-	WorkflowExecutionMode string `json:"workflow_execution_mode,omitempty"`
-	WorkflowPrompt        string `json:"workflow_prompt,omitempty"`
+	WorkflowExecutionID    string                 `json:"workflow_execution_id,omitempty"`
+	WorkflowExecutionMode  string                 `json:"workflow_execution_mode,omitempty"`
+	WorkflowPrompt         string                 `json:"workflow_prompt,omitempty"`
+	WorkflowScriptPipeline *scriptpipeline.Config `json:"workflow_script_pipeline,omitempty"`
 	// WorkflowRunID / WorkflowStepInstanceID / WorkflowNodeKey identify the Step
 	// this task executes. Surfaced separately from the prompt so the daemon can
 	// label the run and so the agent's submission can name the step it answers

@@ -51,6 +51,8 @@ vi.mock("./workflow-run-graph", () => ({
   WorkflowRunGraph: ({ onSelect }: { onSelect(key: string): void }) => <button onClick={() => onSelect("analyze")}>Select analyze</button>,
 }));
 const runRef = vi.hoisted(() => ({ current: null as WorkflowRunDetail | null }));
+const rerunMock = vi.hoisted(() => vi.fn());
+const instanceRef = vi.hoisted(() => ({ current: { revision: 7, archivedAt: null as string | null } }));
 const cancelMock = vi.hoisted(() => vi.fn());
 const decideMock = vi.hoisted(() => vi.fn());
 const runTemplateMock = vi.hoisted(() => vi.fn());
@@ -102,6 +104,8 @@ vi.mock("@multica/core/workflows", async () => {
           ? Promise.resolve(runRef.current)
           : Promise.reject(new Error("not found")),
     }),
+    workflowInstanceOptions: (ws: string, id: string) => ({ queryKey: ["instance", ws, id], queryFn: async () => instanceRef.current }),
+    useRunWorkflowInstance: () => ({ mutateAsync: rerunMock }),
     useCancelWorkflowRun: () => ({ mutateAsync: cancelMock, isPending: false }),
     useDecideWorkflowAcceptance: () => ({
       mutateAsync: decideMock,
@@ -248,6 +252,9 @@ function renderDialog(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  instanceRef.current = { revision: 7, archivedAt: null };
+  rerunMock.mockReset();
+  rerunMock.mockResolvedValue(run({ id: "wfr-retry" }));
   versionRef.current = null;
   runRef.current = run();
   cancelMock.mockResolvedValue(run({ status: "cancelled" }));
@@ -827,4 +834,76 @@ it("selecting a graph node retains all three attempts and can restore the full t
   expect(screen.queryByText("unrelated")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button",{name:"Show all attempts"}));
   expect(screen.getByText("unrelated")).toBeInTheDocument();
+});
+
+
+describe("instance run recovery", () => {
+  it.each(["failed", "completed", "cancelled"])("reruns a %s run with its historical inputs and the current instance revision", async (status) => {
+    runRef.current = run({ status, input_instance_id: "instance-1", input_instance_revision: 3 });
+    renderRun();
+    const button = await screen.findByRole("button", { name: "Run again" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(rerunMock).toHaveBeenCalledWith({ revision: 7, mode: "history", history_run_id: "wfr-1", idempotency_key: expect.any(String) });
+    expect(rerunMock.mock.calls[0]![0]).not.toHaveProperty("input");
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/acme/workflow-runs/wfr-retry"));
+    expect(screen.getByRole("link", { name: "Edit inputs and run" })).toHaveAttribute("href", "/acme/workflow-instances/instance-1");
+  });
+  it("does not offer a duplicate run while execution is active", async () => {
+    runRef.current = run({ input_instance_id: "instance-1" });
+    renderRun();
+    await screen.findByRole("heading", { name: "Claim endpoint 500s" });
+    expect(screen.queryByRole("button", { name: "Run again" })).not.toBeInTheDocument();
+  });
+  it("keeps the same retry key after an uncertain response and shows the error", async () => {
+    rerunMock.mockRejectedValueOnce(new Error("Connection interrupted"));
+    runRef.current = run({ status: "failed", input_instance_id: "instance-1" });
+    renderRun();
+    const button = await screen.findByRole("button", { name: "Run again" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(await screen.findByText("Connection interrupted")).toHaveAttribute("role", "alert");
+    expect(pushMock).not.toHaveBeenCalled();
+    await userEvent.click(button);
+    expect(rerunMock.mock.calls[1]![0]).toEqual(rerunMock.mock.calls[0]![0]);
+  });
+  it("blocks rapid repeat clicks until the new run has been created", async () => {
+    rerunMock.mockImplementation(() => new Promise(() => {}));
+    runRef.current = run({ status: "failed", input_instance_id: "instance-1" });
+    renderRun();
+    const button = await screen.findByRole("button", { name: "Run again" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(rerunMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+  });
+  it("explains why an archived instance cannot be run", async () => {
+    instanceRef.current.archivedAt = "2026-09-14";
+    runRef.current = run({ status: "failed", input_instance_id: "instance-1" });
+    renderRun();
+    expect(await screen.findByText("Restore the archived instance before running it again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run again" })).toBeDisabled();
+    expect(rerunMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("single script step from run history", () => {
+  it.each(["clone", "build", "run"] as const)("runs only %s with the original version and inputs", async (step) => {
+    runRef.current = run({ status: "failed", input_instance_id: "instance-1" });
+    versionRef.current = {id:"v1",version:1,definition:WorkflowDefinitionSchema.parse({entry_node:"input",nodes:[{key:"input",type:"input",input_mode:"scripts"}]})};
+    renderRun();
+    const button = await screen.findByRole("button", {name:enWorkflows.scripts.run_step[step]});
+    await waitFor(() => expect(button).toBeEnabled());
+    await userEvent.click(button);
+    expect(rerunMock).toHaveBeenCalledWith({revision:7,mode:"history",history_run_id:"wfr-1",script_step:step,idempotency_key:expect.any(String)});
+    expect(rerunMock.mock.calls[0]![0]).not.toHaveProperty("input");
+  });
+  it("does not offer script buttons for a text workflow", async () => {
+    runRef.current = run({status:"failed",input_instance_id:"instance-1"});
+    renderRun();
+    await screen.findByRole("button", {name:"Run again"});
+    expect(screen.queryByRole("button", {name:"Clone only"})).not.toBeInTheDocument();
+  });
 });

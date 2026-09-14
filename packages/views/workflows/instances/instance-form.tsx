@@ -1,4 +1,6 @@
 "use client";
+import { scriptPipelineFromInput, scriptPipelineInput, scriptPipelineInputKeys } from "@multica/core/workflows";
+import { ScriptPipelineFields } from "../components/script-pipeline-fields";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
@@ -117,7 +119,8 @@ export function InstanceFields({
     descriptionLabel: t(($) => $.runs.dialog.description_label),
     descriptionPlaceholder: t(($) => $.runs.dialog.description_placeholder),
   });
-  const known = new Set(fields.map((f) => f.key));
+  const scriptMode = value.inputNode?.input_mode === "scripts";
+  const known = new Set([...fields.map((f) => f.key), ...(scriptMode ? scriptPipelineInputKeys : [])]);
   const unknown = Object.keys(value.input).filter((k) => !known.has(k));
   return (
     <div className="flex flex-col gap-4">
@@ -163,6 +166,7 @@ export function InstanceFields({
           ))}
         </select>
       </label>
+      {scriptMode && <ScriptPipelineFields disabled={disabled} value={scriptPipelineFromInput(value.inputNode?.script_pipeline, value.input)} onChange={(next) => onChange({ ...value, input: { ...value.input, ...scriptPipelineInput(next) } })} />}
       {fields.map((field) => (
         <RunFormControl
           key={field.key}
