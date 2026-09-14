@@ -452,7 +452,8 @@
       "retry": "再試行",
       "not_started": "—",
       "duration_running": "経過 {{duration}}",
-      "back": "実行一覧へ戻る"
+      "back": "実行一覧へ戻る",
+      "all_statuses": "すべての状態"
     },
     "status": {
       "pending": "待機中",
@@ -555,7 +556,10 @@
       "submission_validation_errors": "サーバーはこの提出を受け付けませんでした:",
       "view_log": "エージェントのログを見る",
       "started_at": "開始 {{date}}",
-      "completed_at": "終了 {{date}}"
+      "completed_at": "終了 {{date}}",
+      "pinned_graph": "この実行の公開済みグラフ",
+      "graph_failed": "固定バージョンのグラフを読み込めません。以下の実行履歴は引き続き確認できます。",
+      "all_attempts": "すべての試行を表示"
     },
     "acceptance": {
       "title": "レビューが必要です",
@@ -617,7 +621,8 @@
       "cancel": "編集を続ける",
       "publish_saved": "保存済みのグラフを公開",
       "save_and_publish": "保存して公開"
-    }
+    },
+    "properties_toggle": "プロパティ"
   },
   "input_instances": {
     "definition_failed": "公開済みワークフローの入力欄を読み込めません。保存または実行する前に再試行してください。",
@@ -719,5 +724,63 @@
     "wait_active": "有効な先行ノードをすべて待機",
     "reject": "却下",
     "rejected": "却下しました。依存する処理はスキップされます。"
+  },
+  "authoring": {
+    "rename": "名前変更を確定",
+    "invalid_port": "空白で囲まれていない一意のポート ID を入力してください。",
+    "source": "接続元の出力",
+    "disconnect": "接続を解除",
+    "join_hint": "有効化されたすべての先行ノードを待ちます。スキップされた分岐は待ちません。",
+    "added": "追加",
+    "removed": "削除",
+    "type": "型の変更",
+    "options": "選択肢の変更",
+    "required": "必須の変更",
+    "label": "ラベルの変更",
+    "no_field_changes": "入力フィールドに変更なし",
+    "compare": "バージョンを比較",
+    "from": "元のバージョン",
+    "to": "対象バージョン",
+    "version_failed": "読み込みに失敗しました。閉じて再度開いてください。",
+    "changed": "変更されたノード",
+    "schema": "形式の変更",
+    "entry": "入口の変更",
+    "limits": "制限の変更",
+    "bindings": "データ接続の変更",
+    "keep_value": "値を保持",
+    "output_contract": "このポート名は実行時の値の契約に含まれるため、この名前変更には使用できません。"
+  },
+  "debug": {
+    "title": "下書き試行",
+    "real_execution": "固定した下書きで実際のエージェントを実行します。業務課題やインスタンス実行は作成しません。",
+    "start": "下書きを試行",
+    "apply_json": "試行前に JSON の変更を適用または破棄してください。",
+    "settings": "試行設定",
+    "result": "試行結果",
+    "editor_kept": "編集中の下書きはそのまま保持されます。",
+    "snapshot": "実行スナップショット",
+    "deadline": "期限",
+    "retention": "保持期間（秒）",
+    "waiting_stop": "実行終了。エージェント停止と最終送信の確認を待っています。",
+    "expired": "詳細は期限切れです。実行メタデータのみ保持されます。",
+    "warning": "有料モデルの利用、ファイル変更、外部サービスへのアクセスが発生する場合があります。サンドボックスではなく、外部の変更は元に戻せません。制限は受付実行数で、プロセス数や正確な費用ではありません。リポジトリ参照は固定され、コミットは実行時に解決されます。",
+    "acknowledge": "費用や外部変更を伴う実際の実行であることを理解しました。",
+    "starting": "開始中…",
+    "confirm": "確認して実行",
+    "history": "下書き試行履歴",
+    "empty": "試行はありません。",
+    "previous": "前へ",
+    "next": "次へ",
+    "settings_hint": "新規試行に適用します。既存の期限と保持期間は変更しません。運用側の互換性確認も必要です。",
+    "usage": "実行中：個人 {{user}}/{{userLimit}}、ワークスペース {{workspace}}/{{workspaceLimit}}。直近1時間 {{hourly}}/{{hourlyLimit}}。保持容量 {{bytes}}/{{capacity}} バイト。停止確認待ち {{waiting}}。",
+    "user_active": "ユーザーの同時試行数",
+    "workspace_active": "ワークスペースの同時試行数",
+    "hourly": "ユーザーの毎時開始数",
+    "duration": "最大実行時間（秒）",
+    "capacity": "保持容量（バイト）",
+    "saved": "保存しました",
+    "enabled": "新規下書き試行を許可",
+    "save": "設定を保存",
+    "retry_after": "{{seconds}} 秒後に再試行してください。"
   }
 }

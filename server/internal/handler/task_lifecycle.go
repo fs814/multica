@@ -68,6 +68,9 @@ type PinTaskSessionRequest struct {
 }
 
 func (h *Handler) PinTaskSession(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "session") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 	if _, ok := h.requireDaemonTaskAccess(w, r, taskID); !ok {
 		return

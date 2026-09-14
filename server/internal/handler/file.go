@@ -173,12 +173,6 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 		SizeBytes:    a.SizeBytes,
 		CreatedAt:    a.CreatedAt.Time.Format("2006-01-02T15:04:05Z07:00"),
 	}
-	// Only CloudFront mode overrides the stable path here; the presign and proxy
-	// modes already leave DownloadURL as the stable path and resolve it at
-	// download time, so stable mode is a no-op for them.
-	if h.CFSigner != nil && mode != attachmentURLModeStable {
-		resp.DownloadURL = h.CFSigner.SignedURL(a.Url, time.Now().Add(h.attachmentDownloadURLTTL()))
-	}
 	if a.IssueID.Valid {
 		s := uuidToString(a.IssueID)
 		resp.IssueID = &s
@@ -194,6 +188,18 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 	if a.ChatMessageID.Valid {
 		s := uuidToString(a.ChatMessageID)
 		resp.ChatMessageID = &s
+	}
+	if h.isWorkflowDebugAttachment(a) {
+		resp.URL = util.AttachmentDownloadPath(id)
+		resp.DownloadURL = resp.URL
+		resp.MarkdownURL = resp.URL
+		return resp
+	}
+	// Only CloudFront mode overrides the stable path here; the presign and proxy
+	// modes already leave DownloadURL as the stable path and resolve it at
+	// download time, so stable mode is a no-op for them.
+	if h.CFSigner != nil && mode != attachmentURLModeStable {
+		resp.DownloadURL = h.CFSigner.SignedURL(a.Url, time.Now().Add(h.attachmentDownloadURLTTL()))
 	}
 	return resp
 }
@@ -375,6 +381,9 @@ func (h *Handler) groupChatMessageAttachments(ctx context.Context, workspaceID s
 // ---------------------------------------------------------------------------
 
 func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugUpload(w, r) {
+		return
+	}
 	if h.Storage == nil {
 		writeError(w, http.StatusServiceUnavailable, "file upload not configured")
 		return
@@ -657,6 +666,18 @@ func (h *Handler) GetAttachmentByID(w http.ResponseWriter, r *http.Request) {
 	// stable path for a signature HERE, so honoring the capability would break
 	// the very flow that makes stable mode safe elsewhere.
 	resp := h.attachmentToResponse(att, attachmentURLModeSigned)
+	if h.isWorkflowDebugAttachment(att) {
+		// Draft artifacts always resolve through the tombstone-aware application
+		// routes. Metadata remains JSON in every storage mode; native downloads
+		// receive revocable application capabilities, never S3/CDN signatures.
+		now := time.Now()
+		resp.URL = util.AttachmentDownloadPath(resp.ID)
+		resp.MarkdownURL = resp.URL
+		resp.DownloadURL = attachmentCapabilityPath(resp.ID, now)
+		resp.AttachmentDownloadURL = attachmentDownloadCapabilityPath(resp.ID, now)
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
 	// Token-mode clients use this authenticated endpoint to replace the
 	// auth-gated API path with a URL that native media elements can load.
 	// Assert the same storage.DownloadPresigner that resolveAttachmentDownloadMode
@@ -834,6 +855,10 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := h.Storage.KeyFromURL(att.Url)
+	if h.isWorkflowDebugAttachment(att) {
+		h.proxyAttachmentDownload(w, r, att, key, true)
+		return
+	}
 	switch h.resolveAttachmentDownloadMode(att.Url) {
 	case attachmentDownloadModeCloudFront:
 		if h.CFSigner == nil {
@@ -1276,6 +1301,10 @@ func (h *Handler) GetAttachmentContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := h.Storage.KeyFromURL(att.Url)
+	if h.isWorkflowDebugAttachment(att) {
+		h.proxyAttachmentDownload(w, r, att, key, true)
+		return
+	}
 	reader, err := h.Storage.GetReader(r.Context(), key)
 	if err != nil {
 		slog.Error("failed to open attachment for preview", "id", attachmentID, "key", key, "error", err)

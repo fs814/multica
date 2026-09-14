@@ -498,6 +498,10 @@ func (h *Handler) loadWorkflowRun(w http.ResponseWriter, r *http.Request) (db.Wo
 		writeError(w, http.StatusInternalServerError, "failed to get workflow run")
 		return db.WorkflowRun{}, false
 	}
+	if run.ExecutionMode != workflow.ExecutionPublished {
+		writeError(w, http.StatusNotFound, "workflow run not found")
+		return db.WorkflowRun{}, false
+	}
 	return run, true
 }
 
@@ -576,21 +580,9 @@ func (h *Handler) workflowRunSummaries(ctx context.Context, workspaceID pgtype.U
 // when the version is missing or unparseable — the trace is still worth serving,
 // it just loses acceptance criteria and rework targets.
 func (h *Handler) pinnedWorkflowDefinition(ctx context.Context, run db.WorkflowRun) *workflow.Definition {
-	version, err := h.Queries.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{
-		ID:          run.TemplateVersionID,
-		WorkspaceID: run.WorkspaceID,
-	})
+	def, err := workflow.ResolveRunDefinition(ctx, h.Queries, run.WorkspaceID, run)
 	if err != nil {
-		slog.Warn("load pinned workflow version failed",
-			"error", err, "run_id", uuidToString(run.ID))
-		return nil
-	}
-	def, err := workflow.ParseDefinition(version.Definition)
-	if err != nil {
-		// A published version is immutable and was validated at publish time, so
-		// this means it was written by a newer server or edited out of band.
-		slog.Warn("pinned workflow version does not parse",
-			"error", err, "run_id", uuidToString(run.ID))
+		slog.Warn("workflow execution source unavailable", "error", err, "run_id", uuidToString(run.ID))
 		return nil
 	}
 	return def

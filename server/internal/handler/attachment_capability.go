@@ -192,7 +192,8 @@ func verifyAttachmentCapability(attachmentID, rawExp, rawSig, intent string, now
 // there is no second copy of the header/cookie/PAT/task-token resolution that
 // middleware.Auth owns.
 //
-// Always proxy-streams. Capabilities are only minted in proxy mode, and
+// Always proxy-streams. Capabilities are minted in proxy mode and for draft
+// trial artifacts in every storage mode;
 // streaming means this route never emits a cross-origin redirect, so the
 // signed query cannot leak to a CDN in a Referer.
 func (h *Handler) DownloadAttachmentWithCapability(w http.ResponseWriter, r *http.Request) {

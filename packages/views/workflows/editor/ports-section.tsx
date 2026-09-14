@@ -1,7 +1,9 @@
 "use client";
+import { canRenameWorkflowPort } from "@multica/core/workflows";
 import { useState } from "react";
 import { ArrowUp, Plus, Trash2 } from "lucide-react";
 import type {
+  WorkflowDefinition,
   WorkflowNode,
   WorkflowPort,
   WorkflowBranch,
@@ -11,12 +13,87 @@ import { Input } from "@multica/ui/components/ui/input";
 import { useT } from "../../i18n";
 import { PanelField, PanelSection, PanelSelect } from "./panel-controls";
 
+export type PortActions = {
+  onRenamePort?(
+    direction: "input_ports" | "output_ports",
+    previous: string,
+    next: string,
+  ): void;
+  onBindPort?(source: string, sourcePort: string, targetPort: string): void;
+  onRemoveBinding?(edgeId: string): void;
+};
+
+function PortName({
+  id,
+  disabled,
+  duplicate,
+  canRename,
+  onRename,
+}: {
+  id: string;
+  disabled: boolean;
+  duplicate(value: string): boolean;
+  canRename(value: string): boolean;
+  onRename(value: string): void;
+}) {
+  const { t } = useT("workflows");
+  const [value, setValue] = useState(id);
+  const contractBlocked = !canRename(value);
+  const invalid =
+    !value.trim() ||
+    value !== value.trim() ||
+    (value !== id && duplicate(value));
+  return (
+    <div className="flex flex-col gap-1">
+      <Input
+        aria-label={t(($) => $.graph_v2.port_id)}
+        value={value}
+        disabled={disabled}
+        aria-invalid={invalid || contractBlocked}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      {value !== id && (
+        <>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || invalid || contractBlocked}
+            onClick={() => {
+              if (!contractBlocked) onRename(value);
+            }}
+          >
+            {t(($) => $.authoring.rename)}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setValue(id)}>
+            {t(($) => $.instances.cancel)}
+          </Button>
+        </>
+      )}
+      {contractBlocked && (
+        <p role="alert" className="text-caption text-muted-foreground">
+          {t(($) => $.authoring.output_contract)}
+        </p>
+      )}
+      {invalid && (
+        <p role="alert" className="text-caption text-destructive">
+          {t(($) => $.authoring.invalid_port)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PortsSection({
   node,
+  definition,
+  onRenamePort,
+  onBindPort,
+  onRemoveBinding,
   readOnly,
   onChange,
-}: {
+}: PortActions & {
   node: WorkflowNode;
+  definition: WorkflowDefinition;
   readOnly: boolean;
   onChange(node: WorkflowNode): void;
 }) {
@@ -43,11 +120,23 @@ export function PortsSection({
                 key={index}
                 className="flex flex-col gap-1 rounded border p-2"
               >
-                <Input
-                  aria-label={t(($) => $.graph_v2.port_id)}
-                  value={port.id}
-                  disabled={readOnly}
-                  onChange={(e) => patch({ id: e.target.value })}
+                <PortName
+                  key={`${node.key}:${direction}:${port.id}`}
+                  id={port.id}
+                  disabled={
+                    readOnly ||
+                    !onRenamePort ||
+                    !canRenameWorkflowPort(node, direction, port.id)
+                  }
+                  canRename={(value) =>
+                    canRenameWorkflowPort(node, direction, port.id, value)
+                  }
+                  duplicate={(value) =>
+                    Boolean(node[direction]?.some((p) => p.id === value))
+                  }
+                  onRename={(value) =>
+                    onRenamePort?.(direction, port.id, value)
+                  }
                 />
                 <PanelSelect
                   ariaLabel={t(($) => $.graph_v2.port_type)}
@@ -85,6 +174,78 @@ export function PortsSection({
                     </label>
                   </div>
                 ) : null}
+                {direction === "input_ports" && (
+                  <div className="flex flex-col gap-2">
+                    {(definition.data_edges ?? [])
+                      .filter(
+                        (edge) =>
+                          edge.target === node.key &&
+                          edge.target_port === port.id,
+                      )
+                      .map((edge) => (
+                        <div
+                          key={edge.id}
+                          className="flex items-center gap-1 break-all text-caption"
+                        >
+                          <span>
+                            {edge.source} / {edge.source_port} → {port.id} ·{" "}
+                            {edge.order}
+                          </span>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t(($) => $.authoring.disconnect)}
+                              onClick={() => onRemoveBinding?.(edge.id)}
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    <PanelSelect
+                      value=""
+                      ariaLabel={`${t(($) => $.authoring.source)}: ${port.id}`}
+                      disabled={readOnly || !onBindPort}
+                      options={[
+                        {
+                          value: "",
+                          label: `${t(($) => $.authoring.source)} → ${port.type}`,
+                        },
+                        ...definition.nodes
+                          .filter((source) => source.key !== node.key)
+                          .flatMap((source) =>
+                            (source.output_ports ?? []).map((output) => ({
+                              value: JSON.stringify([source.key, output.id]),
+                              label: `${source.name || source.key} / ${output.id} · ${output.type}`,
+                              disabled:
+                                (port.type !== "any" &&
+                                  output.type !== port.type) ||
+                                Boolean(
+                                  (definition.data_edges ?? []).some(
+                                    (edge) =>
+                                      edge.target === node.key &&
+                                      edge.target_port === port.id &&
+                                      (!port.multiple ||
+                                        (edge.source === source.key &&
+                                          edge.source_port === output.id)),
+                                  ),
+                                ),
+                            })),
+                          ),
+                      ]}
+                      onChange={(value) => {
+                        if (value) {
+                          const [source, sourcePort] = JSON.parse(value) as [
+                            string,
+                            string,
+                          ];
+                          onBindPort?.(source, sourcePort, port.id);
+                        }
+                      }}
+                    />
+                  </div>
+                )}
                 {!readOnly ? (
                   <Button
                     variant="ghost"
@@ -128,6 +289,11 @@ export function PortsSection({
           ) : null}
         </div>
       ))}
+      {node.type === "join" && (
+        <p className="text-caption text-muted-foreground">
+          {t(($) => $.authoring.join_hint)}
+        </p>
+      )}
       {node.type === "agent" ? (
         <PanelField label={t(($) => $.graph_v2.attempts)}>
           <Input

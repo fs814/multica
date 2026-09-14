@@ -92,9 +92,13 @@ func isRuntimeNotFoundError(err error) bool {
 
 // Client handles HTTP communication with the Multica server daemon API.
 type Client struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	debugMu          sync.Mutex
+	debugRoot        string
+	debugIncarnation string
+	debugDeliveries  map[string]*debugDeliveryState
+	baseURL          string
+	token            string
+	client           *http.Client
 
 	// bundleClient downloads skill bundles. Unlike client it carries no fixed
 	// Timeout: bundles can be large and slow on jittery links, so the caller
@@ -201,6 +205,8 @@ func daemonHTTPClientCapabilities() string {
 
 func daemonCommonCapabilities() []string {
 	return []string{
+		"workflow_debug_stop_receipt_v1",
+		"workflow_debug_fixed_environment_v1",
 		protocol.DaemonCapabilitySkillBundlesV1,
 		protocol.DaemonCapabilityCoalescedCommentsV1,
 		protocol.DaemonCapabilityExecutionManifestV1,
@@ -717,6 +723,9 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	c.setIdentityHeaders(req)
+	if executionID, ok := ctx.Value(debugDeliveryContextKey{}).(string); ok {
+		req.Header.Set("X-Workflow-Execution-Id", executionID)
+	}
 	if c.workspaceETag != "" {
 		req.Header.Set("If-None-Match", c.workspaceETag)
 	}
@@ -1147,6 +1156,9 @@ func (c *Client) postJSONVia(ctx context.Context, httpClient *http.Client, path 
 // produced a response" apart from "the body arrived too slowly to finish" —
 // see TransferStats.
 func (c *Client) postJSONViaObserved(ctx context.Context, httpClient *http.Client, path string, reqBody any, respBody any, stats *TransferStats) error {
+	if handled, err := c.deliverDebugRequest(ctx, httpClient, path, reqBody, respBody, stats); handled {
+		return err
+	}
 	var body io.Reader
 	if reqBody != nil {
 		data, err := json.Marshal(reqBody)
@@ -1165,6 +1177,9 @@ func (c *Client) postJSONViaObserved(ctx context.Context, httpClient *http.Clien
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	c.setIdentityHeaders(req)
+	if executionID, ok := ctx.Value(debugDeliveryContextKey{}).(string); ok {
+		req.Header.Set("X-Workflow-Execution-Id", executionID)
+	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -1200,6 +1215,9 @@ func (c *Client) getJSONWithToken(ctx context.Context, path, token string, respB
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	c.setIdentityHeaders(req)
+	if executionID, ok := ctx.Value(debugDeliveryContextKey{}).(string); ok {
+		req.Header.Set("X-Workflow-Execution-Id", executionID)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -1234,6 +1252,9 @@ func (c *Client) postJSONWithToken(ctx context.Context, path, token string, reqB
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	c.setIdentityHeaders(req)
+	if executionID, ok := ctx.Value(debugDeliveryContextKey{}).(string); ok {
+		req.Header.Set("X-Workflow-Execution-Id", executionID)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

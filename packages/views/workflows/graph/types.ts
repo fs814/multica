@@ -108,6 +108,7 @@ export type EditorNode = {
    */
   isEntry: boolean;
   schemaVersion?: number;
+  executionStatus?: string;
   /**
    * The complete source node, verbatim. Renderers read badge/key/name/routing
    * from here, the properties panel edits it, and `graphToDefinition` spreads

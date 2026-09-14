@@ -1,4 +1,6 @@
 "use client";
+import { workflowDebugKeys } from "../workflows/debug-runs";
+import { workflowInstanceKeys } from "../workflows/input-instances";
 
 import { useEffect, useRef } from "react";
 import { useQueryClient, type InfiniteData, type QueryClient } from "@tanstack/react-query";
@@ -644,8 +646,7 @@ export async function handleInboxNew(
  * new WSClient instance is detected (workspace switch) to recover events
  * missed while disconnected.
  */
-function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
-  const wsId = getCurrentWsId();
+function invalidateWorkspaceScopedQueries(qc: QueryClient, wsId = getCurrentWsId()): void {
   if (wsId) {
     qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
     // Through the inbox's own entry point, not a plain invalidate: a reconnect
@@ -674,6 +675,7 @@ function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
     // invalidates these keys; omitting them here is what made the recovery path
     // silently incomplete.
     qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
+    qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
     // A catalog edit missed while disconnected would otherwise sit behind the
     // 5-minute staleTime — long enough to offer a status the server already
     // archived, or to keep painting its old name.
@@ -764,6 +766,9 @@ export function useRealtimeSync(
   useEffect(() => {
     if (!ws) return;
 
+    // Coarse workflow reports carry only run_id. Bind their fallback to this
+    // subscription, including events arriving during a workspace transition.
+    const connectionWorkspaceId = getCurrentWsId();
     const refreshMap: Record<string, () => void> = {
       inbox: () => {
         const wsId = getCurrentWsId();
@@ -866,28 +871,6 @@ export function useRealtimeSync(
       autopilot: () => {
         const wsId = getCurrentWsId();
         if (wsId) qc.invalidateQueries({ queryKey: autopilotKeys.all(wsId) });
-      },
-      // Every `workflow:*` event the engine emits (run_changed / run_started /
-      // run_completed / run_failed / run_blocked / run_cancelled /
-      // step_queued / step_submitted / step_blocked / acceptance_open) means
-      // exactly one thing to this client: refetch the run. The engine's own
-      // comment in protocol/events.go explains why - a single command can move
-      // a step through activated -> queued and then activate the next node, so
-      // a client that reassembled a run from a stream of deltas would disagree
-      // with the server the first time one was dropped or reordered. The
-      // payload carries only ids; the refetched run cannot drift.
-      //
-      // Invalidating the whole `all(wsId)` subtree rather than one run's detail
-      // is deliberate: the fine-grained event names exist for the *server's*
-      // metric labels, not for cache surgery here, and the run id in the
-      // payload would only let us skip work that costs nothing - React Query
-      // refetches the mounted run and merely marks the rest stale. It also
-      // means the runs list and the acceptance queue pick up `acceptance_open`
-      // without a second mapping. The 100ms debounce below collapses the burst
-      // a single engine command produces into one invalidation.
-      workflow: () => {
-        const wsId = getCurrentWsId();
-        if (wsId) qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
       },
       github_installation: () => {
         const wsId = getCurrentWsId();
@@ -1022,6 +1005,23 @@ export function useRealtimeSync(
     const unsubAny = ws.onAny((msg) => {
       if (specificEvents.has(msg.type)) return;
       const prefix = msg.type.split(":")[0] ?? "";
+      // Refresh authoritative snapshots, never reconstruct state from events.
+      // Capture workspace identity before debouncing; tab switches cannot redirect it.
+      if (prefix === "workflow") {
+        const payload = msg.payload as { workspace_id?: string; execution_mode?: string } | undefined;
+        const wsId = payload?.workspace_id || connectionWorkspaceId;
+        if (payload?.execution_mode && payload.execution_mode !== "published") {
+          if (wsId && payload.execution_mode === "draft_test") debouncedRefresh(`workflow-debug:${wsId}`, () => {
+            void qc.invalidateQueries({ queryKey: workflowDebugKeys.all(wsId) });
+          });
+          return;
+        }
+        if (wsId) debouncedRefresh(`workflow:${wsId}`, () => {
+          void qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
+          void qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });
+        });
+        return;
+      }
       const refresh = refreshMap[prefix];
       if (refresh) debouncedRefresh(prefix, refresh);
     });
@@ -1787,10 +1787,11 @@ export function useRealtimeSync(
   useEffect(() => {
     if (!ws) return;
 
+    const connectionWorkspaceId = getCurrentWsId();
     const unsub = ws.onReconnect(async () => {
       logger.info("reconnected, refetching all data");
       try {
-        invalidateWorkspaceScopedQueries(qc);
+        invalidateWorkspaceScopedQueries(qc, connectionWorkspaceId);
       } catch (e) {
         logger.error("reconnect refetch failed", e);
       }

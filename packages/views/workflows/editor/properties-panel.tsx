@@ -13,7 +13,11 @@ import { Textarea } from "@multica/ui/components/ui/textarea";
 import { isWorkflowNodeType, legalReworkTargetNodes } from "../graph";
 import { useT } from "../../i18n";
 import { AgentRoutingSection } from "./agent-routing-fields";
-import { PortsSection, PredicateFields } from "./ports-section";
+import {
+  PortsSection,
+  PredicateFields,
+  type PortActions,
+} from "./ports-section";
 import { InputFieldsSection } from "./input-fields-section";
 import {
   PanelCheckList,
@@ -106,7 +110,10 @@ export function WorkflowPropertiesPanel({
   onChange,
   onDelete,
   onSetEntry,
-}: {
+  onRenamePort,
+  onBindPort,
+  onRemoveBinding,
+}: PortActions & {
   node: WorkflowNode | null;
   onDelete?(): void;
   onSetEntry?(): void;
@@ -129,7 +136,12 @@ export function WorkflowPropertiesPanel({
             </Button>
           )}
           {onDelete && (
-            <Button variant="outline" size="sm" className="text-destructive" onClick={onDelete}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive"
+              onClick={onDelete}
+            >
               <Trash2 className="size-3.5" aria-hidden="true" />
               {t(($) => $.node_actions.delete)}
             </Button>
@@ -155,6 +167,9 @@ export function WorkflowPropertiesPanel({
           definition={definition}
           readOnly={readOnly}
           onChange={onChange}
+          onRenamePort={onRenamePort}
+          onBindPort={onBindPort}
+          onRemoveBinding={onRemoveBinding}
         />
       )}
     </aside>
@@ -162,11 +177,14 @@ export function WorkflowPropertiesPanel({
 }
 
 function PanelBody({
+  onRenamePort,
+  onBindPort,
+  onRemoveBinding,
   node,
   definition,
   readOnly,
   onChange,
-}: {
+}: PortActions & {
   node: WorkflowNode;
   definition: WorkflowDefinition;
   readOnly: boolean;
@@ -182,7 +200,8 @@ function PanelBody({
   const known = isWorkflowNodeType(node.type);
 
   const showRouting = node.type === "agent";
-  const showFailure = definition.schema_version !== 2 && FAILABLE_TYPES.has(node.type);
+  const showFailure =
+    definition.schema_version !== 2 && FAILABLE_TYPES.has(node.type);
   // Rework targets are surfaced exactly where the validator can demand them, so
   // the control appears in the same moment the requirement does.
   const showReworkTargets =
@@ -199,7 +218,17 @@ function PanelBody({
         onChange={onChange}
       />
 
-      {known && definition.schema_version === 2 ? <PortsSection node={node} readOnly={readOnly} onChange={onChange} /> : null}
+      {known && definition.schema_version === 2 ? (
+        <PortsSection
+          node={node}
+          definition={definition}
+          readOnly={readOnly}
+          onChange={onChange}
+          onRenamePort={onRenamePort}
+          onBindPort={onBindPort}
+          onRemoveBinding={onRemoveBinding}
+        />
+      ) : null}
       {!known ? (
         <PanelNotice
           title={t(($) => $.panel.unknown.title, { type: node.type })}
@@ -597,7 +626,13 @@ function BranchesSection({
   const branches = node.branches;
 
   const replace = (next: WorkflowBranch[]) =>
-    onChange({ ...node, branches: definition.schema_version === 2 ? next.map(b => ({...b,id:b.id ?? crypto.randomUUID()})) : next });
+    onChange({
+      ...node,
+      branches:
+        definition.schema_version === 2
+          ? next.map((b) => ({ ...b, id: b.id ?? crypto.randomUUID() }))
+          : next,
+    });
 
   const verdictLabels: Record<(typeof VERDICTS)[number], string> = {
     pass: t(($) => $.panel.branches.verdict_pass),
@@ -716,7 +751,23 @@ function BranchesSection({
                     index: index + 1,
                   })}
                 />
-                {definition.schema_version === 2 ? <PredicateFields node={node} branch={branch} index={index} readOnly={readOnly} onChange={patch} onMoveUp={() => { const next=[...branches]; [next[index-1],next[index]]=[next[index]!,next[index-1]!]; replace(next); }} /> : null}
+                {definition.schema_version === 2 ? (
+                  <PredicateFields
+                    node={node}
+                    branch={branch}
+                    index={index}
+                    readOnly={readOnly}
+                    onChange={patch}
+                    onMoveUp={() => {
+                      const next = [...branches];
+                      [next[index - 1], next[index]] = [
+                        next[index]!,
+                        next[index - 1]!,
+                      ];
+                      replace(next);
+                    }}
+                  />
+                ) : null}
                 {branch.target === "" ? (
                   <PanelProblem>
                     {t(($) => $.panel.branches.target_required)}

@@ -23,6 +23,11 @@ RETURNING *;
 SELECT * FROM workflow_template
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: GetWorkflowTemplateForUpdate :one
+SELECT * FROM workflow_template
+WHERE id = $1 AND workspace_id = $2
+FOR UPDATE;
+
 -- name: GetWorkflowTemplateByKey :one
 -- Case-insensitive to match idx_workflow_template_ws_key; external intake
 -- resolves templates by key (plan section 9).
@@ -171,7 +176,7 @@ WHERE workspace_id = $1 AND idempotency_key = $2;
 
 -- name: ListWorkflowRuns :many
 SELECT * FROM workflow_run
-WHERE workspace_id = $1
+WHERE workspace_id = $1 AND execution_mode = 'published'
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text)
   AND (sqlc.narg('template_id')::uuid IS NULL OR template_id = sqlc.narg('template_id')::uuid)
 ORDER BY created_at DESC
@@ -184,7 +189,7 @@ LIMIT sqlc.arg('limit_count')::int OFFSET sqlc.arg('offset_count')::int;
 -- are byte-identical to ListWorkflowRuns' so the count and the page can never
 -- describe different sets.
 SELECT count(*)::bigint FROM workflow_run
-WHERE workspace_id = $1
+WHERE workspace_id = $1 AND execution_mode = 'published'
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status')::text)
   AND (sqlc.narg('template_id')::uuid IS NULL OR template_id = sqlc.narg('template_id')::uuid);
 

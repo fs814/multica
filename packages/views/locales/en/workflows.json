@@ -457,7 +457,8 @@
       "retry": "Retry",
       "not_started": "—",
       "duration_running": "{{duration}} so far",
-      "back": "Back to runs"
+      "back": "Back to runs",
+      "all_statuses": "All statuses"
     },
     "status": {
       "pending": "Pending",
@@ -560,7 +561,10 @@
       "submission_validation_errors": "The server refused this submission:",
       "view_log": "View the agent's log",
       "started_at": "Started {{date}}",
-      "completed_at": "Finished {{date}}"
+      "completed_at": "Finished {{date}}",
+      "pinned_graph": "Published graph for this run",
+      "graph_failed": "Could not load the pinned graph. The trace is still available below.",
+      "all_attempts": "Show all attempts"
     },
     "acceptance": {
       "title": "Your review is needed",
@@ -623,7 +627,8 @@
       "cancel": "Keep editing",
       "publish_saved": "Publish the saved graph",
       "save_and_publish": "Save, then publish"
-    }
+    },
+    "properties_toggle": "Properties"
   },
   "input_instances": {
     "definition_failed": "Unable to load the published workflow inputs. Retry before saving or running.",
@@ -725,5 +730,63 @@
     "wait_active": "Waits for all active predecessors",
     "reject": "Reject",
     "rejected": "Rejected; dependent work will be skipped."
+  },
+  "authoring": {
+    "rename": "Confirm rename",
+    "invalid_port": "Use a unique, nonempty port ID without surrounding spaces.",
+    "source": "Source output",
+    "disconnect": "Disconnect binding",
+    "join_hint": "Waits for all activated predecessors; skipped branches are not awaited.",
+    "added": "Added",
+    "removed": "Removed",
+    "type": "Type changed",
+    "options": "Options changed",
+    "required": "Required changed",
+    "label": "Label changed",
+    "no_field_changes": "No input field changes",
+    "compare": "Compare versions",
+    "from": "Earlier version",
+    "to": "Later version",
+    "version_failed": "Could not load the version. Close and reopen to retry.",
+    "changed": "Changed nodes",
+    "schema": "Schema changed",
+    "entry": "Entry changed",
+    "limits": "Limits changed",
+    "bindings": "Data bindings changed",
+    "keep_value": "Keep value",
+    "output_contract": "This port name is part of the execution value contract and cannot be used for this rename."
+  },
+  "debug": {
+    "title": "Draft trial",
+    "real_execution": "This runs real agents from a fixed draft snapshot. It creates no business issue or instance run.",
+    "start": "Try draft",
+    "apply_json": "Apply or discard JSON changes before trying the draft.",
+    "settings": "Trial settings",
+    "result": "Trial result",
+    "editor_kept": "Your working draft remains open and unchanged.",
+    "snapshot": "Execution snapshot",
+    "deadline": "Deadline",
+    "retention": "Retention (seconds)",
+    "waiting_stop": "Run ended; agent stop and final delivery are still awaiting confirmation.",
+    "expired": "Details expired. Only execution metadata remains.",
+    "warning": "Agents may use paid models, modify files and call external services. This is not a sandbox and external effects cannot be rolled back. Quotas limit accepted runs, not physical processes or exact cost. Repository references are fixed; the checkout commit is resolved at execution.",
+    "acknowledge": "I understand this starts real execution and may incur costs and external changes.",
+    "starting": "Starting…",
+    "confirm": "Confirm and run",
+    "history": "Draft trials",
+    "empty": "No draft trials yet.",
+    "previous": "Previous",
+    "next": "Next",
+    "settings_hint": "These limits affect new trials. Existing deadlines and retention remain fixed. Deployment readiness must also be enabled by the operator.",
+    "usage": "Active: you {{user}}/{{userLimit}}, workspace {{workspace}}/{{workspaceLimit}}. Starts in the last hour: {{hourly}}/{{hourlyLimit}}. Retained payload: {{bytes}}/{{capacity}} bytes. Awaiting stop: {{waiting}}.",
+    "user_active": "Active trials per user",
+    "workspace_active": "Active trials per workspace",
+    "hourly": "Starts per user per hour",
+    "duration": "Maximum duration (seconds)",
+    "capacity": "Retained payload capacity (bytes)",
+    "saved": "Settings saved",
+    "enabled": "Allow new draft trials",
+    "save": "Save settings",
+    "retry_after": "Retry after {{seconds}} seconds."
   }
 }

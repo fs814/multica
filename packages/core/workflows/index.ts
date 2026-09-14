@@ -35,6 +35,7 @@ export type {
   WorkflowValidationResult,
   CreateWorkflowTemplateRequest,
   UpdateWorkflowTemplateRequest,
+  PublishWorkflowTemplateRequest,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowStep,
@@ -51,6 +52,7 @@ export {
   workflowTemplateRunOptions,
   workflowRunKeys,
   workflowRunListOptions,
+  workflowRunPageOptions,
   workflowRunDetailOptions,
 } from "./queries";
 export type { WorkflowRunListParams } from "./queries";
@@ -81,3 +83,14 @@ export * from "./input-instance-schemas";
 export { workflowRunInputDefaults } from "./run-input-defaults";
 
 export { validateGraphV2, defaultOutputPorts } from "./graph-v2";
+
+export { workflowListOffset, workflowReturnPath } from "./location";
+
+export { WorkflowDiagnosticSchema } from "./schemas";
+export type { WorkflowDiagnostic } from "./schemas";
+export { diagnoseGraphV2 } from "./graph-v2";
+
+export * from "./authoring";
+
+export * from "./debug-schemas";
+export * from "./debug-runs";

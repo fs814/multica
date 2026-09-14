@@ -13,6 +13,7 @@ import { runtimeKeys } from "../runtimes/queries";
 import { workspaceWorkingAgentsKeys } from "../agents/queries";
 import { workspaceKeys } from "../workspace/queries";
 import { issueStatusKeys } from "../issue-statuses/queries";
+import { workflowInstanceKeys } from "../workflows/input-instances";
 import {
   markWorkspaceDeletePending,
   unmarkWorkspaceDeletePending,
@@ -117,16 +118,22 @@ describe("useRealtimeSync — ws instance change", () => {
     rerender({ ws: ws2 });
 
     // Should have called invalidateQueries for all workspace-scoped keys
-    // (17 workspace-scoped [incl. property definitions and workflows] + 6 per-issue
-    // prefixes + the workspace working-agents projection + 5 per-chat
+    // (20 workspace-scoped [incl. working agents, workflow runs, workflow
+    // instances, and issue statuses] + 6 per-issue prefixes + 5 per-chat
     // prefixes + 1 workspaceKeys.list() + 1 cross-workspace inbox unread
-    // summary = 32 calls: base 30, +1 for the workflow-run keys this fork
-    // invalidates on reconnect, +1 for upstream's issue-status catalog).
+    // summary = 33 calls).
     //
     // Awaited rather than counted synchronously: the inbox unread summary
     // refresh cancels any in-flight request before invalidating (see
     // onInboxSummaryInvalidate), so that one lands after the synchronous ones.
-    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledTimes(32));
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledTimes(33));
+
+    // Recovery must refresh this workspace's instance cache exactly once;
+    // the aggregate count alone could hide a missing or duplicate refresh.
+    const instanceKeys = invalidateSpy.mock.calls
+      .map((call: [{ queryKey?: readonly unknown[] }?]) => call[0]?.queryKey)
+      .filter((key: readonly unknown[] | undefined) => key?.[0] === workflowInstanceKeys.all("ws-1")[0]);
+    expect(instanceKeys).toEqual([workflowInstanceKeys.all("ws-1")]);
   });
 
   it("does not re-invalidate when rerendered with the same ws instance", () => {

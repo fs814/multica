@@ -45,6 +45,7 @@ export type TabLabelKey =
   | "autopilot"
   | "workflow_instance"
   | "workflow_run"
+  | "workflow_test_run"
   | "agent"
   | "member"
   | "squad"
@@ -89,6 +90,7 @@ export interface TabEntityData {
    * reader with four run tabs open actually needs to tell them apart.
    */
   workflowInstance?:{label:string};
+  workflowTestRun?: {label: string};
   workflowRun?: { label: string };
   /** Resolved display name for an actor subject. */
   actorName?: string;
@@ -187,6 +189,8 @@ export function resolveTabPresentation(
       };
     case "workflowInstance":
       return {visual:{kind:"icon",icon:"Workflow"},title:textOr(data.workflowInstance?.label,"workflow_instance")};
+    case "workflowTestRun":
+      return {visual:{kind:"icon",icon:"Play"},title:textOr(data.workflowTestRun?.label,"workflow_test_run")};
     case "workflowRun":
       // `Play`, matching the runs page - a run tab is an execution, and the
       // editor's `Workflow` glyph on it would read as "the graph".

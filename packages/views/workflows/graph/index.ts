@@ -38,5 +38,5 @@ export type {
 export { definitionToGraph, nodeEdges } from "./to-graph";
 export { graphToDefinition } from "./from-graph";
 export { autoLayout, COL_GAP, ROW_GAP } from "./layout";
-export { clientValidateGraph } from "./validate-graph";
+export { clientValidateGraph, clientDiagnoseGraph } from "./validate-graph";
 export { legalReworkTargetNodes } from "./rework-targets";

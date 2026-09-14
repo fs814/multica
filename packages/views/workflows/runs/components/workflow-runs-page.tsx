@@ -2,7 +2,7 @@
 
 import { AlertCircle, Play } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { workflowRunListOptions } from "@multica/core/workflows";
+import { workflowRunPageOptions } from "@multica/core/workflows";
 import type { WorkflowRun } from "@multica/core/workflows";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -25,6 +25,10 @@ import {
 } from "../../../layout/collection-page";
 import { useT } from "../../../i18n";
 import { runElapsedSeconds } from "../run-reason";
+import {
+  useWorkflowLocation,
+  workflowListOffset,
+} from "../../use-workflow-location";
 import { WorkflowRunStatusBadge } from "./run-status-badge";
 
 /**
@@ -156,26 +160,82 @@ function LoadingSkeleton() {
   );
 }
 
-export function WorkflowRunsPage({templateId}:{templateId?:string}={}) {
+export function WorkflowRunsPage({ templateId }: { templateId?: string } = {}) {
   const { t, i18n } = useT("workflows");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
   const rowLink = useRowLink();
+  const location = useWorkflowLocation();
+  const status = location.params.get("status") ?? "";
+  const offset = workflowListOffset(location.params.get("run_offset"));
 
   const {
-    data: runs = [],
+    data,
     isLoading,
     error: listError,
     refetch,
-  } = useQuery(workflowRunListOptions(wsId, {template_id:templateId}));
+  } = useQuery(
+    workflowRunPageOptions(wsId, {
+      template_id: templateId,
+      status: status || undefined,
+      limit: 30,
+      offset,
+    }),
+  );
 
+  const runs = data?.runs ?? [];
+  const total = data?.total ?? 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <CollectionPageHeader
-        icon={Play}
-        title={t(($) => $.runs.page.title)}
-        count={runs.length}
-      />
+      {!templateId && (
+        <CollectionPageHeader
+          icon={Play}
+          title={t(($) => $.runs.page.title)}
+          count={total}
+        />
+      )}
+      <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
+        <select
+          className="rounded border bg-background p-2 text-caption"
+          aria-label={t(($) => $.runs.page.table.status)}
+          value={status}
+          onChange={(e) =>
+            location.update({ status: e.target.value, run_offset: 0 })
+          }
+        >
+          <option value="">{t(($) => $.runs.page.all_statuses)}</option>
+          {[
+            "pending",
+            "running",
+            "waiting_acceptance",
+            "blocked",
+            "completed",
+            "failed",
+            "cancelled",
+          ].map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <span className="text-caption text-muted-foreground">{total}</span>
+        <Button
+          variant="outline"
+          disabled={offset === 0 || isLoading}
+          onClick={() =>
+            location.update({ run_offset: Math.max(0, offset - 30) })
+          }
+        >
+          {t(($) => $.instances.previous)}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={offset + 30 >= total || isLoading}
+          onClick={() => location.update({ run_offset: offset + 30 })}
+        >
+          {t(($) => $.instances.next)}
+        </Button>
+      </div>
 
       {listError ? (
         <CollectionPageState
@@ -219,7 +279,11 @@ export function WorkflowRunsPage({templateId}:{templateId?:string}={}) {
               <ListGridRow
                 key={run.id}
                 className="cursor-pointer"
-                {...rowLink(wsPaths.workflowRunDetail(run.id))}
+                {...rowLink(
+                  wsPaths.workflowRunDetail(run.id) +
+                    "?return_to=" +
+                    encodeURIComponent(location.current),
+                )}
               >
                 <ListGridCell>
                   <WorkflowRunStatusBadge status={run.status} />

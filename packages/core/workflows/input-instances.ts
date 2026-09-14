@@ -3,6 +3,7 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
+import { workflowRunKeys } from "./queries";
 import { api } from "../api";
 import { useWorkspaceId } from "../hooks";
 import type {
@@ -89,8 +90,7 @@ export function workflowInstanceVersionOptions(
 ) {
   return queryOptions({
     queryKey: [
-      ...workflowInstanceKeys.all(wsId),
-      "version",
+      "workflow-versions", wsId,
       templateId,
       versionId,
     ],
@@ -128,8 +128,10 @@ export function useRunWorkflowInstance(id: string) {
   return useMutation({
     mutationFn: (body: RunWorkflowInstance) =>
       api.runWorkflowInstance(id, body),
-    onSuccess: () =>
+    onSuccess: () => Promise.all([
       qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) }),
+      qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) }),
+    ]),
   });
 }
 export function useArchiveWorkflowInstance(id: string) {

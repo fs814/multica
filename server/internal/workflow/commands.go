@@ -204,15 +204,22 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 	effects := &txEffects{}
 
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
-		step, run, def, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, in.StepID)
+		step, run, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, in.StepID)
 		if err != nil {
 			return err
 		}
-		if IsTerminalStepStatus(StepStatus(step.Status)) {
+		if run.DetailsPurgedAt.Valid || IsTerminalRunStatus(RunStatus(run.Status)) || IsTerminalStepStatus(StepStatus(step.Status)) {
 			// A late submission for an already-decided attempt (e.g. the task was
 			// cancelled and the Agent replied anyway) must not resurrect it.
 			return newEngineError(ErrCodeInvalidTransition,
 				fmt.Sprintf("step is already %s", step.Status))
+		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			return err
+		}
+		def, err := ResolveRunDefinition(ctx, q, in.WorkspaceID, run)
+		if err != nil {
+			return err
 		}
 		node, ok := def.NodeByKey(step.NodeKey)
 		if !ok {
@@ -626,10 +633,10 @@ func (e *Engine) reworkRoundLimitReached(
 	return limits.MaxReworkRounds > 0 && used >= int64(limits.MaxReworkRounds), nil
 }
 
-// lockStepAndRun loads a Step, its Run, and the pinned definition, taking row
+// lockStepAndRun loads identity only, taking row
 // locks in the fixed order Run-then-Step so concurrent commands on the same Run
 // serialize rather than deadlock.
-func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID, stepID pgtype.UUID) (db.WorkflowStepInstance, db.WorkflowRun, *Definition, error) {
+func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID, stepID pgtype.UUID) (db.WorkflowStepInstance, db.WorkflowRun, error) {
 	// Read the step unlocked first, only to learn its run id.
 	probe, err := q.GetWorkflowStepInstance(ctx, db.GetWorkflowStepInstanceParams{
 		ID:          stepID,
@@ -637,9 +644,9 @@ func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, newEngineError(ErrCodeNotFound, "step not found in this workspace")
+			return db.WorkflowStepInstance{}, db.WorkflowRun{}, newEngineError(ErrCodeNotFound, "step not found in this workspace")
 		}
-		return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, fmt.Errorf("probe step: %w", err)
+		return db.WorkflowStepInstance{}, db.WorkflowRun{}, fmt.Errorf("probe step: %w", err)
 	}
 
 	run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{
@@ -647,7 +654,7 @@ func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, fmt.Errorf("lock run: %w", err)
+		return db.WorkflowStepInstance{}, db.WorkflowRun{}, fmt.Errorf("lock run: %w", err)
 	}
 
 	step, err := q.GetWorkflowStepInstanceForUpdate(ctx, db.GetWorkflowStepInstanceForUpdateParams{
@@ -655,21 +662,10 @@ func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID,
 		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, fmt.Errorf("lock step: %w", err)
+		return db.WorkflowStepInstance{}, db.WorkflowRun{}, fmt.Errorf("lock step: %w", err)
 	}
 
-	version, err := q.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{
-		ID:          run.TemplateVersionID,
-		WorkspaceID: workspaceID,
-	})
-	if err != nil {
-		return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, fmt.Errorf("load pinned version: %w", err)
-	}
-	def, err := ParseDefinition(version.Definition)
-	if err != nil {
-		return db.WorkflowStepInstance{}, db.WorkflowRun{}, nil, err
-	}
-	return step, run, def, nil
+	return step, run, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -764,12 +760,19 @@ func (e *Engine) RecordTaskTerminal(ctx context.Context, in RecordTaskTerminalIn
 func (e *Engine) recordTaskFailure(ctx context.Context, step db.WorkflowStepInstance, in RecordTaskTerminalInput) error {
 	effects := &txEffects{}
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
-		locked, run, def, err := e.lockStepAndRun(ctx, q, step.WorkspaceID, step.ID)
+		locked, run, err := e.lockStepAndRun(ctx, q, step.WorkspaceID, step.ID)
 		if err != nil {
 			return err
 		}
-		if IsTerminalStepStatus(StepStatus(locked.Status)) {
+		if run.DetailsPurgedAt.Valid || IsTerminalRunStatus(RunStatus(run.Status)) || IsTerminalStepStatus(StepStatus(locked.Status)) {
 			return nil // already consumed
+		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			return err
+		}
+		def, err := ResolveRunDefinition(ctx, q, step.WorkspaceID, run)
+		if err != nil {
+			return err
 		}
 		node, ok := def.NodeByKey(locked.NodeKey)
 		if !ok {
@@ -859,6 +862,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 
 	var out db.WorkflowAcceptance
 	effects := &txEffects{}
+	deadlineExpired := false
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		acceptance, err := q.GetWorkflowAcceptance(ctx, db.GetWorkflowAcceptanceParams{
 			ID:          in.AcceptanceID,
@@ -870,12 +874,27 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 			}
 			return fmt.Errorf("get acceptance: %w", err)
 		}
+
+		step, run, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, acceptance.StepID)
+		if err != nil {
+			return err
+		}
+		if run.DetailsPurgedAt.Valid {
+			return newEngineError("debug_details_expired", "draft trial details have expired")
+		}
 		if acceptance.Status != "pending" {
 			return newEngineError(ErrCodeAcceptanceConflict,
 				fmt.Sprintf("this acceptance was already %s", acceptance.Status))
 		}
 
-		step, run, def, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, acceptance.StepID)
+		if IsTerminalRunStatus(RunStatus(run.Status)) || IsTerminalStepStatus(StepStatus(step.Status)) {
+			return newEngineError(ErrCodeInvalidTransition, "workflow is already terminal")
+		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			deadlineExpired = expired
+			return err
+		}
+		def, err := ResolveRunDefinition(ctx, q, in.WorkspaceID, run)
 		if err != nil {
 			return err
 		}
@@ -1014,6 +1033,9 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 		return db.WorkflowAcceptance{}, err
 	}
 	effects.flush(ctx, e.Notifier)
+	if deadlineExpired {
+		return out, newEngineError(ErrCodeInvalidTransition, "draft trial deadline exceeded")
+	}
 	return out, nil
 }
 
@@ -1040,6 +1062,15 @@ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID, 
 			}
 			return fmt.Errorf("lock run: %w", err)
 		}
+		if run.ExecutionMode == ExecutionDraftTest {
+			if run.DetailsPurgedAt.Valid {
+				return newEngineError("debug_details_expired", "draft trial details have expired")
+			}
+			if IsTerminalRunStatus(RunStatus(run.Status)) {
+				return newEngineError(ErrCodeInvalidTransition, "draft trial is already terminal")
+			}
+		}
+
 		if IsTerminalRunStatus(RunStatus(run.Status)) {
 			// Idempotent: cancelling an already-terminal Run is a no-op, not an
 			// error, because a user clicking twice should not see a failure.

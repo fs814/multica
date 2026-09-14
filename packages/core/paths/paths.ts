@@ -46,6 +46,7 @@ function workspaceScoped(slug: string) {
     // id they do not need.
     workflowInstances: () => `${ws}/workflow-instances`,
     workflowInstanceDetail: (id:string) => `${ws}/workflow-instances/${encode(id)}`,
+    workflowTestRunDetail: (id: string) => `${ws}/workflow-test-runs/${encode(id)}`,
     workflowRuns: () => `${ws}/workflow-runs`,
     workflowRunDetail: (id: string) => `${ws}/workflow-runs/${encode(id)}`,
     agents: () => `${ws}/agents`,

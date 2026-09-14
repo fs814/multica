@@ -352,6 +352,39 @@ export class TestApiClient {
     return this.email;
   }
 
+  /** A routable test agent with no daemon process and no installed agent CLI. */
+  async seedWorkflowAgent() {
+    if (!this.workspaceId || !this.email) throw new Error("Login and workspace required");
+    const client = new pg.Client(DATABASE_URL);
+    await client.connect();
+    try {
+      const owner = (await client.query('SELECT id FROM "user" WHERE email = $1', [this.email])).rows[0].id;
+      const runtime = (await client.query(`INSERT INTO agent_runtime
+        (workspace_id, name, runtime_mode, provider, status, device_info, metadata, owner_id, last_seen_at)
+        VALUES ($1, 'Controlled workflow runtime', 'cloud', 'workflow_e2e_runtime', 'online', 'isolated test', '{}', $2, now()) RETURNING id`, [this.workspaceId, owner])).rows[0].id;
+      const agent = (await client.query(`INSERT INTO agent
+        (workspace_id, name, description, runtime_mode, runtime_config, runtime_id, visibility, permission_mode, max_concurrent_tasks, owner_id, instructions, custom_env, custom_args, mcp_config)
+        VALUES ($1, 'Controlled workflow agent', '', 'cloud', '{}', $2, 'workspace', 'public_to', 1, $3, '', '{}', '[]', '{}') RETURNING id`, [this.workspaceId, runtime, owner])).rows[0].id;
+      await client.query("INSERT INTO agent_invocation_target (agent_id, target_type, target_id) VALUES ($1, 'workspace', $2)", [agent, this.workspaceId]);
+      return { agent, runtime };
+    } finally { await client.end(); }
+  }
+
+  /** Exercise production daemon claim/start/complete endpoints with controlled output. */
+  async workflowDaemonRequest(path: string, body?: unknown) {
+    if (!path.startsWith("/api/daemon/")) throw new Error("Expected daemon path");
+    const response = await this.authedFetch(path, { method: "POST", body: JSON.stringify(body ?? {}) });
+    if (!response.ok) throw new Error(`Controlled daemon ${response.status}: ${await response.text()}`);
+    return response.json();
+  }
+
+  async workflowRequest(path: string, init?: RequestInit) {
+    if (!path.startsWith("/api/workflow-")) throw new Error("Expected a workflow API path");
+    const response = await this.authedFetch(path, init);
+    if (!response.ok) throw new Error(`Workflow API ${response.status}: ${await response.text()}`);
+    return response.json();
+  }
+
   private async authedFetch(path: string, init?: RequestInit) {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

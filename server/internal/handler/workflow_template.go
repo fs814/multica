@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -124,16 +125,18 @@ type ValidateWorkflowDefinitionRequest struct {
 // Messages is always a non-nil array so a client can iterate it without a null
 // check.
 type ValidateWorkflowDefinitionResponse struct {
-	Valid    bool     `json:"valid"`
-	Messages []string `json:"messages"`
+	Valid       bool                            `json:"valid"`
+	Messages    []string                        `json:"messages"`
+	Diagnostics []workflow.ValidationDiagnostic `json:"diagnostics"`
 }
 
 // workflowValidationResponse is the 422 body. The messages are the whole point
 // of the status code: the template editor points at the offending node, and
 // "invalid definition" alone would force the author to guess.
 type workflowValidationResponse struct {
-	Error    string   `json:"error"`
-	Messages []string `json:"messages"`
+	Error       string                          `json:"error"`
+	Messages    []string                        `json:"messages"`
+	Diagnostics []workflow.ValidationDiagnostic `json:"diagnostics"`
 }
 
 // emptyWorkflowDefinition is what the detail endpoint reports when a template
@@ -381,15 +384,17 @@ func parseAndValidateWorkflowDefinition(w http.ResponseWriter, raw []byte) (*wor
 		// A parse failure is a definition problem, not a malformed HTTP body:
 		// the client sent well-formed JSON that is not a well-formed graph.
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: []string{err.Error()},
+			Error:       "invalid workflow definition",
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return nil, false
 	}
 	if err := workflow.ValidateDraft(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: workflowValidationMessages(err),
+			Error:       "invalid workflow definition",
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return nil, false
 	}
@@ -845,7 +850,49 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	versions, err := h.Queries.ListWorkflowTemplateVersions(r.Context(), db.ListWorkflowTemplateVersionsParams{
+	// Empty bodies remain supported for installed clients. New editors send both
+	// preconditions. All callers share the same atomic validation/publication.
+	var req struct {
+		Revision       *int64 `json:"revision"`
+		DraftVersionID string `json:"draft_version_id"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, workflowTemplateBodyLimit)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if (req.Revision == nil) != (req.DraftVersionID == "") || (req.Revision != nil && *req.Revision <= 0) {
+		writeError(w, http.StatusBadRequest, "revision and draft_version_id must be supplied together")
+		return
+	}
+	if req.DraftVersionID != "" {
+		if _, ok := parseUUIDOrBadRequest(w, req.DraftVersionID, "draft_version_id"); !ok {
+			return
+		}
+	}
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+	// Save locks the template before writing its draft. Use the same order so
+	// the validated bytes cannot change before publication, including legacy calls.
+	tpl, err = qtx.GetWorkflowTemplateForUpdate(r.Context(), db.GetWorkflowTemplateForUpdateParams{ID: tpl.ID, WorkspaceID: tpl.WorkspaceID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to lock workflow template")
+		return
+	}
+	if tpl.Status == "archived" {
+		writeError(w, http.StatusConflict, "an archived workflow template cannot be published")
+		return
+	}
+	if req.Revision != nil && *req.Revision != tpl.Revision {
+		writeErrorCode(w, http.StatusConflict, "workflow_template_revision_conflict", "workflow template changed; reload before publishing")
+		return
+	}
+	versions, err := qtx.ListWorkflowTemplateVersions(r.Context(), db.ListWorkflowTemplateVersionsParams{
 		TemplateID:  tpl.ID,
 		WorkspaceID: tpl.WorkspaceID,
 	})
@@ -872,6 +919,11 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if req.DraftVersionID != "" && req.DraftVersionID != uuidToString(draft.ID) {
+		writeErrorCode(w, http.StatusConflict, "workflow_template_revision_conflict", "workflow draft changed; reload before publishing")
+		return
+	}
+
 	// Re-validate the stored draft instead of trusting that create-time
 	// validation still holds: DefaultWorkspacePolicy and the schema registry can
 	// tighten between draft and publish, and a published version is immutable
@@ -879,28 +931,20 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
 	def, err := workflow.ParseDefinition(draft.Definition)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: []string{err.Error()},
+			Error:       "invalid workflow definition",
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return
 	}
 	if err := workflow.Validate(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, workflowValidationResponse{
-			Error:    "invalid workflow definition",
-			Messages: workflowValidationMessages(err),
+			Error:       "invalid workflow definition",
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return
 	}
-
-	// The version flip and the template's advertised current_version must agree,
-	// or a Run would resolve a version the template does not point at.
-	tx, err := h.TxStarter.Begin(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	qtx := h.Queries.WithTx(tx)
 
 	published, err := qtx.PublishWorkflowTemplateVersion(r.Context(), db.PublishWorkflowTemplateVersionParams{
 		ID:              draft.ID,
@@ -1015,19 +1059,21 @@ func (h *Handler) ValidateWorkflowDefinition(w http.ResponseWriter, r *http.Requ
 	def, err := workflow.ParseDefinition(req.Definition)
 	if err != nil {
 		writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{
-			Valid:    false,
-			Messages: []string{err.Error()},
+			Valid:       false,
+			Messages:    []string{err.Error()},
+			Diagnostics: workflowValidationDiagnostics(err, nil),
 		})
 		return
 	}
 	if err := workflow.Validate(def, workflow.DefaultWorkspacePolicy, workflow.DefaultSchemaRegistry); err != nil {
 		writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{
-			Valid:    false,
-			Messages: workflowValidationMessages(err),
+			Valid:       false,
+			Messages:    workflowValidationMessages(err),
+			Diagnostics: workflowValidationDiagnostics(err, def),
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{Valid: true, Messages: []string{}})
+	writeJSON(w, http.StatusOK, ValidateWorkflowDefinitionResponse{Valid: true, Messages: []string{}, Diagnostics: []workflow.ValidationDiagnostic{}})
 }
 
 // UpdateWorkflowTemplate saves an editor draft: metadata onto the template row,
@@ -1260,4 +1306,12 @@ func workflowDefinitionSchemaVersion(raw json.RawMessage) int32 {
 		return 1
 	}
 	return header.SchemaVersion
+}
+
+func workflowValidationDiagnostics(err error, def *workflow.Definition) []workflow.ValidationDiagnostic {
+	var verrs *workflow.ValidationErrors
+	if errors.As(err, &verrs) {
+		return verrs.Diagnostics(def)
+	}
+	return []workflow.ValidationDiagnostic{{Code: workflow.ErrCodeInvalidDefinition, Message: err.Error(), FieldPath: "definition"}}
 }

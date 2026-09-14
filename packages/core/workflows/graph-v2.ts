@@ -1,10 +1,31 @@
-import type { WorkflowDefinition, WorkflowPort } from "./schemas";
+import type {
+  WorkflowDefinition,
+  WorkflowPort,
+  WorkflowDiagnostic,
+} from "./schemas";
 
 export function validateGraphV2(
   def: WorkflowDefinition,
   complete = true,
 ): string[] {
-  const errors: string[] = [];
+  return diagnoseGraphV2(def, complete).map((item) => item.message);
+}
+export function diagnoseGraphV2(
+  def: WorkflowDefinition,
+  complete = true,
+): WorkflowDiagnostic[] {
+  const errors: WorkflowDiagnostic[] = [];
+  let fieldPath = "definition";
+  let nodeKey: string | undefined;
+  let edgeId: string | undefined;
+  const add = (message: string) =>
+    errors.push({
+      code: "workflow_invalid_definition",
+      message,
+      fieldPath,
+      nodeKey,
+      edgeId,
+    });
   const byKey = new Map(def.nodes.map((n) => [n.key, n]));
   const adjacency = new Map<string, string[]>();
   const ids = new Set<string>();
@@ -12,12 +33,9 @@ export function validateGraphV2(
     .filter((n) => n.type === "condition")
     .reduce((count, n) => count * Math.max(1, n.branches.length), 1);
   if (combinations > 4096)
-    errors.push(
-      "Condition combinations exceed the static validation limit of 4096.",
-    );
+    add("Condition combinations exceed the static validation limit of 4096.");
   const claim = (id: string | undefined) => {
-    if (!id || ids.has(id))
-      errors.push("Edge IDs must be nonempty and unique.");
+    if (!id || ids.has(id)) add("Edge IDs must be nonempty and unique.");
     if (id) ids.add(id);
   };
   const types = new Set([
@@ -28,8 +46,13 @@ export function validateGraphV2(
     "array",
     "any",
   ]);
-  for (const node of def.nodes) {
-    if (node.max_attempts < 0 || node.max_attempts > 10) errors.push(`${node.key}: maximum attempts must be between 1 and 10 (0 uses the graph default).`);
+  for (const [nodeIndex, node] of def.nodes.entries()) {
+    fieldPath = `nodes[${nodeIndex}]`;
+    nodeKey = node.key;
+    if (node.max_attempts < 0 || node.max_attempts > 10)
+      add(
+        `${node.key}: maximum attempts must be between 1 and 10 (0 uses the graph default).`,
+      );
     adjacency.set(node.key, [
       ...node.next,
       ...node.branches.map((b) => b.target),
@@ -38,15 +61,13 @@ export function validateGraphV2(
       node.rework_targets.length ||
       (node.on_failure && node.on_failure !== "fail")
     )
-      errors.push(
+      add(
         `${node.key}: schema 2 propagates final failure and rejects rework cycles.`,
       );
     if (node.join_policy && node.join_policy !== "fail_fast")
-      errors.push(
-        `${node.key}: schema 2 waits for all activated predecessors.`,
-      );
+      add(`${node.key}: schema 2 waits for all activated predecessors.`);
     if ((node.next_ids?.length ?? 0) !== node.next.length)
-      errors.push(`${node.key}: each flow edge needs a stable ID.`);
+      add(`${node.key}: each flow edge needs a stable ID.`);
     node.next_ids?.forEach(claim);
     if (
       complete &&
@@ -57,11 +78,11 @@ export function validateGraphV2(
           source.next.includes(node.key),
       )
     )
-      errors.push(
+      add(
         `${node.key}: routing source must be a direct ordinary control predecessor.`,
       );
     if (new Set(node.next).size !== node.next.length)
-      errors.push(`${node.key}: duplicate flow edge.`);
+      add(`${node.key}: duplicate flow edge.`);
     node.branches.forEach((b) => claim(b.id));
     if (
       complete &&
@@ -70,16 +91,14 @@ export function validateGraphV2(
         node.branches.filter((b) => !b.predicate && !b.when_verdict).length !==
           1)
     )
-      errors.push(
+      add(
         `${node.key}: condition needs exactly one default branch and no ordinary flow exits.`,
       );
     for (const ports of [node.input_ports ?? [], node.output_ports ?? []]) {
       const seen = new Set<string>();
       for (const port of ports) {
         if (!port.id || seen.has(port.id) || !types.has(port.type))
-          errors.push(
-            `${node.key}: ports need unique IDs and supported types.`,
-          );
+          add(`${node.key}: ports need unique IDs and supported types.`);
         seen.add(port.id);
       }
     }
@@ -89,7 +108,7 @@ export function validateGraphV2(
           (p) => p.id === branch.predicate?.input_port,
         );
         if (!port || !matches(port.type, branch.predicate.equals))
-          errors.push(
+          add(
             `${node.key}: predicate needs a declared input and compatible value.`,
           );
       }
@@ -98,18 +117,21 @@ export function validateGraphV2(
     string,
     NonNullable<WorkflowDefinition["data_edges"]>
   >();
-  for (const edge of def.data_edges ?? []) {
+  for (const [edgeIndex, edge] of (def.data_edges ?? []).entries()) {
+    fieldPath = `data_edges[${edgeIndex}]`;
+    nodeKey = edge.target;
+    edgeId = edge.id;
     claim(edge.id);
     const source = byKey.get(edge.source),
       target = byKey.get(edge.target);
     const out = source?.output_ports?.find((p) => p.id === edge.source_port);
     const input = target?.input_ports?.find((p) => p.id === edge.target_port);
     if (!out || !input) {
-      errors.push("Connect a declared output port to a declared input port.");
+      add("Connect a declared output port to a declared input port.");
       continue;
     }
     if (out.type !== input.type && input.type !== "any")
-      errors.push(`Incompatible port types: ${out.type} → ${input.type}.`);
+      add(`Incompatible port types: ${out.type} → ${input.type}.`);
     const key = `${edge.target}/${edge.target_port}`;
     const prior = incoming.get(key) ?? [];
     if (
@@ -120,31 +142,36 @@ export function validateGraphV2(
           (p.source === edge.source && p.source_port === edge.source_port),
       )
     )
-      errors.push(
+      add(
         `${key}: input already connected, duplicate source or ambiguous collection order.`,
       );
     incoming.set(key, [...prior, edge]);
     adjacency.get(edge.source)?.push(edge.target);
     if (edge.order < 0 || !Number.isInteger(edge.order))
-      errors.push("Collection order must be a nonnegative integer.");
+      add("Collection order must be a nonnegative integer.");
     if (
       complete &&
       input.required &&
       reachableWithout(def, edge.target, edge.source)
     )
-      errors.push(`${key}: source may be skipped; use an explicit merge.`);
+      add(`${key}: source may be skipped; use an explicit merge.`);
   }
+  edgeId = undefined;
   if (complete)
-    for (const n of def.nodes)
-      for (const p of n.input_ports ?? []) {
+    for (const [nodeIndex, n] of def.nodes.entries())
+      for (const [portIndex, p] of (n.input_ports ?? []).entries()) {
+        fieldPath = `nodes[${nodeIndex}].input_ports[${portIndex}]`;
+        nodeKey = n.key;
         if (p.required && !incoming.has(`${n.key}/${p.id}`))
-          errors.push(`${n.key}/${p.id}: required input has no source.`);
+          add(`${n.key}/${p.id}: required input has no source.`);
       }
+  fieldPath = "data_edges";
+  nodeKey = undefined;
   const visiting = new Set<string>(),
     visited = new Set<string>();
   const visit = (key: string) => {
     if (visiting.has(key)) {
-      errors.push("Combined flow and data dependencies contain a cycle.");
+      add("Combined flow and data dependencies contain a cycle.");
       return;
     }
     if (visited.has(key)) return;
@@ -154,7 +181,7 @@ export function validateGraphV2(
     visited.add(key);
   };
   for (const key of byKey.keys()) visit(key);
-  return [...new Set(errors)];
+  return errors;
 }
 function reachableWithout(
   def: WorkflowDefinition,

@@ -19,16 +19,19 @@ import { AppLink, useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { WorkflowRunStatusBadge } from "../runs/components/run-status-badge";
 
+import { useWorkflowLocation, workflowListOffset } from "../use-workflow-location";
 import { copiedInstanceName } from "./instance-form";
 
 export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
   const { t } = useT("workflows");
   const ws = useWorkspaceId();
   const paths = useWorkspacePaths();
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState(templateId ?? "");
-  const [archived, setArchived] = useState(false);
-  const [offset, setOffset] = useState(0);
+  const location = useWorkflowLocation();
+  const search = location.params.get("search") ?? "";
+  const filter = templateId ?? location.params.get("template") ?? "";
+  const archived = location.params.get("archived") === "true";
+  const offset = workflowListOffset(location.params.get("instance_offset"));
+  const setOffset = (value: number) => location.update({ instance_offset: value });
   const templates = useQuery(workflowTemplateListOptions(ws));
   const list = useQuery(
     workflowInstancesOptions(ws, {
@@ -41,8 +44,8 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
   );
   const groups = groupWorkflowInstances(list.data?.instances ?? [], templates.data);
   return (
-    <div className="flex h-full flex-col overflow-y-auto p-4" data-tab-scroll-root="main">
-      <header className="mb-4 flex items-center gap-4">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4" data-tab-scroll-root="main">
+      {!templateId && <header className="mb-4 flex items-center gap-4">
         <div className="flex-1">
           <h1 className="font-semibold">{t(($) => $.instances.all)}</h1>
           {!templateId && (
@@ -52,7 +55,7 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
           )}
         </div>
         <AppLink href={paths.workflows()}>{t(($) => $.page.title)}</AppLink>
-      </header>
+      </header>}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input
           className="max-w-sm"
@@ -60,8 +63,7 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
           placeholder={t(($) => $.instances.search)}
           value={search}
           onChange={(e) => {
-            setSearch(e.target.value);
-            setOffset(0);
+            location.update({ search: e.target.value, instance_offset: 0 }, true);
           }}
         />
         {!templateId && (
@@ -70,8 +72,7 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
             className="rounded border bg-background p-2 text-caption"
             value={filter}
             onChange={(e) => {
-              setFilter(e.target.value);
-              setOffset(0);
+              location.update({ template: e.target.value, instance_offset: 0 });
             }}
           >
             <option value="">{t(($) => $.instances.all_workflows)}</option>
@@ -87,8 +88,7 @@ export function WorkflowInstancesPage({ templateId }: { templateId?: string }) {
             type="checkbox"
             checked={archived}
             onChange={(e) => {
-              setArchived(e.target.checked);
-              setOffset(0);
+              location.update({ archived: e.target.checked ? "true" : null, instance_offset: 0 });
             }}
           />
           {t(($) => $.instances.include_archived)}
@@ -167,6 +167,7 @@ function InstanceRow({
   const ws = useWorkspaceId();
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
+  const location = useWorkflowLocation();
   const readiness = useQuery(
     workflowInstanceValidationOptions(ws, row.id, row.revision),
   );
@@ -226,7 +227,7 @@ function InstanceRow({
       <div className="min-w-0 flex-1">
         <AppLink
           className="font-medium"
-          href={paths.workflowInstanceDetail(row.id)}
+          href={paths.workflowInstanceDetail(row.id) + "?return_to=" + encodeURIComponent(location.current)}
         >
           {row.name}
         </AppLink>

@@ -51,19 +51,31 @@ import { artifactSummary } from "../submission";
  * a stream of rejected submissions.
  */
 
-export function WorkflowAcceptancePanel({
-  runId,
-  acceptance,
-  /** The step the gate is judging, when it can be located in the trace. */
-  evidenceStep,
-}: {
+type AcceptanceProps = {
   runId: string;
   acceptance: WorkflowAcceptance;
   evidenceStep: WorkflowStep | null;
-}) {
-  const { t } = useT("workflows");
+};
+export type AcceptanceDecision = {
+  isPending: boolean;
+  mutateAsync(input: {
+    runId: string;
+    accept: boolean;
+    reason?: string;
+    rework_target?: string;
+  }): Promise<unknown>;
+};
+export function WorkflowAcceptancePanel(props: AcceptanceProps) {
   const decide = useDecideWorkflowAcceptance();
-
+  return <WorkflowAcceptanceForm {...props} decide={decide} />;
+}
+export function WorkflowAcceptanceForm({
+  runId,
+  acceptance,
+  evidenceStep,
+  decide,
+}: AcceptanceProps & { decide: AcceptanceDecision }) {
+  const { t } = useT("workflows");
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [target, setTarget] = useState("");

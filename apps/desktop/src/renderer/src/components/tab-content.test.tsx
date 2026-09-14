@@ -21,6 +21,7 @@ function Shell({ client }: { client: QueryClient }) {
   return (
     <QueryClientProvider client={client}>
       <NavigationProvider value={{
+        hash: "",
         pathname: url,
         searchParams: new URLSearchParams(),
         getShareableUrl: (path) => `http://localhost${path}`,

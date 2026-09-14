@@ -289,7 +289,7 @@ function renderPage() {
     hash: "",
     getShareableUrl: (path) => path,
   };
-  return render(
+  const rendered = render(
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
       <NavigationProvider value={navigation}>
         <QueryClientProvider client={queryClient}>
@@ -298,6 +298,7 @@ function renderPage() {
       </NavigationProvider>
     </I18nProvider>,
   );
+  return { ...rendered, queryClient };
 }
 
 /** The canvas stub, once the query has resolved and the reducer has hydrated. */
@@ -468,6 +469,8 @@ describe("validate", () => {
       ),
     ).toBeInTheDocument();
     expect(validateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Agent node "step_1" must have exactly one/ }));
+    expect(screen.getByTestId("canvas")).toHaveAttribute("data-selected", "step_1");
   });
 
   it("asks the server when the mirror is clean, and says so", async () => {
@@ -578,7 +581,7 @@ describe("save", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
     );
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ id: "wft-1", revision: expect.any(Number), draft_version_id: expect.any(String) })));
 
     view.unmount();
     detailRef.current = detail({ definition: sent.definition });
@@ -629,7 +632,7 @@ describe("save", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled(),
     );
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ id: "wft-1", revision: expect.any(Number), draft_version_id: expect.any(String) })));
 
     view.unmount();
     detailRef.current = detail({ definition: sent.definition });
@@ -846,7 +849,7 @@ describe("publish", () => {
     renderPage();
     await canvas();
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ id: "wft-1", revision: expect.any(Number), draft_version_id: expect.any(String) })));
   });
 
   // Regression: publishability used to be gated on `status === "draft"`, but
@@ -871,7 +874,7 @@ describe("publish", () => {
     renderPage();
     await canvas();
     fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-    await waitFor(() => expect(publishMock).toHaveBeenCalledWith("wft-1"));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ id: "wft-1", revision: expect.any(Number), draft_version_id: expect.any(String) })));
   });
 
   it("hides publish when every version is already published", async () => {
@@ -908,6 +911,7 @@ describe("publish", () => {
   });
 
   it("saves before publishing when asked to", async () => {
+    saveMock.mockResolvedValue(detail({ revision: 8 }));
     renderPage();
     await canvas();
     fireEvent.click(screen.getByRole("button", { name: "Add Issue step" }));
@@ -917,7 +921,7 @@ describe("publish", () => {
     );
 
     await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(publishMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(publishMock).toHaveBeenCalledWith({ id: "wft-1", revision: 8, draft_version_id: "wftv-1" }));
   });
 
   it("does not publish when the pre-publish save is rejected", async () => {
@@ -1049,4 +1053,54 @@ it("uses the published input declaration while retaining unsaved draft text", as
   await waitFor(() => expect(runMock).toHaveBeenCalledWith(expect.objectContaining({
     templateVersionId: "published-1", description: "List the current OS version",
   })));
+});
+
+
+it("publishes only the revision hydrated into the editor despite a background refetch", async () => {
+  const { queryClient } = renderPage();
+  await canvas();
+  const revision = detailRef.current!.revision;
+  queryClient.setQueryData(["workflow-templates", "ws-1", "detail", "wft-1"], detail({revision: revision + 1}));
+  fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+  await waitFor(() => expect(publishMock).toHaveBeenCalledWith({id:"wft-1", revision, draft_version_id:"wftv-1"}));
+});
+
+it("protects unsaved edits on app navigation and preserves them after cancelling", async () => {
+  const confirm = vi.spyOn(window,"confirm").mockReturnValue(false);
+  renderPage();
+  await canvas();
+  fireEvent.click(screen.getByRole("button", {name:"Add Issue step"}));
+  const event = new CustomEvent("multica:before-navigate", {cancelable:true,detail:{pathname:"/acme/workflows/wft-1",destination:"/acme/issues"}});
+  expect(window.dispatchEvent(event)).toBe(false);
+  expect(confirm).toHaveBeenCalled();
+  expect(screen.getByRole("button", {name:"Save"})).toBeEnabled();
+  const section = new CustomEvent("multica:before-navigate", {cancelable:true,detail:{pathname:"/acme/workflows/wft-1",destination:"/acme/workflows/wft-1?section=runs"}});
+  expect(window.dispatchEvent(section)).toBe(true);
+  confirm.mockRestore();
+});
+
+it("Review: partial diagnostics must not locate a different message", async () => {
+  validateMock.mockResolvedValue({ valid: false, messages: ["Problem A", "Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}] });
+  renderPage();
+  await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  await screen.findByText("Problem B");
+  expect(screen.queryByRole("button", {name: /Problem A/})).toBeNull();
+});
+
+it.each([
+  { name: "reordered messages", messages: ["Problem A", "Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}, {code: "future", message: "Problem A", fieldPath: "nodes[0]", nodeKey: "input"}] },
+  { name: "missing node", messages: ["Problem A"], diagnostics: [{code: "future", message: "Problem A", fieldPath: "nodes[99]", nodeKey: "missing"}] },
+])("falls back to text for $name", async ({messages, diagnostics}) => {
+  validateMock.mockResolvedValue({ valid: false, messages, diagnostics });
+  renderPage(); await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  await screen.findByText("Problem A");
+  expect(screen.queryByRole("button", {name: /Problem A/})).toBeNull();
+});
+it("locates an aligned diagnostic even with an unknown future code", async () => {
+  validateMock.mockResolvedValue({ valid: false, messages: ["Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}] });
+  renderPage(); await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  expect(await screen.findByRole("button", {name: /Problem B/})).toBeVisible();
 });

@@ -33,7 +33,7 @@
  *     drag, because it has no way to know whether the page wants to remember it.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import type { WorkflowNode } from "@multica/core/workflows";
 import {
   Background,
@@ -44,6 +44,7 @@ import {
   ReactFlowProvider,
   applyEdgeChanges,
   applyNodeChanges,
+  type ReactFlowInstance,
   type Connection,
   type EdgeChange,
   type NodeChange,
@@ -77,11 +78,18 @@ export function WorkflowCanvas(props: {
   nodes: FlowNode[];
   edges: FlowEdge[];
   selectedNodeId: string | null;
+  focusRequest?: { nodeId: string; sequence: number };
   readOnly: boolean;
   onNodesChange(next: FlowNode[]): void;
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
-  onConnect(source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string): void;
+  onConnect(
+    source: string,
+    target: string,
+    sourceHandle?: string | null,
+    targetHandle?: string | null,
+    replacing?: string,
+  ): void;
   onDeleteNode?(nodeId: string): void;
   onChangeNode?(node: WorkflowNode): void;
 }) {
@@ -96,6 +104,7 @@ export function WorkflowCanvas(props: {
 }
 
 function CanvasInner({
+  focusRequest,
   nodes,
   edges,
   selectedNodeId,
@@ -110,15 +119,32 @@ function CanvasInner({
   nodes: FlowNode[];
   edges: FlowEdge[];
   selectedNodeId: string | null;
+  focusRequest?: { nodeId: string; sequence: number };
   readOnly: boolean;
   onNodesChange(next: FlowNode[]): void;
   onEdgesChange(next: FlowEdge[]): void;
   onSelectNode(id: string | null): void;
-  onConnect(source: string, target: string, sourceHandle?: string | null, targetHandle?: string | null, replacing?: string): void;
+  onConnect(
+    source: string,
+    target: string,
+    sourceHandle?: string | null,
+    targetHandle?: string | null,
+    replacing?: string,
+  ): void;
   onDeleteNode?(nodeId: string): void;
   onChangeNode?(node: WorkflowNode): void;
 }) {
   const { t } = useT("workflows");
+  const [flow, setFlow] = useState<ReactFlowInstance<FlowNode, FlowEdge>>();
+  useEffect(() => {
+    if (focusRequest && flow)
+      void flow.fitView({
+        nodes: [{ id: focusRequest.nodeId }],
+        maxZoom: 1,
+        duration: 200,
+        padding: 0.4,
+      });
+  }, [focusRequest, flow]);
   // Selection projected from the prop. New objects only for the nodes whose
   // selected flag actually changes, so xyflow's identity-based re-render check
   // still skips the rest of the layer.
@@ -130,7 +156,10 @@ function CanvasInner({
           return {
             ...node,
             selected,
-            data: { ...node.data, onChange: readOnly ? undefined : onChangeNode },
+            data: {
+              ...node.data,
+              onChange: readOnly ? undefined : onChangeNode,
+            },
           };
         }
         return node.selected === selected ? node : { ...node, selected };
@@ -146,7 +175,8 @@ function CanvasInner({
       // above fight whatever the page decided.
       const structural = changes.filter((change) => change.type !== "select");
       for (const change of changes) {
-        if (change.type === "select" && change.selected) onSelectNode(change.id);
+        if (change.type === "select" && change.selected)
+          onSelectNode(change.id);
       }
       if (structural.length === 0) return;
       onNodesChange(applyNodeChanges(structural, nodes));
@@ -172,25 +202,35 @@ function CanvasInner({
   const canvasRef = useRef<HTMLDivElement>(null);
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (
-      readOnly || event.defaultPrevented || event.repeat ||
-      event.ctrlKey || event.metaKey || event.altKey ||
+      readOnly ||
+      event.defaultPrevented ||
+      event.repeat ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
       (event.key !== "Delete" && event.key !== "Backspace")
-    ) return;
+    )
+      return;
     const target = event.target;
     // React portal events still bubble through their React ancestors. Only a
     // DOM descendant of this canvas may delete its current selection.
     if (
-      !(target instanceof HTMLElement) || !canvasRef.current?.contains(target) ||
-      target.isContentEditable || target.closest(
+      !(target instanceof HTMLElement) ||
+      !canvasRef.current?.contains(target) ||
+      target.isContentEditable ||
+      target.closest(
         "input, textarea, select, [role='textbox'], [contenteditable='true']",
       )
-    ) return;
+    )
+      return;
     if (selectedNodeId && onDeleteNode) {
       event.preventDefault();
       onDeleteNode(selectedNodeId);
       return;
     }
-    const selected = new Set(edges.filter((edge) => edge.selected).map((edge) => edge.id));
+    const selected = new Set(
+      edges.filter((edge) => edge.selected).map((edge) => edge.id),
+    );
     if (selected.size === 0) return;
     event.preventDefault();
     onEdgesChange(edges.filter((edge) => !selected.has(edge.id)));
@@ -203,7 +243,12 @@ function CanvasInner({
       // author never drew.
       if (!connection.source || !connection.target) return;
       if (readOnly) return;
-      onConnect(connection.source, connection.target, connection.sourceHandle, connection.targetHandle);
+      onConnect(
+        connection.source,
+        connection.target,
+        connection.sourceHandle,
+        connection.targetHandle,
+      );
     },
     [onConnect, readOnly],
   );
@@ -215,7 +260,8 @@ function CanvasInner({
 
   const handleNodeClick = useCallback<NodeMouseHandler<FlowNode>>(
     (event, node) => {
-      if (event.target instanceof Element && event.target.closest(".nodrag")) return;
+      if (event.target instanceof Element && event.target.closest(".nodrag"))
+        return;
       onSelectNode(node.id);
       canvasRef.current?.focus({ preventScroll: true });
     },
@@ -236,50 +282,64 @@ function CanvasInner({
       >
         <WorkflowEdgeMarkers />
         <ReactFlow<FlowNode, FlowEdge>
-        nodes={projected}
-        edges={edges}
-        nodeTypes={workflowNodeTypes}
-        edgeTypes={workflowEdgeTypes}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
-        onReconnect={(edge, connection) => { if (!readOnly) onConnect(connection.source, connection.target, connection.sourceHandle, connection.targetHandle, edge.id); }}
-        onNodeClick={handleNodeClick}
-        onEdgeClick={() => {
-          onSelectNode(null);
-          canvasRef.current?.focus({ preventScroll: true });
-        }}
-        onPaneClick={handlePaneClick}
-        nodesDraggable={!readOnly}
-        nodesConnectable={!readOnly}
-        edgesReconnectable={!readOnly}
-        elementsSelectable
-        // The canvas handler sends node deletion through the editor reducer
-        // to clean up graph references in one undoable change.
-        deleteKeyCode={null}
-        fitView
-        fitViewOptions={{ padding: FIT_VIEW_PADDING }}
-        // A graph deeper than the viewport must still be readable end to end;
-        // the default 0.5 floor cuts off around six columns.
-        minZoom={0.2}
-        maxZoom={2}
-        // The library's attribution panel also defaults to bottom-right, so it
-        // renders its link text on top of the minimap. Moved rather than hidden:
-        // hiding it is a paid-tier option we have no licence for, and the
-        // attribution is the library's asking price.
-        attributionPosition="bottom-left"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={GRID_GAP} size={1} />
-        <Controls showInteractive={false} />
-        <MiniMap<FlowNode>
-          pannable
-          zoomable
-          ariaLabel={t(($) => $.canvas.minimap_aria)}
-          // Node colour in the minimap comes from the same per-type table as the
-          // card's left border, so the minimap is a legible thumbnail of the
-          // graph's structure rather than a field of identical grey rectangles.
-          nodeClassName={(node) => NODE_ACCENT[node.data.type].minimap}
-        />
+          onInit={setFlow}
+          nodes={projected}
+          edges={edges}
+          nodeTypes={workflowNodeTypes}
+          edgeTypes={workflowEdgeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={handleConnect}
+          onReconnect={(edge, connection) => {
+            if (!readOnly)
+              onConnect(
+                connection.source,
+                connection.target,
+                connection.sourceHandle,
+                connection.targetHandle,
+                edge.id,
+              );
+          }}
+          onNodeClick={handleNodeClick}
+          onEdgeClick={() => {
+            onSelectNode(null);
+            canvasRef.current?.focus({ preventScroll: true });
+          }}
+          onPaneClick={handlePaneClick}
+          nodesDraggable={!readOnly}
+          nodesConnectable={!readOnly}
+          edgesReconnectable={!readOnly}
+          elementsSelectable
+          // The canvas handler sends node deletion through the editor reducer
+          // to clean up graph references in one undoable change.
+          deleteKeyCode={null}
+          fitView
+          fitViewOptions={{ padding: FIT_VIEW_PADDING }}
+          // A graph deeper than the viewport must still be readable end to end;
+          // the default 0.5 floor cuts off around six columns.
+          minZoom={0.2}
+          maxZoom={2}
+          // The library's attribution panel also defaults to bottom-right, so it
+          // renders its link text on top of the minimap. Moved rather than hidden:
+          // hiding it is a paid-tier option we have no licence for, and the
+          // attribution is the library's asking price.
+          attributionPosition="bottom-left"
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={GRID_GAP}
+            size={1}
+          />
+          <Controls showInteractive={false} />
+          <MiniMap<FlowNode>
+            pannable
+            zoomable
+            ariaLabel={t(($) => $.canvas.minimap_aria)}
+            // Node colour in the minimap comes from the same per-type table as the
+            // card's left border, so the minimap is a legible thumbnail of the
+            // graph's structure rather than a field of identical grey rectangles.
+            nodeClassName={(node) => NODE_ACCENT[node.data.type].minimap}
+          />
         </ReactFlow>
       </WorkflowEdgeActionsProvider>
     </div>

@@ -21,9 +21,8 @@ import { canGoBackInApp } from "./in-app-history";
 function useInternalLinkHandler(router: ReturnType<typeof useRouter>) {
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (
-        e as CustomEvent<{ path?: string; disposition?: string }>
-      ).detail;
+      const detail = (e as CustomEvent<{ path?: string; disposition?: string }>)
+        .detail;
       const path = detail?.path;
       if (!path) return;
       if (
@@ -37,7 +36,15 @@ function useInternalLinkHandler(router: ReturnType<typeof useRouter>) {
         );
         return;
       }
-      router.push(path);
+      if (
+        window.dispatchEvent(
+          new CustomEvent("multica:before-navigate", {
+            cancelable: true,
+            detail: { pathname: window.location.pathname, destination: path },
+          }),
+        )
+      )
+        router.push(path);
     };
     window.addEventListener("multica:navigate", handler);
     return () => window.removeEventListener("multica:navigate", handler);
@@ -60,11 +67,29 @@ function subscribeToHash(onStoreChange: () => void): () => void {
   };
 }
 
-function NavigationProviderInner({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+/** Navigation API traversal settles explicitly after a cancelled browser traversal. */
+function traverseHistory(direction: "back" | "forward", fallback: () => void) {
+  const browser = (
+    window as unknown as {
+      navigation?: Partial<
+        Record<
+          "back" | "forward",
+          () => { committed: Promise<unknown>; finished: Promise<unknown> }
+        >
+      >;
+    }
+  ).navigation;
+  if (!browser?.[direction]) {
+    fallback();
+    return;
+  }
+  const result = browser[direction]();
+  // Cancelling a dirty-page prompt rejects both promises by design.
+  void result.committed.catch(() => {});
+  void result.finished.catch(() => {});
+}
+
+function NavigationProviderInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -74,12 +99,48 @@ function NavigationProviderInner({
     () => "",
   );
   useInternalLinkHandler(router);
+  useEffect(() => {
+    // Chromium's Navigation API can cancel browser back/forward before Next
+    // unmounts the editor. Both browser and adapter traversal use this one guard.
+    const browser = (window as unknown as { navigation?: EventTarget })
+      .navigation;
+    const traverse = (event: Event) => {
+      const detail = event as Event & {
+        navigationType?: string;
+        destination?: { url: string };
+      };
+      if (detail.navigationType !== "traverse" || !event.cancelable) return;
+      const destination = detail.destination
+        ? new URL(detail.destination.url)
+        : null;
+      if (
+        !window.dispatchEvent(
+          new CustomEvent("multica:before-navigate", {
+            cancelable: true,
+            detail: {
+              pathname,
+              destination: destination
+                ? destination.pathname + destination.search
+                : undefined,
+            },
+          }),
+        )
+      )
+        event.preventDefault();
+    };
+    browser?.addEventListener?.("navigate", traverse);
+    return () => browser?.removeEventListener?.("navigate", traverse);
+  }, [pathname]);
 
   const adapter: NavigationAdapter = {
     push: router.push,
     replace: router.replace,
-    back: router.back,
-    forward: router.forward,
+    guardsHistory:
+      typeof window !== "undefined" &&
+      typeof (window as unknown as { navigation?: EventTarget }).navigation
+        ?.addEventListener === "function",
+    back: () => traverseHistory("back", router.back),
+    forward: () => traverseHistory("forward", router.forward),
     canGoBack: canGoBackInApp,
     pathname,
     searchParams: new URLSearchParams(searchParams.toString()),

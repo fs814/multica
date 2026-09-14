@@ -128,19 +128,20 @@ func validateGraphV2Mode(v *ValidationErrors, d *Definition, byKey map[string]*N
 			}
 			seen[target] = true
 			if j < len(n.NextIDs) {
-				claim(n.NextIDs[j], field+".next_ids")
+				claim(n.NextIDs[j], fmt.Sprintf("%s.next_ids[%d]", field, j))
 			}
 		}
 		defaults := 0
-		for _, b := range n.Branches {
-			claim(b.ID, field+".branches")
+		for j, b := range n.Branches {
+			branchField := fmt.Sprintf("%s.branches[%d]", field, j)
+			claim(b.ID, branchField)
 			if b.Predicate == nil && b.WhenVerdict == "" {
 				defaults++
 			}
 			if b.Predicate != nil {
 				p, ok := portByID(n.InputPorts, b.Predicate.InputPort)
 				if !ok || !valueMatches(p.Type, b.Predicate.Equals) {
-					v.add(field+".branches", "predicate requires a declared input port and a compatible comparison value")
+					v.add(branchField+".predicate", "predicate requires a declared input port and a compatible comparison value")
 				}
 			}
 		}
@@ -158,43 +159,44 @@ func validateGraphV2Mode(v *ValidationErrors, d *Definition, byKey map[string]*N
 		}
 	}
 	incoming := map[string][]DataEdge{}
-	for _, edge := range d.DataEdges {
-		claim(edge.ID, "data_edges")
+	for edgeIndex, edge := range d.DataEdges {
+		field := fmt.Sprintf("data_edges[%d]", edgeIndex)
+		claim(edge.ID, field)
 		src, dst := byKey[edge.Source], byKey[edge.Target]
 		if src == nil || dst == nil {
-			v.add("data_edges", "data edge references a missing node")
+			v.add(field, "data edge references a missing node")
 			continue
 		}
 		out, outOK := portByID(src.OutputPorts, edge.SourcePort)
 		in, inOK := portByID(dst.InputPorts, edge.TargetPort)
 		if !outOK || !inOK {
-			v.add("data_edges", "data edge must connect a declared output to a declared input")
+			v.add(field, "data edge must connect a declared output to a declared input")
 			continue
 		}
 		if out.Type != in.Type && in.Type != "any" {
-			v.add("data_edges", "incompatible port types")
+			v.add(field, "incompatible port types")
 		}
 		key := edge.Target + "/" + edge.TargetPort
 		for _, prior := range incoming[key] {
 			if !in.Multiple || prior.Order == edge.Order || (prior.Source == edge.Source && prior.SourcePort == edge.SourcePort) {
-				v.add("data_edges", "duplicate source, occupied single input, or ambiguous collection order")
+				v.add(field, "duplicate source, occupied single input, or ambiguous collection order")
 			}
 		}
 		incoming[key] = append(incoming[key], edge)
 		adjacency[edge.Source] = append(adjacency[edge.Source], edge.Target)
 		if edge.Order < 0 {
-			v.add("data_edges", "collection order must be nonnegative")
+			v.add(field, "collection order must be nonnegative")
 		}
 		// A required source must dominate its consumer in the control graph. A join
 		// explicitly merges optional values from mutually exclusive paths instead.
 		if complete && in.Required && reachableWithout(d, edge.Target, edge.Source) {
-			v.add("data_edges", fmt.Sprintf("required input %s may be activated without source %s; use an explicit merge", key, edge.Source))
+			v.add(field, fmt.Sprintf("required input %s may be activated without source %s; use an explicit merge", key, edge.Source))
 		}
 	}
-	for _, n := range d.Nodes {
-		for _, p := range n.InputPorts {
+	for nodeIndex, n := range d.Nodes {
+		for portIndex, p := range n.InputPorts {
 			if complete && p.Required && len(incoming[n.Key+"/"+p.ID]) == 0 {
-				v.add("input_ports", fmt.Sprintf("required input %s/%s has no source", n.Key, p.ID))
+				v.add(fmt.Sprintf("nodes[%d].input_ports[%d]", nodeIndex, portIndex), fmt.Sprintf("required input %s/%s has no source", n.Key, p.ID))
 			}
 		}
 	}

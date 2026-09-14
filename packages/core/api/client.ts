@@ -1,3 +1,5 @@
+import {WorkflowDebugCapabilitiesSchema, WorkflowDebugSettingsSchema, WorkflowDebugRunSchema, WorkflowDebugDefinitionSchema, WorkflowDebugListSchema, workflowDebugPolicyWire, type WorkflowDebugPolicy, type StartWorkflowDebugRequest} from "../workflows/debug-schemas";
+import type { PublishWorkflowTemplateRequest } from "../workflows/schemas";
 import type { z } from "zod";
 import { WorkflowInstanceRunListSchema, WorkflowInstancePageSchema, WorkflowInstanceValidationSchema, WorkflowInstanceVersionSchema, type WorkflowInstanceFilters, type RunWorkflowInstance } from "../workflows/input-instance-schemas";
 import { WorkflowInputInstanceSchema, WorkflowInputInstanceListSchema, type SaveWorkflowInputInstance, type WorkflowInputInstance } from "../workflows/input-instance-schemas";
@@ -4455,6 +4457,60 @@ export class ApiClient {
   /** GET also runs the idempotent built-in seeder server-side, which is how
    *  the Bug Fix template appears in workspaces created before it existed -
    *  no migration and no client-side seeding step. */
+  async getWorkflowDebugCapabilities(wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/capabilities`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugCapabilitiesSchema>|null>(raw,WorkflowDebugCapabilitiesSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async getWorkflowDebugSettings(wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/settings`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugSettingsSchema>|null>(raw,WorkflowDebugSettingsSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async updateWorkflowDebugSettings(revision:number, settings:WorkflowDebugPolicy, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/settings`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined, method:"PATCH",body:JSON.stringify({...workflowDebugPolicyWire(settings),expected_revision:revision})});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugSettingsSchema>|null>(raw,WorkflowDebugSettingsSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async startWorkflowDebugRun(id:string, body:StartWorkflowDebugRequest, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-templates/${encodeURIComponent(id)}/test-runs`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined, method:"POST",body:JSON.stringify(body)});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugRunSchema>|null>(raw,WorkflowDebugRunSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async getWorkflowDebugRun(id:string, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/${encodeURIComponent(id)}`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugRunSchema>|null>(raw,WorkflowDebugRunSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async getWorkflowDebugDefinition(id:string, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/${encodeURIComponent(id)}/definition`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugDefinitionSchema>|null>(raw,WorkflowDebugDefinitionSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async listWorkflowDebugRuns(templateId:string, offset=0, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/?template_id=${encodeURIComponent(templateId)}&offset=${offset}&limit=20`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugListSchema>|null>(raw,WorkflowDebugListSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async cancelWorkflowDebugRun(id:string, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/${encodeURIComponent(id)}/cancel`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined, method:"POST",body:"{}"});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugRunSchema>|null>(raw,WorkflowDebugRunSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
+  async decideWorkflowDebugAcceptance(id:string, body:DecideWorkflowAcceptanceRequest, wsId?:string) {
+ const raw=await this.fetch<unknown>(`/api/workflow-test-runs/${encodeURIComponent(id)}/acceptance`, {headers: wsId ? {"X-Workspace-ID":wsId,"X-Workspace-Slug":""} : undefined, method:"POST",body:JSON.stringify(body)});
+ const parsed=parseWithFallback<z.output<typeof WorkflowDebugRunSchema>|null>(raw,WorkflowDebugRunSchema.nullable(),null,{endpoint:"workflow draft trial"});
+ if(!parsed) throw new Error("Unable to read draft trial response. Please reload.");
+ return parsed;
+ }
   async listWorkflowTemplates(): Promise<WorkflowTemplateListResponse> {
     const raw = await this.fetch<unknown>("/api/workflow-templates");
     return parseWithFallback(
@@ -4519,10 +4575,10 @@ export class ApiClient {
    *  then on so a run can pin the exact graph it started with. The response is
    *  the full detail (including the new `current_version`), so callers refresh
    *  without a second round-trip. */
-  async publishWorkflowTemplate(id: string): Promise<WorkflowTemplateDetail> {
+  async publishWorkflowTemplate(id: string, body: PublishWorkflowTemplateRequest): Promise<WorkflowTemplateDetail> {
     const raw = await this.fetch<unknown>(
       `/api/workflow-templates/${encodeURIComponent(id)}/publish`,
-      { method: "POST" },
+      { method: "POST", body: JSON.stringify(body) },
     );
     return parseWithFallback(
       raw,

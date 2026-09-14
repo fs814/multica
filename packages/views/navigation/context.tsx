@@ -45,10 +45,21 @@ export function NavigationProvider({
   const wrapped = useMemo<NavigationAdapter>(
     () => ({
       ...value,
-      push: (path: string) => {if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))startTransition(() => value.push(path));},
-      replace: (path: string) => {if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))startTransition(() => value.replace(path));},
-      back:()=>{if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))value.back();},
-      forward:()=>{if(window.dispatchEvent(new CustomEvent("multica:before-navigate",{cancelable:true,detail:{pathname:value.pathname}})))value.forward?.();},
+      push: (path) => {
+        if (canNavigate(value.pathname, path))
+          startTransition(() => value.push(path));
+      },
+      replace: (path) => {
+        if (canNavigate(value.pathname, path))
+          startTransition(() => value.replace(path));
+      },
+      back: () => {
+        if (value.guardsHistory || canNavigate(value.pathname)) value.back();
+      },
+      forward: () => {
+        if (value.guardsHistory || canNavigate(value.pathname))
+          value.forward?.();
+      },
     }),
     [value],
   );
@@ -110,4 +121,13 @@ export function useReportNavigating(pending: boolean): void {
     report(1);
     return () => report(-1);
   }, [pending, report]);
+}
+
+function canNavigate(pathname: string, destination?: string) {
+  return window.dispatchEvent(
+    new CustomEvent("multica:before-navigate", {
+      cancelable: true,
+      detail: { pathname, destination },
+    }),
+  );
 }

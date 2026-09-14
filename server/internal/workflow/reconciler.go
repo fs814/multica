@@ -20,11 +20,13 @@ const (
 )
 
 type Reconciler struct {
-	Engine     *Engine
-	Queries    *db.Queries
-	Interval   time.Duration
-	StaleAfter time.Duration
-	BatchSize  int32
+	debugAfterCreatedAt pgtype.Timestamptz
+	debugAfterID        pgtype.UUID
+	Engine              *Engine
+	Queries             *db.Queries
+	Interval            time.Duration
+	StaleAfter          time.Duration
+	BatchSize           int32
 }
 
 func NewReconciler(engine *Engine, queries *db.Queries) *Reconciler {
@@ -66,6 +68,22 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	limit := r.BatchSize
 	if limit <= 0 {
 		limit = DefaultReconcileBatchSize
+	}
+	params := db.ListWorkflowDebugMaintenanceRunsParams{AfterCreatedAt: r.debugAfterCreatedAt, AfterID: r.debugAfterID, LimitCount: limit}
+	debugRuns, err := r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, params)
+	if err == nil && len(debugRuns) == 0 && r.debugAfterCreatedAt.Valid {
+		// Wrap only after exhausting the current pass, including failed work.
+		r.debugAfterCreatedAt, r.debugAfterID = pgtype.Timestamptz{}, pgtype.UUID{}
+		debugRuns, err = r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, db.ListWorkflowDebugMaintenanceRunsParams{LimitCount: limit})
+	}
+	if err != nil {
+		return err
+	}
+	for _, run := range debugRuns {
+		r.debugAfterCreatedAt, r.debugAfterID = run.CreatedAt, run.ID
+		if err := r.Engine.PurgeDebugRun(ctx, run.WorkspaceID, run.ID); err != nil {
+			slog.Warn("draft trial maintenance failed", "run_id", uuidString(run.ID), "error", err)
+		}
 	}
 	tasks, err := r.Queries.ListWorkflowTasksAwaitingStepProgress(ctx, db.ListWorkflowTasksAwaitingStepProgressParams{StaleSeconds: stale.Seconds(), LimitCount: limit})
 	if err != nil {
@@ -151,14 +169,13 @@ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUI
 		if err != nil {
 			return err
 		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			return err
+		}
 		if IsTerminalRunStatus(RunStatus(run.Status)) || run.Status == string(RunBlocked) {
 			return nil
 		}
-		version, err := q.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{ID: run.TemplateVersionID, WorkspaceID: workspaceID})
-		if err != nil {
-			return err
-		}
-		def, err := ParseDefinition(version.Definition)
+		def, err := ResolveRunDefinition(ctx, q, workspaceID, run)
 		if err != nil {
 			return err
 		}

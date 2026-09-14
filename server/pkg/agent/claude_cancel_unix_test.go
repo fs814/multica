@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -94,7 +95,13 @@ func TestClaudeCancellationEscalatesWhenDescendantIgnoresTERM(t *testing.T) {
 	runClaudeCancellationTest(t, claudeMixedSignalFakeScript())
 }
 
-func runClaudeCancellationTest(t *testing.T, script string) {
+func TestClaudeDebugStopProofIncludesTermResistantDescendant(t *testing.T) {
+	claudeTerminateGraceNanos.Store(int64(300 * time.Millisecond))
+	t.Cleanup(func() { claudeTerminateGraceNanos.Store(0) })
+	runClaudeCancellationTest(t, claudeMixedSignalFakeScript(), true)
+}
+
+func runClaudeCancellationTest(t *testing.T, script string, proof ...bool) {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -114,7 +121,7 @@ func runClaudeCancellationTest(t *testing.T, script string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{Cwd: tempDir})
+	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{Cwd: tempDir, RequireProcessStopProof: len(proof) > 0 && proof[0]})
 	if err != nil {
 		t.Fatalf("execute: %v", err)
 	}
@@ -131,6 +138,16 @@ func runClaudeCancellationTest(t *testing.T, script string) {
 
 	select {
 	case res := <-session.Result:
+		if len(proof) > 0 && proof[0] && res.ProcessStoppedAt.IsZero() {
+			t.Error("result lacks physical process-group stop proof")
+		}
+		if len(proof) > 0 && proof[0] {
+			for _, pid := range pids {
+				if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+					t.Errorf("PID %d still exists at proof handoff: %v", pid, err)
+				}
+			}
+		}
 		if res.Status != "aborted" {
 			t.Errorf("status = %q, want aborted", res.Status)
 		}

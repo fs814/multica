@@ -7216,6 +7216,16 @@ func (s *TaskService) ResolveTaskWorkspaceIDChecked(ctx context.Context, task db
 		}
 	}
 
+	// Trial tasks deliberately have no issue, chat or autopilot. Their durable
+	// step binding remains authoritative even after payload cleanup.
+	if task.WorkflowStepInstanceID.Valid {
+		run, err := s.Queries.GetWorkflowDebugTaskRun(ctx, task.ID)
+		if err == nil {
+			return util.UUIDToString(run.WorkspaceID), nil
+		}
+		note(err)
+	}
+
 	if task.IssueID.Valid {
 		issue, err := s.Queries.GetIssue(ctx, task.IssueID)
 		if err == nil {

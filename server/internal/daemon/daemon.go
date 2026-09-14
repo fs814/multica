@@ -164,19 +164,20 @@ func taskScopedAuthToken(task Task) (string, error) {
 
 func taskMulticaEnvironment(task Task, agentName, token, configRoot, workspacesRoot, serverURL string, healthPort, slot int, tempDir string) map[string]string {
 	return map[string]string{
-		"MULTICA_TOKEN":        token,
-		cli.TaskConfigRootEnv:  configRoot,
-		TaskWorkspacesRootEnv:  workspacesRoot,
-		"MULTICA_SERVER_URL":   serverURL,
-		"MULTICA_DAEMON_PORT":  strconv.Itoa(healthPort),
-		"MULTICA_WORKSPACE_ID": task.WorkspaceID,
-		"MULTICA_AGENT_NAME":   agentName,
-		"MULTICA_AGENT_ID":     task.AgentID,
-		"MULTICA_TASK_ID":      task.ID,
-		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
-		"TMPDIR":               tempDir,
-		"TMP":                  tempDir,
-		"TEMP":                 tempDir,
+		"MULTICA_TOKEN":                 token,
+		cli.TaskConfigRootEnv:           configRoot,
+		TaskWorkspacesRootEnv:           workspacesRoot,
+		"MULTICA_SERVER_URL":            serverURL,
+		"MULTICA_DAEMON_PORT":           strconv.Itoa(healthPort),
+		"MULTICA_WORKSPACE_ID":          task.WorkspaceID,
+		"MULTICA_AGENT_NAME":            agentName,
+		"MULTICA_AGENT_ID":              task.AgentID,
+		"MULTICA_TASK_ID":               task.ID,
+		"MULTICA_WORKFLOW_EXECUTION_ID": task.WorkflowExecutionID,
+		"MULTICA_TASK_SLOT":             strconv.Itoa(slot),
+		"TMPDIR":                        tempDir,
+		"TMP":                           tempDir,
+		"TEMP":                          tempDir,
 	}
 }
 
@@ -374,6 +375,8 @@ type repoCacheBackend interface {
 
 // Daemon is the local agent runtime that polls for and executes tasks.
 type Daemon struct {
+	debugStopWaitBudget time.Duration // zero uses the production terminal handoff budget
+
 	cfg        Config
 	client     *Client
 	repoCache  repoCacheBackend
@@ -638,6 +641,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	cacheRoot := filepath.Join(cfg.WorkspacesRoot, ".repos")
 	skillCacheRoot := filepath.Join(cfg.WorkspacesRoot, ".skill-cache", "v1")
 	client := NewClient(cfg.ServerBaseURL)
+	client.configureDebugDelivery(cfg.WorkspacesRoot)
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
@@ -5017,6 +5021,25 @@ func (d *Daemon) restartTargetBinary() (string, error) {
 // per-request timeout (WS) / the client's timeout (HTTP fallback), and the
 // server-side batch claim is index-backed + short.
 func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) error {
+	deliveryCtx, deliveryCancel := context.WithCancel(ctx)
+	deliveryDone := make(chan struct{})
+	go func() {
+		defer close(deliveryDone)
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-deliveryCtx.Done():
+				return
+			case <-ticker.C:
+				if err := d.client.ReplayDebugDeliveries(deliveryCtx); err != nil {
+					d.logger.Warn("draft trial delivery remains pending", "error", err)
+				}
+			}
+		}
+	}()
+	defer func() { deliveryCancel(); <-deliveryDone }()
+
 	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
 	var taskWG sync.WaitGroup // tracks in-flight handleTask goroutines
 
@@ -5122,6 +5145,22 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem chan i
 		}
 
 		claimResult, err := d.claimTasksWSFirst(pollerCtx, d.cfg.DaemonID, runtimeIDs, len(slots))
+		if err == nil && len(claimResult.Tasks) == 0 {
+			for _, runtimeID := range runtimeIDs {
+				trial, trialErr := d.client.claimDebugTask(pollerCtx, runtimeID)
+				if trialErr != nil {
+					d.logger.Warn("draft trial claim failed", "error", trialErr)
+					break
+				}
+				if trial != nil {
+					claimResult.Tasks = append(claimResult.Tasks, trial)
+					if len(claimResult.Tasks) >= len(slots) {
+						break
+					}
+				}
+			}
+		}
+
 		if err != nil {
 			d.exitClaim()
 			releaseSlots(slots)
@@ -5386,6 +5425,16 @@ func (d *Daemon) watchTaskCancellation(ctx context.Context, taskID string, pollI
 }
 
 func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
+	if task.WorkflowExecutionMode == "draft_test" {
+		defer func() {
+			proofCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := d.client.finishDebugTaskDelivery(proofCtx, task.ID); err != nil {
+				slog.Warn("draft trial receipt remains pending", "task_id", task.ID, "error", err)
+			}
+		}()
+	}
+
 	d.mu.Lock()
 	rt, tracked := d.runtimeIndex[task.RuntimeID]
 	d.mu.Unlock()
@@ -8474,6 +8523,16 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
+	defer func() {
+		if task.WorkflowExecutionMode == "draft_test" {
+			reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = d.reportDebugCheckoutEvidence(reportCtx, task, env.WorkDir, "after_execution", &msgSeq)
+		}
+	}()
+	if err := d.reportDebugCheckoutEvidence(ctx, task, env.WorkDir, "before_execution", &msgSeq); err != nil {
+		return TaskResult{}, err
+	}
 	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
 	if err != nil {
 		return TaskResult{}, err
@@ -8988,7 +9047,21 @@ func freshSessionMayHelp(errText string) bool {
 // messages and is owned by the caller so a same-task retry continues the
 // sequence instead of restarting at 1 — the server orders the transcript by
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
+func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (out agent.Result, tools int32, outErr error) {
+	debug, beginErr := d.client.beginDebugExecution(taskID)
+	if beginErr != nil {
+		return agent.Result{}, 0, beginErr
+	}
+	var fullyDrained atomic.Bool
+	if debug {
+		opts.RequireProcessStopProof = true
+		defer func() {
+			if err := d.client.endDebugExecution(taskID, out.ProcessStoppedAt, fullyDrained.Load(), msgSeq.Load()); err != nil {
+				taskLog.Warn("draft trial stop proof was not persisted", "error", err)
+			}
+		}()
+	}
+
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
@@ -9031,6 +9104,12 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		drainCtx, drainCancel = context.WithCancel(agentCtx)
 	}
 	defer drainCancel()
+	messageCtx := drainCtx
+	stopMessages := drainCancel
+	if debug {
+		messageCtx, stopMessages = context.WithCancel(context.WithoutCancel(drainCtx))
+		defer stopMessages()
+	}
 
 	var toolCount atomic.Int32
 	// lastActivityAt records (as unix nanos) when the drain loop most
@@ -9098,6 +9177,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	drainFinished := make(chan struct{})
 	go func() {
 		defer close(drainFinished)
+		reachedEOF := false
 		var mu sync.Mutex
 		var pendingText strings.Builder
 		var pendingThinking strings.Builder
@@ -9167,6 +9247,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 			select {
 			case msg, ok := <-session.Messages:
 				if !ok {
+					reachedEOF = true
 					goto drainDone
 				}
 				if isTaskOutputReceived(msg) {
@@ -9313,7 +9394,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 					})
 					mu.Unlock()
 				}
-			case <-drainCtx.Done():
+			case <-messageCtx.Done():
 				goto drainDone
 			}
 		}
@@ -9324,6 +9405,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		// signalled that the transcript tail was persisted.
 		<-tickerDone
 		flush()
+		fullyDrained.Store(reachedEOF)
 	}()
 
 	// waitForDrain blocks until the drain goroutine has flushed the transcript
@@ -9341,6 +9423,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		case <-drainFinished:
 		case <-time.After(10 * time.Second):
 			drainCancel()
+			stopMessages()
 			select {
 			case <-drainFinished:
 			case <-time.After(12 * time.Second):
@@ -9369,6 +9452,26 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		}
 		return result, toolCount.Load(), nil
 	case <-drainCtx.Done():
+		if debug {
+			agentCancel()
+			budget := d.debugStopWaitBudget
+			if budget <= 0 {
+				budget = terminalResultHandoffBudget
+			}
+			timer := time.NewTimer(budget)
+			defer timer.Stop()
+			select {
+			case result, ok := <-session.Result:
+				if ok {
+					waitForDrain()
+					return result, toolCount.Load(), nil
+				}
+			case <-timer.C:
+			}
+			// A timeout is not physical exit. Preserve pending proof and never
+			// fabricate a receipt even if a terminal API call succeeds later.
+			return agent.Result{Status: "cancelled", Error: "draft trial process stop remains unconfirmed"}, toolCount.Load(), nil
+		}
 		// The drain loop is exiting on this same Done signal; wait for its
 		// final flush so the timeout/watchdog/cancel terminals below cannot
 		// hand back (and let runTask fail-and-broadcast) a still-flushing

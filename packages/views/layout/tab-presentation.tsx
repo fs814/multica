@@ -15,7 +15,7 @@ import {
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { projectDetailOptions } from "@multica/core/projects/queries";
 import { autopilotDetailOptions } from "@multica/core/autopilots/queries";
-import { workflowInstanceOptions, workflowRunDetailOptions } from "@multica/core/workflows";
+import { workflowDebugRunOptions, workflowInstanceOptions, workflowRunDetailOptions } from "@multica/core/workflows";
 import {
   skillDetailOptions,
   agentListOptions,
@@ -66,6 +66,7 @@ const PENDING_RESOURCE_KEYS: ReadonlySet<TabLabelKey> = new Set<TabLabelKey>([
   "project",
   "autopilot",
   "workflow_run",
+  "workflow_test_run",
   "agent",
   "member",
   "squad",
@@ -144,6 +145,7 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
   // cache read, and the run detail is a heavy payload (whole trace) that the
   // run page itself is already fetching and keeping fresh through realtime.
   const workflowInstance=useQuery({...workflowInstanceOptions(wsId,subject.kind==="workflowInstance"?subject.id:""),enabled:false}).data;
+  const debugRun = useQuery({...workflowDebugRunOptions(wsId, subject.kind === "workflowTestRun" ? subject.id : ""), enabled:false}).data;
   const workflowRun = useQuery({
     ...workflowRunDetailOptions(
       wsId,
@@ -181,6 +183,10 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
     case "workflowInstance":
       if(workflowInstance)data.workflowInstance={label:workflowInstance.name};
       break;
+    case "workflowTestRun": {
+      if (debugRun) data.workflowTestRun = {label: String(debugRun.run.input.title || debugRun.run.template_name)};
+      break;
+    }
     case "workflowRun": {
       // Gated on `status`, not on truthiness: an unreadable detail resolves to
       // EMPTY_WORKFLOW_RUN_DETAIL with the requested id spread on, which would

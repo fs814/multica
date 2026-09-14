@@ -31,7 +31,8 @@
     "attachment": "附件",
     "create_agent": "创建智能体",
     "unknown": "未知页面",
-    "workflow_instance": "工作流实例"
+    "workflow_instance": "工作流实例",
+    "workflow_test_run": "草稿试运行"
   },
   "help": {
     "trigger": "帮助",

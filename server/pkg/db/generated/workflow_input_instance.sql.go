@@ -363,7 +363,7 @@ func (q *Queries) ListWorkflowInputInstances(ctx context.Context, arg ListWorkfl
 }
 
 const listWorkflowInstanceRuns = `-- name: ListWorkflowInstanceRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run WHERE workspace_id = $1 AND input_instance_id = $2
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run WHERE workspace_id = $1 AND input_instance_id = $2
 ORDER BY created_at DESC, id LIMIT $4::int OFFSET $3::int
 `
 
@@ -416,6 +416,19 @@ func (q *Queries) ListWorkflowInstanceRuns(ctx context.Context, arg ListWorkflow
 			&i.InputInstanceName,
 			&i.InputSource,
 			&i.InputProjectID,
+			&i.ExecutionMode,
+			&i.ExecutionSnapshotID,
+			&i.DebugDeadlineAt,
+			&i.DebugRequestHash,
+			&i.DebugPolicyRevision,
+			&i.DebugRetentionSeconds,
+			&i.DebugPurgeAfter,
+			&i.DebugPayloadBytes,
+			&i.DebugStopRequestedAt,
+			&i.DebugCleanupState,
+			&i.DetailsPurgedAt,
+			&i.PurgeCompletedAt,
+			&i.BytesReleasedAt,
 		); err != nil {
 			return nil, err
 		}

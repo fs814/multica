@@ -31,7 +31,8 @@
     "attachment": "添付ファイル",
     "create_agent": "エージェントを作成",
     "unknown": "不明なページ",
-    "workflow_instance": "ワークフローインスタンス"
+    "workflow_instance": "ワークフローインスタンス",
+    "workflow_test_run": "下書き試行"
   },
   "help": {
     "trigger": "ヘルプ",

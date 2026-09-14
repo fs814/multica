@@ -23,7 +23,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { WebNavigationProvider } from "./navigation";
-import { useNavigation, type NavigationAdapter } from "@multica/views/navigation";
+import {
+  useNavigation,
+  type NavigationAdapter,
+} from "@multica/views/navigation";
 
 function navigate(path: string) {
   window.dispatchEvent(
@@ -157,3 +160,83 @@ describe("WebNavigationProvider hash", () => {
     expect(adapter().hash).toBe("#comment-c2");
   });
 });
+
+it("allows the dirty-page guard to cancel an internal content link", () => {
+  const prevent = (event: Event) => event.preventDefault();
+  window.addEventListener("multica:before-navigate", prevent);
+  try {
+    render(<WebNavigationProvider>{null}</WebNavigationProvider>);
+    navigate("/acme/workflows/other");
+    expect(router.push).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener("multica:before-navigate", prevent);
+  }
+});
+
+// Browser traverse is simulated at the platform boundary.
+it("review: adapter back requests leave confirmation only once", () => {
+  const browser = new EventTarget();
+  Object.assign(window, { navigation: browser });
+  let prompts = 0;
+  const allow = () => {
+    prompts++;
+  };
+  window.addEventListener("multica:before-navigate", allow);
+  router.back.mockImplementation(() => {
+    const event = new Event("navigate", { cancelable: true });
+    Object.assign(event, {
+      navigationType: "traverse",
+      destination: { url: "http://localhost/acme/workflows" },
+    });
+    browser.dispatchEvent(event);
+  });
+  try {
+    const adapter = renderAdapter();
+    adapter().back();
+    console.log(JSON.stringify({ prompts }));
+    expect(prompts).toBe(1);
+  } finally {
+    window.removeEventListener("multica:before-navigate", allow);
+    delete (window as unknown as { navigation?: unknown }).navigation;
+    router.back.mockReset();
+  }
+});
+
+it.each(["back", "forward"] as const)(
+  "settles cancelled native %s before another traversal",
+  async (direction) => {
+    const browser = new EventTarget();
+    let prompts = 0;
+    const cancel = (event: Event) => {
+      prompts++;
+      event.preventDefault();
+    };
+    const traverse = vi.fn(() => {
+      const event = new Event("navigate", { cancelable: true });
+      Object.assign(event, {
+        navigationType: "traverse",
+        destination: { url: "http://localhost/acme/workflows" },
+      });
+      browser.dispatchEvent(event);
+      return {
+        committed: Promise.reject(new DOMException("Cancelled", "AbortError")),
+        finished: Promise.reject(new DOMException("Cancelled", "AbortError")),
+      };
+    });
+    Object.assign(browser, { [direction]: traverse });
+    Object.assign(window, { navigation: browser });
+    window.addEventListener("multica:before-navigate", cancel);
+    try {
+      const adapter = renderAdapter();
+      adapter()[direction]?.();
+      await Promise.resolve();
+      adapter()[direction]?.();
+      await Promise.resolve();
+      expect(traverse).toHaveBeenCalledTimes(2);
+      expect(prompts).toBe(2);
+    } finally {
+      window.removeEventListener("multica:before-navigate", cancel);
+      delete (window as unknown as { navigation?: unknown }).navigation;
+    }
+  },
+);
