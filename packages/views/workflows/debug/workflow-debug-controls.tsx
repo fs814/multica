@@ -219,13 +219,15 @@ function TrialDialog({
           limits={snapshot.effectiveLimits}
           retentionSeconds={snapshot.retentionSeconds}
         />
-        <InstanceFields
-          hideMetadata
-          value={value}
-          onChange={setValue}
-          disabled={start.isPending}
-          onUploadingChange={setUploading}
-        />
+        <div className="[&_textarea]:max-h-32 [&_textarea]:overflow-y-auto">
+          <InstanceFields
+            hideMetadata
+            value={value}
+            onChange={setValue}
+            disabled={start.isPending}
+            onUploadingChange={setUploading}
+          />
+        </div>
         <label className="flex items-start gap-2 text-body">
           <input
             type="checkbox"

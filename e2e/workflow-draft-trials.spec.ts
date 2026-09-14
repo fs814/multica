@@ -141,11 +141,33 @@ async function exercise(page: Page, info: TestInfo, desktop: boolean) {
     .fill("Controlled trial B");
   await dialog
     .getByRole("textbox", { name: "Description", exact: true })
-    .fill("Immutable input for real trial");
+    .fill("Immutable input for real trial. ".repeat(100));
+  await dialog
+    .getByRole("textbox", { name: "Description", exact: true })
+    .press("Tab");
+  await expect(
+    dialog.getByRole("textbox", { name: "Description", exact: true }),
+  ).not.toBeFocused();
   await expect(
     dialog.getByRole("button", { name: "Confirm and run" }),
   ).toBeDisabled();
-  await dialog.getByRole("checkbox").check();
+  await dialog.getByRole("checkbox").focus();
+  await page.keyboard.press("Space");
+  await expect(dialog.getByRole("checkbox")).toBeChecked();
+  const longDescription = dialog.getByRole("textbox", {
+    name: "Description",
+    exact: true,
+  });
+  const descriptionHeight = await longDescription.evaluate(
+    (el) => el.getBoundingClientRect().height,
+  );
+  expect(descriptionHeight).toBeLessThanOrEqual(
+    (page.viewportSize()?.height ?? 900) / 4,
+  );
+  await expect(dialog.getByText(/not a sandbox/)).toBeInViewport();
+  await expect(
+    dialog.getByRole("button", { name: "Confirm and run" }),
+  ).toBeInViewport();
   await page.screenshot({
     path: info.outputPath("trial-warning-light.png"),
     fullPage: true,
@@ -160,6 +182,9 @@ async function exercise(page: Page, info: TestInfo, desktop: boolean) {
   expect(payload.execution_ref.kind).toBe("draft_test");
   const id = payload.run.id;
   const result = page.getByRole("dialog");
+  await expect(
+    result.locator("summary").filter({ hasText: /^Execution snapshot$/ }),
+  ).toBeVisible();
   await expect(result.getByTestId("workflow-run-graph")).toContainText(
     "Unsaved graph B",
   );
@@ -210,6 +235,9 @@ async function exercise(page: Page, info: TestInfo, desktop: boolean) {
   await expect(page.getByTestId("workflow-run-graph")).toContainText(
     "Unsaved graph B",
   );
+  await expect(
+    page.locator("summary").filter({ hasText: /^Execution snapshot$/ }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Dark", exact: true }).click();
   await expect(page.locator("html")).toHaveClass(/dark/);
   await page.screenshot({
@@ -302,6 +330,19 @@ async function exercise(page: Page, info: TestInfo, desktop: boolean) {
       `/api/daemon/runtimes/${worker.runtime}/tasks/claim`,
     );
     expect(ordinary.task).toBeNull();
+    await db.query("UPDATE agent_runtime SET metadata=$2 WHERE id=$1", [
+      worker.runtime,
+      JSON.stringify({ capabilities: [] }),
+    ]);
+    const incompatible = await request(
+      `/api/daemon/runtimes/${worker.runtime}/workflow-test-tasks/claim`,
+      { daemon_incarnation_id: crypto.randomUUID() },
+    );
+    expect(incompatible.status).toBe(503);
+    await db.query("UPDATE agent_runtime SET metadata=$2 WHERE id=$1", [
+      worker.runtime,
+      JSON.stringify({ capabilities: caps }),
+    ]);
     const claimResponse = await request(
       `/api/daemon/runtimes/${worker.runtime}/workflow-test-tasks/claim`,
       { daemon_incarnation_id: crypto.randomUUID() },
