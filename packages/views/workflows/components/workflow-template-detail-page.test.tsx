@@ -1078,3 +1078,29 @@ it("protects unsaved edits on app navigation and preserves them after cancelling
   expect(window.dispatchEvent(section)).toBe(true);
   confirm.mockRestore();
 });
+
+it("Review: partial diagnostics must not locate a different message", async () => {
+  validateMock.mockResolvedValue({ valid: false, messages: ["Problem A", "Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}] });
+  renderPage();
+  await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  await screen.findByText("Problem B");
+  expect(screen.queryByRole("button", {name: /Problem A/})).toBeNull();
+});
+
+it.each([
+  { name: "reordered messages", messages: ["Problem A", "Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}, {code: "future", message: "Problem A", fieldPath: "nodes[0]", nodeKey: "input"}] },
+  { name: "missing node", messages: ["Problem A"], diagnostics: [{code: "future", message: "Problem A", fieldPath: "nodes[99]", nodeKey: "missing"}] },
+])("falls back to text for $name", async ({messages, diagnostics}) => {
+  validateMock.mockResolvedValue({ valid: false, messages, diagnostics });
+  renderPage(); await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  await screen.findByText("Problem A");
+  expect(screen.queryByRole("button", {name: /Problem A/})).toBeNull();
+});
+it("locates an aligned diagnostic even with an unknown future code", async () => {
+  validateMock.mockResolvedValue({ valid: false, messages: ["Problem B"], diagnostics: [{code: "future", message: "Problem B", fieldPath: "nodes[1]", nodeKey: "implement"}] });
+  renderPage(); await canvas();
+  fireEvent.click(screen.getByRole("button", {name: "Validate"}));
+  expect(await screen.findByRole("button", {name: /Problem B/})).toBeVisible();
+});

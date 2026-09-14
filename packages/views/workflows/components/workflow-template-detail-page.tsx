@@ -806,6 +806,7 @@ export function WorkflowTemplateDetailPage({
       {problems ? (
         <ProblemsStrip
           report={problems}
+          nodeKeys={new Set(working.nodes.map((node) => node.key))}
           onDismiss={() => setProblems(null)}
           onLocate={(item) => {
             const target = state.present.nodes.find(
@@ -1097,16 +1098,23 @@ export function WorkflowTemplateDetailPage({
  * count, dismiss - is translated as usual.
  */
 function ProblemsStrip({
+  nodeKeys,
   onLocate,
   report,
   onDismiss,
 }: {
   report: ProblemReport;
+  nodeKeys: Set<string>;
   onLocate(item: WorkflowDiagnostic): void;
   onDismiss(): void;
 }) {
   const { t } = useT("workflows");
   const clean = report.messages.length === 0;
+  const aligned =
+    report.diagnostics?.length === report.messages.length &&
+    report.diagnostics.every(
+      (item, index) => item.message === report.messages[index],
+    );
 
   return (
     <div
@@ -1147,7 +1155,9 @@ function ProblemsStrip({
                 key={index}
                 className="font-mono text-micro leading-snug break-words text-muted-foreground"
               >
-                {report.diagnostics?.[index]?.nodeKey ? (
+                {aligned &&
+                report.diagnostics?.[index]?.nodeKey &&
+                nodeKeys.has(report.diagnostics[index]!.nodeKey!) ? (
                   <button
                     className="text-left underline underline-offset-2 focus-visible:outline-2"
                     onClick={() => onLocate(report.diagnostics![index]!)}
