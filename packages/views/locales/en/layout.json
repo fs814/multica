@@ -31,7 +31,8 @@
     "attachment": "Attachment",
     "create_agent": "Create Agent",
     "unknown": "Unknown page",
-    "workflow_instance": "Workflow instance"
+    "workflow_instance": "Workflow instance",
+    "workflow_test_run": "Draft trial"
   },
   "help": {
     "trigger": "Help",

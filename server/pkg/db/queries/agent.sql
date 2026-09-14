@@ -732,7 +732,10 @@ SET status = 'dispatched',
     prepare_lease_expires_at = now() + make_interval(secs => @prepare_lease_secs::double precision)
 WHERE id = (
     SELECT atq.id FROM agent_task_queue atq
-    WHERE atq.agent_id = @agent_id
+    WHERE NOT EXISTS (
+ SELECT 1 FROM workflow_step_instance debug_step JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_step.id=atq.workflow_step_instance_id AND debug_run.execution_mode='draft_test'
+) AND atq.agent_id = @agent_id
       AND atq.runtime_id = @runtime_id
       AND atq.status = 'queued'
       AND EXISTS (
@@ -839,7 +842,10 @@ SET dispatched_at = now(),
     prepare_lease_expires_at = now() + make_interval(secs => @prepare_lease_secs::double precision)
 WHERE id = (
     SELECT atq.id FROM agent_task_queue atq
-    WHERE atq.runtime_id = $1
+    WHERE NOT EXISTS (
+ SELECT 1 FROM workflow_step_instance debug_step JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_step.id=atq.workflow_step_instance_id AND debug_run.execution_mode='draft_test'
+) AND atq.runtime_id = $1
       AND atq.status = 'dispatched'
       AND atq.started_at IS NULL
       AND atq.dispatched_at < now() - make_interval(secs => @claim_recovery_secs::double precision)
@@ -885,7 +891,10 @@ SET dispatched_at = now(),
     prepare_lease_expires_at = now() + make_interval(secs => @prepare_lease_secs::double precision)
 WHERE id IN (
     SELECT atq.id FROM agent_task_queue atq
-    WHERE atq.runtime_id = ANY(@runtime_ids::uuid[])
+    WHERE NOT EXISTS (
+ SELECT 1 FROM workflow_step_instance debug_step JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_step.id=atq.workflow_step_instance_id AND debug_run.execution_mode='draft_test'
+) AND atq.runtime_id = ANY(@runtime_ids::uuid[])
       AND atq.status = 'dispatched'
       AND atq.started_at IS NULL
       AND atq.dispatched_at < now() - make_interval(secs => @claim_recovery_secs::double precision)
@@ -2207,7 +2216,10 @@ ORDER BY priority DESC, created_at ASC;
 -- runtime is busy on a long-running task. Backed by the partial index
 -- idx_agent_task_queue_claim_candidates so the warm path is cheap.
 SELECT atq.* FROM agent_task_queue atq
-WHERE atq.runtime_id = $1
+WHERE NOT EXISTS (
+ SELECT 1 FROM workflow_step_instance debug_step JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_step.id=atq.workflow_step_instance_id AND debug_run.execution_mode='draft_test'
+) AND atq.runtime_id = $1
   AND atq.status = 'queued'
   AND EXISTS (
       -- Keep this authorization fence in sync with ClaimAgentTask.
@@ -2334,7 +2346,10 @@ RETURNING *;
 -- runtimes' rows into one priority/FIFO order is not). The per-machine
 -- candidate set is small, so this is cheap in practice.
 SELECT atq.* FROM agent_task_queue atq
-WHERE atq.runtime_id = ANY(@runtime_ids::uuid[])
+WHERE NOT EXISTS (
+ SELECT 1 FROM workflow_step_instance debug_step JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_step.id=atq.workflow_step_instance_id AND debug_run.execution_mode='draft_test'
+) AND atq.runtime_id = ANY(@runtime_ids::uuid[])
   AND atq.status = 'queued'
   AND EXISTS (
       -- Keep this authorization fence in sync with ClaimAgentTask.

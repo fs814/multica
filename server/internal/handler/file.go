@@ -195,6 +195,11 @@ func (h *Handler) attachmentToResponse(a db.Attachment, mode attachmentURLMode) 
 		s := uuidToString(a.ChatMessageID)
 		resp.ChatMessageID = &s
 	}
+	if h.isWorkflowDebugAttachment(a) {
+		resp.URL = util.AttachmentDownloadPath(id)
+		resp.DownloadURL = resp.URL
+		resp.MarkdownURL = resp.URL
+	}
 	return resp
 }
 
@@ -375,6 +380,9 @@ func (h *Handler) groupChatMessageAttachments(ctx context.Context, workspaceID s
 // ---------------------------------------------------------------------------
 
 func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugUpload(w, r) {
+		return
+	}
 	if h.Storage == nil {
 		writeError(w, http.StatusServiceUnavailable, "file upload not configured")
 		return
@@ -687,6 +695,10 @@ func (h *Handler) GetAttachmentByID(w http.ResponseWriter, r *http.Request) {
 	case attachmentDownloadModePresign:
 		if presigner, ok := h.Storage.(storage.DownloadPresigner); ok {
 			key := h.Storage.KeyFromURL(att.Url)
+			if h.isWorkflowDebugAttachment(att) {
+				h.proxyAttachmentDownload(w, r, att, key, true)
+				return
+			}
 			signedURL, err := presigner.PresignGetWithContentDisposition(r.Context(), key, h.attachmentDownloadURLTTL(), "")
 			if err != nil {
 				slog.Warn("failed to presign inline attachment URL", "id", uuidToString(att.ID), "key", key, "error", err)
@@ -834,6 +846,10 @@ func (h *Handler) DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := h.Storage.KeyFromURL(att.Url)
+	if h.isWorkflowDebugAttachment(att) {
+		h.proxyAttachmentDownload(w, r, att, key, true)
+		return
+	}
 	switch h.resolveAttachmentDownloadMode(att.Url) {
 	case attachmentDownloadModeCloudFront:
 		if h.CFSigner == nil {
@@ -1276,6 +1292,10 @@ func (h *Handler) GetAttachmentContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := h.Storage.KeyFromURL(att.Url)
+	if h.isWorkflowDebugAttachment(att) {
+		h.proxyAttachmentDownload(w, r, att, key, true)
+		return
+	}
 	reader, err := h.Storage.GetReader(r.Context(), key)
 	if err != nil {
 		slog.Error("failed to open attachment for preview", "id", attachmentID, "key", key, "error", err)

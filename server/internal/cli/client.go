@@ -227,6 +227,9 @@ func (c *APIClient) setHeaders(req *http.Request) {
 	}
 	if c.TaskID != "" {
 		req.Header.Set("X-Task-ID", c.TaskID)
+		if executionID := os.Getenv("MULTICA_WORKFLOW_EXECUTION_ID"); executionID != "" {
+			req.Header.Set("X-Workflow-Execution-Id", executionID)
+		}
 	}
 
 	platform := c.Platform

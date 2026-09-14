@@ -1746,6 +1746,18 @@ type WorkflowDebugTaskExecution struct {
 	DeliveryDrainedAt   pgtype.Timestamptz `json:"delivery_drained_at"`
 }
 
+type WorkflowDebugUpload struct {
+	ID           pgtype.UUID        `json:"id"`
+	WorkspaceID  pgtype.UUID        `json:"workspace_id"`
+	RunID        pgtype.UUID        `json:"run_id"`
+	ClaimID      pgtype.UUID        `json:"claim_id"`
+	TaskID       pgtype.UUID        `json:"task_id"`
+	AttachmentID pgtype.UUID        `json:"attachment_id"`
+	State        string             `json:"state"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SettledAt    pgtype.Timestamptz `json:"settled_at"`
+}
+
 type WorkflowEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`

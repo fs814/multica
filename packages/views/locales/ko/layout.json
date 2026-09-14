@@ -31,7 +31,8 @@
     "attachment": "첨부파일",
     "create_agent": "에이전트 만들기",
     "unknown": "알 수 없는 페이지",
-    "workflow_instance": "워크플로 인스턴스"
+    "workflow_instance": "워크플로 인스턴스",
+    "workflow_test_run": "초안 시험 실행"
   },
   "help": {
     "trigger": "도움말",

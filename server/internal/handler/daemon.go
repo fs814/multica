@@ -3860,6 +3860,9 @@ func (h *Handler) ExtendTaskPrepareLease(w http.ResponseWriter, r *http.Request)
 
 // StartTask marks a dispatched task as running.
 func (h *Handler) StartTask(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "start") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
@@ -3894,6 +3897,9 @@ type TaskWaitLocalDirectoryRequest struct {
 // whose project carries a local_directory resource, it discovers another
 // in-flight task already holds the path's mutex.
 func (h *Handler) MarkTaskWaitingLocalDirectory(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "wait-local-directory") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	_, workspaceID, ok := h.requireDaemonTaskAccessWithWorkspace(w, r, taskID)
@@ -3927,6 +3933,9 @@ type TaskProgressRequest struct {
 }
 
 func (h *Handler) ReportTaskProgress(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "progress") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	var req TaskProgressRequest
@@ -4004,6 +4013,9 @@ func sanitizeTaskFailRequest(req *TaskFailRequest) {
 }
 
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "complete") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
@@ -4599,6 +4611,9 @@ func authoritativeCostTicks(ticks int64) pgtype.Int8 {
 }
 
 func (h *Handler) ReportTaskUsage(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "usage") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
@@ -4710,6 +4725,9 @@ type TaskFailRequest struct {
 }
 
 func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "fail") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	// Verify the caller owns this task's workspace.
@@ -4795,6 +4813,9 @@ type TaskMessageBatchRequest struct {
 
 // ReportTaskMessages receives a batch of agent execution messages from the daemon.
 func (h *Handler) ReportTaskMessages(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "messages") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 
 	var req TaskMessageBatchRequest
@@ -4958,6 +4979,9 @@ type TaskCancelAckRequest struct {
 }
 
 func (h *Handler) AckTaskCancelled(w http.ResponseWriter, r *http.Request) {
+	if h.handleWorkflowDebugTask(w, r, "cancel-ack") {
+		return
+	}
 	taskID := chi.URLParam(r, "taskId")
 	task, ok := h.requireDaemonTaskAccess(w, r, taskID)
 	if !ok {

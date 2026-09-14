@@ -91,3 +91,6 @@ export type { WorkflowDiagnostic } from "./schemas";
 export { diagnoseGraphV2 } from "./graph-v2";
 
 export * from "./authoring";
+
+export * from "./debug-schemas";
+export * from "./debug-runs";

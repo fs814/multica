@@ -23,6 +23,7 @@ func setupDebugTest(t *testing.T) (*testEnv, DraftTestRequest) {
 		fx.Cleanup(t, "DELETE FROM "+table+" WHERE workspace_id=$1", env.workspaceID)
 	}
 	env.engine.DebugReady = true
+	env.engine.RevalidateDebugEnvironment = func(context.Context, *db.Queries, db.WorkflowRun) error { return nil }
 	env.engine.ResolveDraftEnvironment = func(context.Context, *db.Queries, pgtype.UUID, pgtype.UUID, *string) (json.RawMessage, error) {
 		return json.RawMessage(`{"resources":[],"project_id":null}`), nil
 	}

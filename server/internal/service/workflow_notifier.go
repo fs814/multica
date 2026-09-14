@@ -120,3 +120,10 @@ func (n *WorkflowNotifier) TaskEnqueued(ctx context.Context, task db.AgentTaskQu
 	}
 	n.Tasks.NotifyTaskEnqueued(ctx, task)
 }
+
+func (n *WorkflowNotifier) WorkflowDebugChanged(ctx context.Context, workspaceID, runID string) {
+	if n.Bus == nil || workspaceID == "" {
+		return
+	}
+	n.Bus.Publish(events.Event{Type: protocol.EventWorkflowRunChanged, WorkspaceID: workspaceID, ActorType: "system", Payload: map[string]any{"run_id": runID, "execution_mode": workflow.ExecutionDraftTest}})
+}

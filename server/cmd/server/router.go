@@ -535,6 +535,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		Notifier:  service.NewWorkflowNotifier(bus, h.TaskService),
 		Schemas:   workflow.DefaultSchemaRegistry,
 	}
+	// This deployment assertion is set only after every engine/reconciler worker
+	// supports snapshots and all old workers have drained. Workspace policy alone
+	// cannot expose an entry point in a mixed fleet. Both gates default closed.
+	workflowEngine.DebugReady = os.Getenv("MULTICA_WORKFLOW_DEBUG_ENABLED") == "true" && os.Getenv("MULTICA_WORKFLOW_DEBUG_FLEET_READY") == "true"
+	workflowEngine.ResolveDraftEnvironment = h.ResolveDraftEnvironment
+	workflowEngine.RevalidateDebugEnvironment = h.RevalidateDebugEnvironment
+	workflowEngine.DeleteDebugObject = h.DeleteDebugObject
+	workflowEngine.SendDebugStop = func(ctx context.Context, task db.AgentTaskQueue, claim db.WorkflowDebugTaskExecution) error {
+		return h.TaskService.RequestWorkflowDebugStop(ctx, task, claim.RuntimeID)
+	}
 	h.WorkflowEngine = workflowEngine
 	h.AutopilotService.WorkflowEngine = workflowEngine
 	h.WorkflowReconciler = workflow.NewReconciler(workflowEngine, queries)
@@ -1496,6 +1506,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// path.
 		r.Post("/tasks/claim", h.ClaimTasksByRuntime)
 		r.Post("/claim", h.ClaimTasksByRuntime)
+		r.Post("/runtimes/{runtimeId}/workflow-test-tasks/claim", h.ClaimWorkflowDebugTask)
 		r.Post("/runtimes/{runtimeId}/tasks/{taskId}/prepare-lease", h.ExtendTaskPrepareLease)
 		r.Post("/runtimes/{runtimeId}/tasks/{taskId}/skill-bundles/resolve", h.ResolveTaskSkillBundles)
 		r.Get("/runtimes/{runtimeId}/tasks/pending", h.ListPendingTasksByRuntime)
@@ -1514,6 +1525,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/messages", h.ReportTaskMessages)
 		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
 		r.Post("/tasks/{taskId}/cancel-ack", h.AckTaskCancelled)
+		r.Post("/tasks/{taskId}/execution-receipts", h.AcceptWorkflowDebugReceipt)
 
 		r.Post("/workspaces/{workspaceId}/issues/gc-check", h.BatchIssueGCCheck)
 		r.Get("/issues/{issueId}/gc-check", h.GetIssueGCCheck)
@@ -2135,6 +2147,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/run", h.RunWorkflowInstance)
 				})
 			})
+			r.Route("/api/workflow-test-runs", func(r chi.Router) {
+				r.Get("/capabilities", h.GetWorkflowTestCapabilities)
+				r.Get("/settings", h.GetWorkflowTestSettings)
+				r.Patch("/settings", h.UpdateWorkflowTestSettings)
+				r.Get("/", h.ListWorkflowTestRuns)
+				r.Get("/{id}", h.GetWorkflowTestRun)
+				r.Get("/{id}/definition", h.GetWorkflowTestRunDefinition)
+				r.Post("/{id}/cancel", h.CancelWorkflowTestRun)
+				r.Post("/{id}/acceptance", h.DecideWorkflowTestAcceptance)
+			})
+			r.Post("/api/workflow-templates/{id}/test-runs", h.StartWorkflowTestRun)
 			r.Route("/api/workflow-runs", func(r chi.Router) {
 				r.Get("/", h.ListWorkflowRuns)
 				r.Route("/{id}", func(r chi.Router) {

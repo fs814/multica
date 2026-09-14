@@ -37,7 +37,11 @@ ORDER BY created_at ASC;
 
 -- name: GetAttachment :one
 SELECT * FROM attachment
-WHERE id = $1 AND workspace_id = $2;
+WHERE NOT EXISTS (
+ SELECT 1 FROM agent_task_queue debug_task JOIN workflow_step_instance debug_step ON debug_step.id=debug_task.workflow_step_instance_id
+ JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_task.id=attachment.task_id AND debug_run.execution_mode='draft_test' AND debug_run.details_purged_at IS NOT NULL
+) AND attachment.id = $1 AND attachment.workspace_id = $2;
 
 -- name: GetAttachmentByIDOnly :one
 -- Used by the download endpoint, which derives workspace context from the
@@ -47,7 +51,11 @@ WHERE id = $1 AND workspace_id = $2;
 -- purpose so a self-contained URL like /api/attachments/{id}/download can
 -- work as a native <img>/<video> resource load (no header attachment).
 SELECT * FROM attachment
-WHERE id = $1;
+WHERE NOT EXISTS (
+ SELECT 1 FROM agent_task_queue debug_task JOIN workflow_step_instance debug_step ON debug_step.id=debug_task.workflow_step_instance_id
+ JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_task.id=attachment.task_id AND debug_run.execution_mode='draft_test' AND debug_run.details_purged_at IS NOT NULL
+) AND attachment.id = $1;
 
 -- name: ListAttachmentsByCommentIDs :many
 SELECT * FROM attachment
@@ -178,10 +186,14 @@ ORDER BY created_at ASC;
 -- attachment rows first so every attachment -> issue mutation uses the same
 -- lock order as DeleteAttachment and cannot deadlock with it.
 SELECT id FROM attachment
-WHERE workspace_id = sqlc.arg(workspace_id)
+WHERE NOT EXISTS (
+ SELECT 1 FROM agent_task_queue debug_task JOIN workflow_step_instance debug_step ON debug_step.id=debug_task.workflow_step_instance_id
+ JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_task.id=attachment.task_id AND debug_run.execution_mode='draft_test' AND debug_run.details_purged_at IS NOT NULL
+) AND attachment.workspace_id = sqlc.arg(workspace_id)
   AND issue_id IS NULL
   AND source_context_id IS NULL
-  AND id = ANY(sqlc.arg(attachment_ids)::uuid[])
+  AND attachment.id = ANY(sqlc.arg(attachment_ids)::uuid[])
 ORDER BY id
 FOR UPDATE;
 
@@ -230,7 +242,11 @@ SELECT EXISTS(SELECT 1 FROM deleted) AS changed,
 
 -- name: ListAttachmentsByIDs :many
 SELECT * FROM attachment
-WHERE id = ANY(sqlc.arg(attachment_ids)::uuid[]) AND workspace_id = sqlc.arg(workspace_id)
+WHERE NOT EXISTS (
+ SELECT 1 FROM agent_task_queue debug_task JOIN workflow_step_instance debug_step ON debug_step.id=debug_task.workflow_step_instance_id
+ JOIN workflow_run debug_run ON debug_run.id=debug_step.run_id
+ WHERE debug_task.id=attachment.task_id AND debug_run.execution_mode='draft_test' AND debug_run.details_purged_at IS NOT NULL
+) AND attachment.id = ANY(sqlc.arg(attachment_ids)::uuid[]) AND attachment.workspace_id = sqlc.arg(workspace_id)
 ORDER BY created_at ASC;
 
 -- name: CreateSourceContextAttachment :one

@@ -127,6 +127,7 @@ type ProblemReport = {
   messages: string[];
 };
 
+import { WorkflowDebugControls, WorkflowDebugHistory } from "../debug/workflow-debug-controls";
 import { WorkflowVersionComparison } from "../editor/version-comparison";
 import {
   WorkflowDiagnosticSchema,
@@ -171,7 +172,7 @@ export function WorkflowTemplateDetailPage({
   const [runOpen, setRunOpen] = useState(false);
   const [instanceOpen, setInstanceOpen] = useState(false);
   const location = useWorkflowLocation();
-  const section = ["instances", "runs"].includes(
+  const section = ["instances", "runs", "test-runs"].includes(
     location.params.get("section") ?? "",
   )
     ? location.params.get("section")!
@@ -845,6 +846,8 @@ export function WorkflowTemplateDetailPage({
         >
           {t(($) => $.instances.history)}
         </Button>
+        <Button variant={section === "test-runs" ? "secondary" : "ghost"} onClick={() => setSection("test-runs")}>{t($ => $.debug.history)}</Button>
+        <WorkflowDebugControls key={`${wsId}:${templateId}`} definition={working} baseline={confirmed.current ?? data} jsonDirty={jsonDirty} canStart={!readOnly} isAdmin={isAdmin}/>
         {data.versions.some((version) => version.status === "published") && (
           <Button
             variant="outline"
@@ -869,6 +872,7 @@ export function WorkflowTemplateDetailPage({
         <WorkflowInstancesPage templateId={templateId} />
       )}
       {section === "runs" && <WorkflowRunsPage templateId={templateId} />}
+      {section === "test-runs" && <WorkflowDebugHistory key={templateId} templateId={templateId} />}
       <div className={section === "canvas" ? "flex min-h-0 flex-1" : "hidden"}>
         {state.jsonOpen ? (
           // The JSON view replaces the canvas rather than sitting beside it: both

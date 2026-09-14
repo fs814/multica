@@ -79,6 +79,124 @@ func (q *Queries) AddWorkflowDebugPayloadBytes(ctx context.Context, arg AddWorkf
 	return result.RowsAffected(), nil
 }
 
+const beginWorkflowDebugUpload = `-- name: BeginWorkflowDebugUpload :one
+INSERT INTO workflow_debug_upload (workspace_id,run_id,claim_id,task_id) VALUES ($1,$2,$3,$4) RETURNING id, workspace_id, run_id, claim_id, task_id, attachment_id, state, created_at, settled_at
+`
+
+type BeginWorkflowDebugUploadParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	RunID       pgtype.UUID `json:"run_id"`
+	ClaimID     pgtype.UUID `json:"claim_id"`
+	TaskID      pgtype.UUID `json:"task_id"`
+}
+
+func (q *Queries) BeginWorkflowDebugUpload(ctx context.Context, arg BeginWorkflowDebugUploadParams) (WorkflowDebugUpload, error) {
+	row := q.db.QueryRow(ctx, beginWorkflowDebugUpload,
+		arg.WorkspaceID,
+		arg.RunID,
+		arg.ClaimID,
+		arg.TaskID,
+	)
+	var i WorkflowDebugUpload
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.RunID,
+		&i.ClaimID,
+		&i.TaskID,
+		&i.AttachmentID,
+		&i.State,
+		&i.CreatedAt,
+		&i.SettledAt,
+	)
+	return i, err
+}
+
+const completeWorkflowDebugCleanupObject = `-- name: CompleteWorkflowDebugCleanupObject :exec
+UPDATE workflow_debug_cleanup_object SET completed_at=clock_timestamp(),error_code=NULL WHERE id=$1 AND workspace_id=$2
+`
+
+type CompleteWorkflowDebugCleanupObjectParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) CompleteWorkflowDebugCleanupObject(ctx context.Context, arg CompleteWorkflowDebugCleanupObjectParams) error {
+	_, err := q.db.Exec(ctx, completeWorkflowDebugCleanupObject, arg.ID, arg.WorkspaceID)
+	return err
+}
+
+const completeWorkflowDebugPurge = `-- name: CompleteWorkflowDebugPurge :execrows
+UPDATE workflow_run r SET debug_cleanup_state='purged',purge_completed_at=clock_timestamp()
+WHERE r.id=$1 AND r.workspace_id=$2 AND r.execution_mode='draft_test' AND r.debug_cleanup_state='purging'
+ AND NOT EXISTS (SELECT 1 FROM workflow_debug_cleanup_object o WHERE o.run_id=r.id AND o.completed_at IS NULL)
+`
+
+type CompleteWorkflowDebugPurgeParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) CompleteWorkflowDebugPurge(ctx context.Context, arg CompleteWorkflowDebugPurgeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, completeWorkflowDebugPurge, arg.ID, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const completeWorkflowDebugTask = `-- name: CompleteWorkflowDebugTask :execrows
+UPDATE agent_task_queue SET status=$2,completed_at=clock_timestamp(),result=$3::jsonb,
+ error=$4::text,failure_reason=$5::text,
+ session_id=$6::text,work_dir=$7::text,
+ durable_work_dir=$8::text,branch_name=$9::text,
+ retired_session_id=$10::text,prepare_lease_expires_at=NULL
+WHERE id=$1 AND status NOT IN ('completed','failed','cancelled')
+`
+
+type CompleteWorkflowDebugTaskParams struct {
+	ID               pgtype.UUID `json:"id"`
+	Status           string      `json:"status"`
+	Result           []byte      `json:"result"`
+	Error            pgtype.Text `json:"error"`
+	FailureReason    pgtype.Text `json:"failure_reason"`
+	SessionID        pgtype.Text `json:"session_id"`
+	WorkDir          pgtype.Text `json:"work_dir"`
+	DurableWorkDir   pgtype.Text `json:"durable_work_dir"`
+	BranchName       pgtype.Text `json:"branch_name"`
+	RetiredSessionID pgtype.Text `json:"retired_session_id"`
+}
+
+func (q *Queries) CompleteWorkflowDebugTask(ctx context.Context, arg CompleteWorkflowDebugTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, completeWorkflowDebugTask,
+		arg.ID,
+		arg.Status,
+		arg.Result,
+		arg.Error,
+		arg.FailureReason,
+		arg.SessionID,
+		arg.WorkDir,
+		arg.DurableWorkDir,
+		arg.BranchName,
+		arg.RetiredSessionID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const countWorkflowDebugPendingUploads = `-- name: CountWorkflowDebugPendingUploads :one
+SELECT count(*)::bigint FROM workflow_debug_upload WHERE claim_id=$1 AND state='pending'
+`
+
+func (q *Queries) CountWorkflowDebugPendingUploads(ctx context.Context, claimID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countWorkflowDebugPendingUploads, claimID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countWorkflowDraftTestRuns = `-- name: CountWorkflowDraftTestRuns :one
 SELECT count(*)::bigint FROM workflow_run WHERE workspace_id = $1 AND execution_mode = 'draft_test'
  AND ($2::uuid IS NULL OR template_id = $2::uuid)
@@ -283,6 +401,85 @@ func (q *Queries) CreateWorkflowExecutionSnapshot(ctx context.Context, arg Creat
 	return i, err
 }
 
+const dispatchWorkflowDebugTask = `-- name: DispatchWorkflowDebugTask :one
+UPDATE agent_task_queue SET status='dispatched',dispatched_at=clock_timestamp(),
+ prepare_lease_expires_at=clock_timestamp()+interval '5 minutes'
+WHERE id=$1 AND runtime_id=$2 AND status='queued' AND debug_never_dispatched_at IS NULL RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, workflow_step_instance_id, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, debug_never_dispatched_at
+`
+
+type DispatchWorkflowDebugTaskParams struct {
+	ID        pgtype.UUID `json:"id"`
+	RuntimeID pgtype.UUID `json:"runtime_id"`
+}
+
+func (q *Queries) DispatchWorkflowDebugTask(ctx context.Context, arg DispatchWorkflowDebugTaskParams) (AgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, dispatchWorkflowDebugTask, arg.ID, arg.RuntimeID)
+	var i AgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderTask,
+		&i.WaitReason,
+		&i.InitiatorUserID,
+		&i.HandoffNote,
+		&i.PrepareLeaseExpiresAt,
+		&i.SquadID,
+		&i.RuntimeMcpOverlay,
+		&i.EscalationForTaskID,
+		&i.FireAt,
+		&i.OriginatorUserID,
+		&i.RuntimeConnectedApps,
+		&i.CoalescedCommentIds,
+		&i.DeliveredCommentIds,
+		&i.ChatInputTaskID,
+		&i.ChatFinalizeDeferredAt,
+		&i.OriginatorSource,
+		&i.DelegatedFromTaskID,
+		&i.RetryOfTaskID,
+		&i.RerunOfTaskID,
+		&i.RuleVersionID,
+		&i.TriggerEvidenceKind,
+		&i.TriggerEvidenceRefID,
+		&i.AccountableUserID,
+		&i.SessionRolloutMissing,
+		&i.RetiredSessionID,
+		&i.QuickActionsDisabled,
+		&i.RegenerateQuickActionsFor,
+		&i.WorkflowStepInstanceID,
+		&i.BranchName,
+		&i.DurableWorkDir,
+		&i.ChannelContextRevision,
+		&i.CommentThreadID,
+		&i.CancelledByType,
+		&i.CancelledByID,
+		&i.CancelledByName,
+		&i.DebugNeverDispatchedAt,
+	)
+	return i, err
+}
+
 const ensureWorkflowDebugPolicy = `-- name: EnsureWorkflowDebugPolicy :exec
 INSERT INTO workflow_debug_policy (workspace_id) VALUES ($1) ON CONFLICT (workspace_id) DO NOTHING
 `
@@ -321,6 +518,68 @@ func (q *Queries) EnsureWorkflowDebugStopRequest(ctx context.Context, arg Ensure
 		arg.ClaimID,
 	)
 	return err
+}
+
+const getWorkflowDebugCleanupAttachment = `-- name: GetWorkflowDebugCleanupAttachment :one
+SELECT id, workspace_id, issue_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, created_at, chat_session_id, chat_message_id, task_id, source_context_id FROM attachment WHERE id=$1 AND workspace_id=$2
+`
+
+type GetWorkflowDebugCleanupAttachmentParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) GetWorkflowDebugCleanupAttachment(ctx context.Context, arg GetWorkflowDebugCleanupAttachmentParams) (Attachment, error) {
+	row := q.db.QueryRow(ctx, getWorkflowDebugCleanupAttachment, arg.ID, arg.WorkspaceID)
+	var i Attachment
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.CommentID,
+		&i.UploaderType,
+		&i.UploaderID,
+		&i.Filename,
+		&i.Url,
+		&i.ContentType,
+		&i.SizeBytes,
+		&i.CreatedAt,
+		&i.ChatSessionID,
+		&i.ChatMessageID,
+		&i.TaskID,
+		&i.SourceContextID,
+	)
+	return i, err
+}
+
+const getWorkflowDebugExecution = `-- name: GetWorkflowDebugExecution :one
+SELECT id, workspace_id, run_id, step_id, task_id, task_attempt, runtime_id, daemon_incarnation_id, claim_generation, claimed_at, stop_requested_at, receipt_kind, receipt_id, receipt_hash, receipt_received_at, process_stopped_at, final_message_seq, delivery_drained_at FROM workflow_debug_task_execution WHERE id = $1
+`
+
+func (q *Queries) GetWorkflowDebugExecution(ctx context.Context, id pgtype.UUID) (WorkflowDebugTaskExecution, error) {
+	row := q.db.QueryRow(ctx, getWorkflowDebugExecution, id)
+	var i WorkflowDebugTaskExecution
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.RunID,
+		&i.StepID,
+		&i.TaskID,
+		&i.TaskAttempt,
+		&i.RuntimeID,
+		&i.DaemonIncarnationID,
+		&i.ClaimGeneration,
+		&i.ClaimedAt,
+		&i.StopRequestedAt,
+		&i.ReceiptKind,
+		&i.ReceiptID,
+		&i.ReceiptHash,
+		&i.ReceiptReceivedAt,
+		&i.ProcessStoppedAt,
+		&i.FinalMessageSeq,
+		&i.DeliveryDrainedAt,
+	)
+	return i, err
 }
 
 const getWorkflowDebugExecutionForUpdate = `-- name: GetWorkflowDebugExecutionForUpdate :one
@@ -396,6 +655,17 @@ func (q *Queries) GetWorkflowDebugPolicy(ctx context.Context, workspaceID pgtype
 		&i.UpdatedBy,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getWorkflowDebugQuota = `-- name: GetWorkflowDebugQuota :one
+SELECT workspace_id, payload_bytes FROM workflow_debug_quota WHERE workspace_id=$1
+`
+
+func (q *Queries) GetWorkflowDebugQuota(ctx context.Context, workspaceID pgtype.UUID) (WorkflowDebugQuotum, error) {
+	row := q.db.QueryRow(ctx, getWorkflowDebugQuota, workspaceID)
+	var i WorkflowDebugQuotum
+	err := row.Scan(&i.WorkspaceID, &i.PayloadBytes)
 	return i, err
 }
 
@@ -546,6 +816,169 @@ func (q *Queries) GetWorkflowExecutionSnapshot(ctx context.Context, arg GetWorkf
 		&i.PurgedAt,
 	)
 	return i, err
+}
+
+const insertWorkflowDebugTaskMessage = `-- name: InsertWorkflowDebugTaskMessage :exec
+INSERT INTO task_message (task_id,seq,type,tool,content,input,output,created_at,output_truncated)
+SELECT $1,$2,$3,$5::text,$6::text,$7::jsonb,$8::text,$4,$9::boolean
+WHERE NOT EXISTS (SELECT 1 FROM task_message WHERE task_id=$1 AND seq=$2)
+`
+
+type InsertWorkflowDebugTaskMessageParams struct {
+	TaskID          pgtype.UUID        `json:"task_id"`
+	Seq             int32              `json:"seq"`
+	Type            string             `json:"type"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	Tool            pgtype.Text        `json:"tool"`
+	Content         pgtype.Text        `json:"content"`
+	Input           []byte             `json:"input"`
+	Output          pgtype.Text        `json:"output"`
+	OutputTruncated pgtype.Bool        `json:"output_truncated"`
+}
+
+func (q *Queries) InsertWorkflowDebugTaskMessage(ctx context.Context, arg InsertWorkflowDebugTaskMessageParams) error {
+	_, err := q.db.Exec(ctx, insertWorkflowDebugTaskMessage,
+		arg.TaskID,
+		arg.Seq,
+		arg.Type,
+		arg.CreatedAt,
+		arg.Tool,
+		arg.Content,
+		arg.Input,
+		arg.Output,
+		arg.OutputTruncated,
+	)
+	return err
+}
+
+const listWorkflowDebugClaimCandidates = `-- name: ListWorkflowDebugClaimCandidates :many
+SELECT t.id, t.agent_id, t.issue_id, t.status, t.priority, t.dispatched_at, t.started_at, t.completed_at, t.result, t.error, t.created_at, t.context, t.runtime_id, t.session_id, t.work_dir, t.trigger_comment_id, t.chat_session_id, t.autopilot_run_id, t.attempt, t.max_attempts, t.parent_task_id, t.failure_reason, t.trigger_summary, t.force_fresh_session, t.is_leader_task, t.wait_reason, t.initiator_user_id, t.handoff_note, t.prepare_lease_expires_at, t.squad_id, t.runtime_mcp_overlay, t.escalation_for_task_id, t.fire_at, t.originator_user_id, t.runtime_connected_apps, t.coalesced_comment_ids, t.delivered_comment_ids, t.chat_input_task_id, t.chat_finalize_deferred_at, t.originator_source, t.delegated_from_task_id, t.retry_of_task_id, t.rerun_of_task_id, t.rule_version_id, t.trigger_evidence_kind, t.trigger_evidence_ref_id, t.accountable_user_id, t.session_rollout_missing, t.retired_session_id, t.quick_actions_disabled, t.regenerate_quick_actions_for, t.workflow_step_instance_id, t.branch_name, t.durable_work_dir, t.channel_context_revision, t.comment_thread_id, t.cancelled_by_type, t.cancelled_by_id, t.cancelled_by_name, t.debug_never_dispatched_at FROM agent_task_queue t JOIN workflow_step_instance s ON s.id=t.workflow_step_instance_id
+JOIN workflow_run r ON r.id=s.run_id
+WHERE t.runtime_id=$1 AND t.status='queued' AND r.execution_mode='draft_test'
+ AND r.status IN ('pending','running','waiting_acceptance','blocked') AND r.debug_stop_requested_at IS NULL
+ AND r.details_purged_at IS NULL AND r.debug_deadline_at>clock_timestamp()
+ORDER BY t.priority DESC,t.created_at,t.id LIMIT 20
+`
+
+func (q *Queries) ListWorkflowDebugClaimCandidates(ctx context.Context, runtimeID pgtype.UUID) ([]AgentTaskQueue, error) {
+	rows, err := q.db.Query(ctx, listWorkflowDebugClaimCandidates, runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTaskQueue{}
+	for rows.Next() {
+		var i AgentTaskQueue
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.IssueID,
+			&i.Status,
+			&i.Priority,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Result,
+			&i.Error,
+			&i.CreatedAt,
+			&i.Context,
+			&i.RuntimeID,
+			&i.SessionID,
+			&i.WorkDir,
+			&i.TriggerCommentID,
+			&i.ChatSessionID,
+			&i.AutopilotRunID,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.ParentTaskID,
+			&i.FailureReason,
+			&i.TriggerSummary,
+			&i.ForceFreshSession,
+			&i.IsLeaderTask,
+			&i.WaitReason,
+			&i.InitiatorUserID,
+			&i.HandoffNote,
+			&i.PrepareLeaseExpiresAt,
+			&i.SquadID,
+			&i.RuntimeMcpOverlay,
+			&i.EscalationForTaskID,
+			&i.FireAt,
+			&i.OriginatorUserID,
+			&i.RuntimeConnectedApps,
+			&i.CoalescedCommentIds,
+			&i.DeliveredCommentIds,
+			&i.ChatInputTaskID,
+			&i.ChatFinalizeDeferredAt,
+			&i.OriginatorSource,
+			&i.DelegatedFromTaskID,
+			&i.RetryOfTaskID,
+			&i.RerunOfTaskID,
+			&i.RuleVersionID,
+			&i.TriggerEvidenceKind,
+			&i.TriggerEvidenceRefID,
+			&i.AccountableUserID,
+			&i.SessionRolloutMissing,
+			&i.RetiredSessionID,
+			&i.QuickActionsDisabled,
+			&i.RegenerateQuickActionsFor,
+			&i.WorkflowStepInstanceID,
+			&i.BranchName,
+			&i.DurableWorkDir,
+			&i.ChannelContextRevision,
+			&i.CommentThreadID,
+			&i.CancelledByType,
+			&i.CancelledByID,
+			&i.CancelledByName,
+			&i.DebugNeverDispatchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkflowDebugCleanupObjects = `-- name: ListWorkflowDebugCleanupObjects :many
+SELECT id, workspace_id, run_id, object_id, object_kind, attempts, next_attempt_at, error_code, completed_at FROM workflow_debug_cleanup_object WHERE run_id=$1 AND workspace_id=$2 AND completed_at IS NULL
+ AND next_attempt_at<=clock_timestamp() ORDER BY id
+`
+
+type ListWorkflowDebugCleanupObjectsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) ListWorkflowDebugCleanupObjects(ctx context.Context, arg ListWorkflowDebugCleanupObjectsParams) ([]WorkflowDebugCleanupObject, error) {
+	rows, err := q.db.Query(ctx, listWorkflowDebugCleanupObjects, arg.RunID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowDebugCleanupObject{}
+	for rows.Next() {
+		var i WorkflowDebugCleanupObject
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.RunID,
+			&i.ObjectID,
+			&i.ObjectKind,
+			&i.Attempts,
+			&i.NextAttemptAt,
+			&i.ErrorCode,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listWorkflowDebugExecutions = `-- name: ListWorkflowDebugExecutions :many
@@ -875,6 +1308,59 @@ func (q *Queries) ListWorkflowDraftTestRuns(ctx context.Context, arg ListWorkflo
 	return items, nil
 }
 
+const listWorkflowStepsForUpdate = `-- name: ListWorkflowStepsForUpdate :many
+SELECT id, workspace_id, run_id, node_key, node_type, attempt, status, parent_step_id, expansion_key, agent_id, task_id, routing_reason, input, output, failure_reason, failure_detail, activation_timeout_at, ready_at, started_at, completed_at, created_at, updated_at, trace_position FROM workflow_step_instance WHERE run_id=$1 AND workspace_id=$2 ORDER BY id FOR UPDATE
+`
+
+type ListWorkflowStepsForUpdateParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) ListWorkflowStepsForUpdate(ctx context.Context, arg ListWorkflowStepsForUpdateParams) ([]WorkflowStepInstance, error) {
+	rows, err := q.db.Query(ctx, listWorkflowStepsForUpdate, arg.RunID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowStepInstance{}
+	for rows.Next() {
+		var i WorkflowStepInstance
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.RunID,
+			&i.NodeKey,
+			&i.NodeType,
+			&i.Attempt,
+			&i.Status,
+			&i.ParentStepID,
+			&i.ExpansionKey,
+			&i.AgentID,
+			&i.TaskID,
+			&i.RoutingReason,
+			&i.Input,
+			&i.Output,
+			&i.FailureReason,
+			&i.FailureDetail,
+			&i.ActivationTimeoutAt,
+			&i.ReadyAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.TracePosition,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockWorkflowDebugQuota = `-- name: LockWorkflowDebugQuota :one
 SELECT workspace_id, payload_bytes FROM workflow_debug_quota WHERE workspace_id = $1 FOR UPDATE
 `
@@ -884,6 +1370,176 @@ func (q *Queries) LockWorkflowDebugQuota(ctx context.Context, workspaceID pgtype
 	var i WorkflowDebugQuotum
 	err := row.Scan(&i.WorkspaceID, &i.PayloadBytes)
 	return i, err
+}
+
+const lockWorkflowDebugTasksForRun = `-- name: LockWorkflowDebugTasksForRun :many
+SELECT t.id, t.agent_id, t.issue_id, t.status, t.priority, t.dispatched_at, t.started_at, t.completed_at, t.result, t.error, t.created_at, t.context, t.runtime_id, t.session_id, t.work_dir, t.trigger_comment_id, t.chat_session_id, t.autopilot_run_id, t.attempt, t.max_attempts, t.parent_task_id, t.failure_reason, t.trigger_summary, t.force_fresh_session, t.is_leader_task, t.wait_reason, t.initiator_user_id, t.handoff_note, t.prepare_lease_expires_at, t.squad_id, t.runtime_mcp_overlay, t.escalation_for_task_id, t.fire_at, t.originator_user_id, t.runtime_connected_apps, t.coalesced_comment_ids, t.delivered_comment_ids, t.chat_input_task_id, t.chat_finalize_deferred_at, t.originator_source, t.delegated_from_task_id, t.retry_of_task_id, t.rerun_of_task_id, t.rule_version_id, t.trigger_evidence_kind, t.trigger_evidence_ref_id, t.accountable_user_id, t.session_rollout_missing, t.retired_session_id, t.quick_actions_disabled, t.regenerate_quick_actions_for, t.workflow_step_instance_id, t.branch_name, t.durable_work_dir, t.channel_context_revision, t.comment_thread_id, t.cancelled_by_type, t.cancelled_by_id, t.cancelled_by_name, t.debug_never_dispatched_at FROM agent_task_queue t JOIN workflow_step_instance s ON s.id=t.workflow_step_instance_id
+WHERE s.run_id=$1 AND s.workspace_id=$2 ORDER BY t.id FOR UPDATE OF t
+`
+
+type LockWorkflowDebugTasksForRunParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) LockWorkflowDebugTasksForRun(ctx context.Context, arg LockWorkflowDebugTasksForRunParams) ([]AgentTaskQueue, error) {
+	rows, err := q.db.Query(ctx, lockWorkflowDebugTasksForRun, arg.RunID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTaskQueue{}
+	for rows.Next() {
+		var i AgentTaskQueue
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.IssueID,
+			&i.Status,
+			&i.Priority,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Result,
+			&i.Error,
+			&i.CreatedAt,
+			&i.Context,
+			&i.RuntimeID,
+			&i.SessionID,
+			&i.WorkDir,
+			&i.TriggerCommentID,
+			&i.ChatSessionID,
+			&i.AutopilotRunID,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.ParentTaskID,
+			&i.FailureReason,
+			&i.TriggerSummary,
+			&i.ForceFreshSession,
+			&i.IsLeaderTask,
+			&i.WaitReason,
+			&i.InitiatorUserID,
+			&i.HandoffNote,
+			&i.PrepareLeaseExpiresAt,
+			&i.SquadID,
+			&i.RuntimeMcpOverlay,
+			&i.EscalationForTaskID,
+			&i.FireAt,
+			&i.OriginatorUserID,
+			&i.RuntimeConnectedApps,
+			&i.CoalescedCommentIds,
+			&i.DeliveredCommentIds,
+			&i.ChatInputTaskID,
+			&i.ChatFinalizeDeferredAt,
+			&i.OriginatorSource,
+			&i.DelegatedFromTaskID,
+			&i.RetryOfTaskID,
+			&i.RerunOfTaskID,
+			&i.RuleVersionID,
+			&i.TriggerEvidenceKind,
+			&i.TriggerEvidenceRefID,
+			&i.AccountableUserID,
+			&i.SessionRolloutMissing,
+			&i.RetiredSessionID,
+			&i.QuickActionsDisabled,
+			&i.RegenerateQuickActionsFor,
+			&i.WorkflowStepInstanceID,
+			&i.BranchName,
+			&i.DurableWorkDir,
+			&i.ChannelContextRevision,
+			&i.CommentThreadID,
+			&i.CancelledByType,
+			&i.CancelledByID,
+			&i.CancelledByName,
+			&i.DebugNeverDispatchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markWorkflowDebugDatabasePurged = `-- name: MarkWorkflowDebugDatabasePurged :one
+UPDATE workflow_run SET input='{}',context='{}',failure_detail=NULL,source_event_id=NULL,
+ policy=COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(policy) WHERE jsonb_typeof(value)='number'
+ AND key IN ('max_total_steps','max_attempts_per_node','max_rework_rounds','max_fan_out','max_duration_seconds','max_cost_cents')),'{}'),
+ blocked_reason=CASE WHEN blocked_reason IS NULL THEN NULL ELSE 'details_expired' END,
+ failure_reason=CASE WHEN failure_reason IN ('debug_deadline_exceeded','cancelled') THEN failure_reason WHEN failure_reason IS NULL THEN NULL ELSE 'details_expired' END,
+ debug_cleanup_state='purging',details_purged_at=clock_timestamp(),bytes_released_at=clock_timestamp()
+WHERE id=$1 AND workspace_id=$2 AND execution_mode='draft_test' AND details_purged_at IS NULL
+ AND status IN ('completed','failed','cancelled') AND debug_purge_after<=clock_timestamp() RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
+`
+
+type MarkWorkflowDebugDatabasePurgedParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) MarkWorkflowDebugDatabasePurged(ctx context.Context, arg MarkWorkflowDebugDatabasePurgedParams) (WorkflowRun, error) {
+	row := q.db.QueryRow(ctx, markWorkflowDebugDatabasePurged, arg.ID, arg.WorkspaceID)
+	var i WorkflowRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Status,
+		&i.Source,
+		&i.SourceEventID,
+		&i.IdempotencyKey,
+		&i.AccountableUserID,
+		&i.Input,
+		&i.Context,
+		&i.Policy,
+		&i.BlockedReason,
+		&i.FailureReason,
+		&i.FailureDetail,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RequestHash,
+		&i.CallbackDestinationID,
+		&i.InputInstanceID,
+		&i.InputInstanceRevision,
+		&i.InputInstanceName,
+		&i.InputSource,
+		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
+	)
+	return i, err
+}
+
+const markWorkflowDebugExecutionStop = `-- name: MarkWorkflowDebugExecutionStop :exec
+UPDATE workflow_debug_task_execution SET stop_requested_at=COALESCE(stop_requested_at,clock_timestamp())
+WHERE id=$1 AND workspace_id=$2 AND delivery_drained_at IS NULL
+`
+
+type MarkWorkflowDebugExecutionStopParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) MarkWorkflowDebugExecutionStop(ctx context.Context, arg MarkWorkflowDebugExecutionStopParams) error {
+	_, err := q.db.Exec(ctx, markWorkflowDebugExecutionStop, arg.ID, arg.WorkspaceID)
+	return err
 }
 
 const markWorkflowDebugNeverDispatched = `-- name: MarkWorkflowDebugNeverDispatched :execrows
@@ -926,6 +1582,141 @@ func (q *Queries) MarkWorkflowDebugTerminal(ctx context.Context, arg MarkWorkflo
 	return err
 }
 
+const purgeWorkflowDebugAcceptances = `-- name: PurgeWorkflowDebugAcceptances :exec
+UPDATE workflow_acceptance SET context='{}',rework_target_node_key=NULL,reason='details_expired'
+WHERE run_id=$1 AND workspace_id=$2
+`
+
+type PurgeWorkflowDebugAcceptancesParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugAcceptances(ctx context.Context, arg PurgeWorkflowDebugAcceptancesParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugAcceptances, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugEvents = `-- name: PurgeWorkflowDebugEvents :exec
+UPDATE workflow_event SET payload='{}',idempotency_key='expired:event:'||encode(sha256(convert_to(idempotency_key,'UTF8')),'hex'),
+ event_type=CASE WHEN event_type IN ('run.started','run.completed','run.failed','run.blocked','run.cancelled',
+ 'step.activated','step.queued','step.submitted','step.passed','step.failed','step.blocked','step.skipped',
+ 'acceptance.requested','acceptance.decided','rework.requested') THEN event_type ELSE 'details_expired' END
+WHERE run_id=$1 AND workspace_id=$2
+`
+
+type PurgeWorkflowDebugEventsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugEvents(ctx context.Context, arg PurgeWorkflowDebugEventsParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugEvents, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugMessages = `-- name: PurgeWorkflowDebugMessages :exec
+DELETE FROM task_message m USING agent_task_queue t,workflow_step_instance s
+WHERE m.task_id=t.id AND t.workflow_step_instance_id=s.id AND s.run_id=$1 AND s.workspace_id=$2
+`
+
+type PurgeWorkflowDebugMessagesParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugMessages(ctx context.Context, arg PurgeWorkflowDebugMessagesParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugMessages, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugSnapshot = `-- name: PurgeWorkflowDebugSnapshot :exec
+UPDATE workflow_execution_snapshot SET definition=NULL, environment_snapshot=NULL,purged_at=clock_timestamp()
+WHERE id=$1 AND workspace_id=$2 AND purged_at IS NULL
+`
+
+type PurgeWorkflowDebugSnapshotParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugSnapshot(ctx context.Context, arg PurgeWorkflowDebugSnapshotParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugSnapshot, arg.ID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugSteps = `-- name: PurgeWorkflowDebugSteps :exec
+UPDATE workflow_step_instance SET input='{}',output=NULL,failure_detail=NULL,routing_reason=NULL,
+ node_key='expired:node:'||encode(sha256(convert_to(node_key,'UTF8')),'hex'),
+ expansion_key=CASE WHEN expansion_key IS NULL THEN NULL ELSE 'expired:expansion:'||encode(sha256(convert_to(expansion_key,'UTF8')),'hex') END,
+ failure_reason=CASE WHEN failure_reason IS NULL THEN NULL ELSE 'details_expired' END
+WHERE run_id=$1 AND workspace_id=$2
+`
+
+type PurgeWorkflowDebugStepsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugSteps(ctx context.Context, arg PurgeWorkflowDebugStepsParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugSteps, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugSubmissions = `-- name: PurgeWorkflowDebugSubmissions :exec
+UPDATE workflow_submission SET artifact='{}',rationale='',root_cause=NULL,raw_result=NULL,validation_errors=NULL,confidence=NULL
+WHERE run_id=$1 AND workspace_id=$2
+`
+
+type PurgeWorkflowDebugSubmissionsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugSubmissions(ctx context.Context, arg PurgeWorkflowDebugSubmissionsParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugSubmissions, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const purgeWorkflowDebugTasks = `-- name: PurgeWorkflowDebugTasks :exec
+UPDATE agent_task_queue t SET context='{}',result=NULL,error=NULL,trigger_summary=NULL,wait_reason=NULL,
+ session_id=NULL,retired_session_id=NULL,work_dir=NULL,durable_work_dir=NULL,branch_name=NULL,cancelled_by_name=NULL,
+ handoff_note=NULL,runtime_mcp_overlay=NULL,runtime_connected_apps=NULL,
+ failure_reason=CASE WHEN t.failure_reason IS NULL THEN NULL ELSE 'details_expired' END,
+ originator_source=CASE WHEN originator_source IN ('direct_human','delegation','comment_source','rule_owner','owner_fallback','backfill','unattributed') THEN originator_source ELSE NULL END,
+ trigger_evidence_kind='workflow_step'
+FROM workflow_step_instance s WHERE s.id=t.workflow_step_instance_id AND s.run_id=$1 AND s.workspace_id=$2
+`
+
+type PurgeWorkflowDebugTasksParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) PurgeWorkflowDebugTasks(ctx context.Context, arg PurgeWorkflowDebugTasksParams) error {
+	_, err := q.db.Exec(ctx, purgeWorkflowDebugTasks, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
+const queueWorkflowDebugAttachmentCleanup = `-- name: QueueWorkflowDebugAttachmentCleanup :exec
+INSERT INTO workflow_debug_cleanup_object (workspace_id,run_id,object_id,object_kind)
+SELECT $2,$1,a.id,'attachment' FROM attachment a JOIN agent_task_queue t ON t.id=a.task_id
+JOIN workflow_step_instance s ON s.id=t.workflow_step_instance_id
+WHERE s.run_id=$1 AND s.workspace_id=$2 AND a.issue_id IS NULL AND a.comment_id IS NULL
+ AND a.chat_session_id IS NULL AND a.chat_message_id IS NULL AND a.source_context_id IS NULL
+ON CONFLICT (run_id,object_kind,object_id) DO NOTHING
+`
+
+type QueueWorkflowDebugAttachmentCleanupParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) QueueWorkflowDebugAttachmentCleanup(ctx context.Context, arg QueueWorkflowDebugAttachmentCleanupParams) error {
+	_, err := q.db.Exec(ctx, queueWorkflowDebugAttachmentCleanup, arg.RunID, arg.WorkspaceID)
+	return err
+}
+
 const resolveWorkflowDebugStopRequest = `-- name: ResolveWorkflowDebugStopRequest :exec
 UPDATE workflow_debug_stop_request SET resolved_at = clock_timestamp(), error_code = NULL
 WHERE claim_id = $1 AND workspace_id = $2
@@ -938,6 +1729,22 @@ type ResolveWorkflowDebugStopRequestParams struct {
 
 func (q *Queries) ResolveWorkflowDebugStopRequest(ctx context.Context, arg ResolveWorkflowDebugStopRequestParams) error {
 	_, err := q.db.Exec(ctx, resolveWorkflowDebugStopRequest, arg.ClaimID, arg.WorkspaceID)
+	return err
+}
+
+const retryWorkflowDebugCleanupObject = `-- name: RetryWorkflowDebugCleanupObject :exec
+UPDATE workflow_debug_cleanup_object SET attempts=attempts+1,error_code='delete_failed',
+ next_attempt_at=clock_timestamp()+LEAST(300,power(2,LEAST(attempts,8)))*interval '1 second'
+WHERE id=$1 AND workspace_id=$2
+`
+
+type RetryWorkflowDebugCleanupObjectParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) RetryWorkflowDebugCleanupObject(ctx context.Context, arg RetryWorkflowDebugCleanupObjectParams) error {
+	_, err := q.db.Exec(ctx, retryWorkflowDebugCleanupObject, arg.ID, arg.WorkspaceID)
 	return err
 }
 
@@ -955,6 +1762,157 @@ type RetryWorkflowDebugStopRequestParams struct {
 
 func (q *Queries) RetryWorkflowDebugStopRequest(ctx context.Context, arg RetryWorkflowDebugStopRequestParams) error {
 	_, err := q.db.Exec(ctx, retryWorkflowDebugStopRequest, arg.ID, arg.WorkspaceID, arg.ErrorCode)
+	return err
+}
+
+const setWorkflowDebugStopConfirmed = `-- name: SetWorkflowDebugStopConfirmed :exec
+UPDATE workflow_run SET debug_cleanup_state='retained'
+WHERE id=$1 AND workspace_id=$2 AND debug_cleanup_state='waiting_stop' AND details_purged_at IS NULL
+`
+
+type SetWorkflowDebugStopConfirmedParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetWorkflowDebugStopConfirmed(ctx context.Context, arg SetWorkflowDebugStopConfirmedParams) error {
+	_, err := q.db.Exec(ctx, setWorkflowDebugStopConfirmed, arg.ID, arg.WorkspaceID)
+	return err
+}
+
+const setWorkflowDebugTaskCancelAck = `-- name: SetWorkflowDebugTaskCancelAck :exec
+UPDATE agent_task_queue SET branch_name=COALESCE(branch_name,$2::text),
+ durable_work_dir=COALESCE(durable_work_dir,$3::text),error=COALESCE(error,$4::text)
+WHERE id=$1 AND status='cancelled'
+`
+
+type SetWorkflowDebugTaskCancelAckParams struct {
+	ID             pgtype.UUID `json:"id"`
+	BranchName     pgtype.Text `json:"branch_name"`
+	DurableWorkDir pgtype.Text `json:"durable_work_dir"`
+	Error          pgtype.Text `json:"error"`
+}
+
+func (q *Queries) SetWorkflowDebugTaskCancelAck(ctx context.Context, arg SetWorkflowDebugTaskCancelAckParams) error {
+	_, err := q.db.Exec(ctx, setWorkflowDebugTaskCancelAck,
+		arg.ID,
+		arg.BranchName,
+		arg.DurableWorkDir,
+		arg.Error,
+	)
+	return err
+}
+
+const setWorkflowDebugTaskSession = `-- name: SetWorkflowDebugTaskSession :exec
+UPDATE agent_task_queue SET session_id=$2::text,work_dir=$3::text,
+ durable_work_dir=COALESCE($4::text,durable_work_dir),
+ branch_name=COALESCE($5::text,branch_name)
+WHERE id=$1
+`
+
+type SetWorkflowDebugTaskSessionParams struct {
+	ID             pgtype.UUID `json:"id"`
+	SessionID      pgtype.Text `json:"session_id"`
+	WorkDir        pgtype.Text `json:"work_dir"`
+	DurableWorkDir pgtype.Text `json:"durable_work_dir"`
+	BranchName     pgtype.Text `json:"branch_name"`
+}
+
+func (q *Queries) SetWorkflowDebugTaskSession(ctx context.Context, arg SetWorkflowDebugTaskSessionParams) error {
+	_, err := q.db.Exec(ctx, setWorkflowDebugTaskSession,
+		arg.ID,
+		arg.SessionID,
+		arg.WorkDir,
+		arg.DurableWorkDir,
+		arg.BranchName,
+	)
+	return err
+}
+
+const setWorkflowDebugTaskWaiting = `-- name: SetWorkflowDebugTaskWaiting :execrows
+UPDATE agent_task_queue SET status='waiting_local_directory',wait_reason=$2 WHERE id=$1 AND status='dispatched'
+`
+
+type SetWorkflowDebugTaskWaitingParams struct {
+	ID         pgtype.UUID `json:"id"`
+	WaitReason pgtype.Text `json:"wait_reason"`
+}
+
+func (q *Queries) SetWorkflowDebugTaskWaiting(ctx context.Context, arg SetWorkflowDebugTaskWaitingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setWorkflowDebugTaskWaiting, arg.ID, arg.WaitReason)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setWorkflowDebugWaitingStop = `-- name: SetWorkflowDebugWaitingStop :exec
+UPDATE workflow_run SET debug_cleanup_state='waiting_stop'
+WHERE id=$1 AND workspace_id=$2 AND execution_mode='draft_test' AND details_purged_at IS NULL
+`
+
+type SetWorkflowDebugWaitingStopParams struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) SetWorkflowDebugWaitingStop(ctx context.Context, arg SetWorkflowDebugWaitingStopParams) error {
+	_, err := q.db.Exec(ctx, setWorkflowDebugWaitingStop, arg.ID, arg.WorkspaceID)
+	return err
+}
+
+const settleWorkflowDebugUpload = `-- name: SettleWorkflowDebugUpload :execrows
+UPDATE workflow_debug_upload SET state=$3, attachment_id=$4, settled_at=clock_timestamp()
+WHERE id=$1 AND workspace_id=$2 AND state='pending'
+`
+
+type SettleWorkflowDebugUploadParams struct {
+	ID           pgtype.UUID `json:"id"`
+	WorkspaceID  pgtype.UUID `json:"workspace_id"`
+	State        string      `json:"state"`
+	AttachmentID pgtype.UUID `json:"attachment_id"`
+}
+
+func (q *Queries) SettleWorkflowDebugUpload(ctx context.Context, arg SettleWorkflowDebugUploadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, settleWorkflowDebugUpload,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.State,
+		arg.AttachmentID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const startWorkflowDebugTask = `-- name: StartWorkflowDebugTask :execrows
+UPDATE agent_task_queue SET status='running',started_at=COALESCE(started_at,clock_timestamp()),prepare_lease_expires_at=NULL
+WHERE id=$1 AND status IN ('dispatched','waiting_local_directory')
+`
+
+func (q *Queries) StartWorkflowDebugTask(ctx context.Context, id pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, startWorkflowDebugTask, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unlinkWorkflowDebugSharedAttachments = `-- name: UnlinkWorkflowDebugSharedAttachments :exec
+UPDATE attachment a SET task_id=NULL FROM agent_task_queue t,workflow_step_instance s
+WHERE a.task_id=t.id AND s.id=t.workflow_step_instance_id AND s.run_id=$1 AND s.workspace_id=$2
+ AND (a.issue_id IS NOT NULL OR a.comment_id IS NOT NULL OR a.chat_session_id IS NOT NULL
+ OR a.chat_message_id IS NOT NULL OR a.source_context_id IS NOT NULL)
+`
+
+type UnlinkWorkflowDebugSharedAttachmentsParams struct {
+	RunID       pgtype.UUID `json:"run_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) UnlinkWorkflowDebugSharedAttachments(ctx context.Context, arg UnlinkWorkflowDebugSharedAttachmentsParams) error {
+	_, err := q.db.Exec(ctx, unlinkWorkflowDebugSharedAttachments, arg.RunID, arg.WorkspaceID)
 	return err
 }
 

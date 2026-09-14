@@ -67,6 +67,15 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	if limit <= 0 {
 		limit = DefaultReconcileBatchSize
 	}
+	debugRuns, err := r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, limit)
+	if err != nil {
+		return err
+	}
+	for _, run := range debugRuns {
+		if err := r.Engine.PurgeDebugRun(ctx, run.WorkspaceID, run.ID); err != nil {
+			slog.Warn("draft trial maintenance failed", "run_id", uuidString(run.ID), "error", err)
+		}
+	}
 	tasks, err := r.Queries.ListWorkflowTasksAwaitingStepProgress(ctx, db.ListWorkflowTasksAwaitingStepProgressParams{StaleSeconds: stale.Seconds(), LimitCount: limit})
 	if err != nil {
 		return fmt.Errorf("list terminal workflow tasks: %w", err)
@@ -149,6 +158,9 @@ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUI
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{ID: runID, WorkspaceID: workspaceID})
 		if err != nil {
+			return err
+		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
 			return err
 		}
 		if IsTerminalRunStatus(RunStatus(run.Status)) || run.Status == string(RunBlocked) {

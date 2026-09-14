@@ -36,9 +36,12 @@ import (
 // activation and Task enqueue must share one application transaction ...
 // dual-write repair must not be the normal path" (plan section 7).
 type Engine struct {
+	RevalidateDebugEnvironment func(context.Context, *db.Queries, db.WorkflowRun) error
 	// DebugReady is false until the dual-source worker fleet and delivery gates are ready.
 	DebugReady              bool
 	ResolveDraftEnvironment DraftEnvironmentResolver
+	SendDebugStop           DebugStopSender
+	DeleteDebugObject       DebugObjectDeleter
 
 	Queries   *db.Queries
 	TxStarter TxStarter
@@ -261,6 +264,13 @@ func (e *Engine) recordEvent(ctx context.Context, q *db.Queries, ev eventSpec) e
 		return fmt.Errorf("record workflow event %q: %w", ev.Type, err)
 	}
 	envelope := newEventEnvelope(recorded)
+	sourceRun, sourceErr := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: ev.RunID, WorkspaceID: ev.WorkspaceID})
+	if sourceErr != nil {
+		return sourceErr
+	}
+	if sourceRun.ExecutionMode == ExecutionDraftTest {
+		envelope.ExecutionMode = ExecutionDraftTest
+	}
 	if effects, ok := ctx.Value(txEffectsContextKey{}).(*txEffects); ok && effects != nil {
 		effects.eventRecorded(envelope)
 	}
@@ -332,6 +342,7 @@ type eventSpec struct {
 // callbacks and realtime. Websocket delivery is an invalidation hint and may
 // be lost; event_id points consumers back to the durable workflow_event row.
 type EventEnvelope struct {
+	ExecutionMode string          `json:"execution_mode,omitempty"`
 	SchemaVersion string          `json:"schema_version"`
 	EventID       string          `json:"event_id"`
 	EventType     string          `json:"event_type"`
@@ -833,7 +844,15 @@ func (t *txEffects) flush(ctx context.Context, n Notifier) {
 		n.WorkflowEvent(ctx, event)
 	}
 	for _, run := range t.runs {
-		n.WorkflowChanged(ctx, uuidString(run.WorkspaceID), uuidString(run.ID))
+		if run.ExecutionMode == ExecutionDraftTest {
+			if notifier, ok := n.(interface {
+				WorkflowDebugChanged(context.Context, string, string)
+			}); ok {
+				notifier.WorkflowDebugChanged(ctx, uuidString(run.WorkspaceID), uuidString(run.ID))
+			}
+		} else {
+			n.WorkflowChanged(ctx, uuidString(run.WorkspaceID), uuidString(run.ID))
+		}
 	}
 	for _, change := range t.issues {
 		n.IssueChanged(ctx, change.issue, change.prevStatus)
@@ -1123,6 +1142,10 @@ func (e *Engine) dispatchAgentStep(ctx context.Context, q *db.Queries, in activa
 		PriorAgentByNode:  prior,
 		RequiresVision:    brief.ImageAttachment != nil,
 	})
+	if err == nil && run.ExecutionMode == ExecutionDraftTest {
+		err = e.validateDebugEnvironment(ctx, q, run)
+	}
+
 	if err != nil {
 		// No eligible Agent is a blocked Step, not a crash: a human can grant
 		// permission or bring a runtime online and the Run resumes.

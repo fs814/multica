@@ -214,6 +214,9 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
 			return newEngineError(ErrCodeInvalidTransition,
 				fmt.Sprintf("step is already %s", step.Status))
 		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			return err
+		}
 		def, err := ResolveRunDefinition(ctx, q, in.WorkspaceID, run)
 		if err != nil {
 			return err
@@ -764,6 +767,9 @@ func (e *Engine) recordTaskFailure(ctx context.Context, step db.WorkflowStepInst
 		if run.DetailsPurgedAt.Valid || IsTerminalRunStatus(RunStatus(run.Status)) || IsTerminalStepStatus(StepStatus(locked.Status)) {
 			return nil // already consumed
 		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			return err
+		}
 		def, err := ResolveRunDefinition(ctx, q, step.WorkspaceID, run)
 		if err != nil {
 			return err
@@ -856,6 +862,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 
 	var out db.WorkflowAcceptance
 	effects := &txEffects{}
+	deadlineExpired := false
 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
 		acceptance, err := q.GetWorkflowAcceptance(ctx, db.GetWorkflowAcceptanceParams{
 			ID:          in.AcceptanceID,
@@ -867,10 +874,6 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 			}
 			return fmt.Errorf("get acceptance: %w", err)
 		}
-		if acceptance.Status != "pending" {
-			return newEngineError(ErrCodeAcceptanceConflict,
-				fmt.Sprintf("this acceptance was already %s", acceptance.Status))
-		}
 
 		step, run, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, acceptance.StepID)
 		if err != nil {
@@ -879,8 +882,17 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 		if run.DetailsPurgedAt.Valid {
 			return newEngineError("debug_details_expired", "draft trial details have expired")
 		}
+		if acceptance.Status != "pending" {
+			return newEngineError(ErrCodeAcceptanceConflict,
+				fmt.Sprintf("this acceptance was already %s", acceptance.Status))
+		}
+
 		if IsTerminalRunStatus(RunStatus(run.Status)) || IsTerminalStepStatus(StepStatus(step.Status)) {
 			return newEngineError(ErrCodeInvalidTransition, "workflow is already terminal")
+		}
+		if expired, err := e.expireDebugRun(ctx, q, run, effects); expired || err != nil {
+			deadlineExpired = expired
+			return err
 		}
 		def, err := ResolveRunDefinition(ctx, q, in.WorkspaceID, run)
 		if err != nil {
@@ -1021,6 +1033,9 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
 		return db.WorkflowAcceptance{}, err
 	}
 	effects.flush(ctx, e.Notifier)
+	if deadlineExpired {
+		return out, newEngineError(ErrCodeInvalidTransition, "draft trial deadline exceeded")
+	}
 	return out, nil
 }
 
@@ -1047,6 +1062,15 @@ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID, 
 			}
 			return fmt.Errorf("lock run: %w", err)
 		}
+		if run.ExecutionMode == ExecutionDraftTest {
+			if run.DetailsPurgedAt.Valid {
+				return newEngineError("debug_details_expired", "draft trial details have expired")
+			}
+			if IsTerminalRunStatus(RunStatus(run.Status)) {
+				return newEngineError(ErrCodeInvalidTransition, "draft trial is already terminal")
+			}
+		}
+
 		if IsTerminalRunStatus(RunStatus(run.Status)) {
 			// Idempotent: cancelling an already-terminal Run is a no-op, not an
 			// error, because a user clicking twice should not see a failure.

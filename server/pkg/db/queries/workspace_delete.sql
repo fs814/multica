@@ -262,6 +262,7 @@ WHERE webhook_delivery.workspace_id = $1
 
 -- name: DeleteWorkspaceWorkflowData :exec
 WITH
+deleted_workflow_debug_upload AS (DELETE FROM workflow_debug_upload WHERE workspace_id=$1),
 deleted_workflow_execution_snapshot AS (DELETE FROM workflow_execution_snapshot WHERE workspace_id = $1),
 deleted_workflow_debug_policy AS (DELETE FROM workflow_debug_policy WHERE workspace_id = $1),
 deleted_workflow_debug_quota AS (DELETE FROM workflow_debug_quota WHERE workspace_id = $1),

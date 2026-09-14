@@ -164,19 +164,20 @@ func taskScopedAuthToken(task Task) (string, error) {
 
 func taskMulticaEnvironment(task Task, agentName, token, configRoot, workspacesRoot, serverURL string, healthPort, slot int, tempDir string) map[string]string {
 	return map[string]string{
-		"MULTICA_TOKEN":        token,
-		cli.TaskConfigRootEnv:  configRoot,
-		TaskWorkspacesRootEnv:  workspacesRoot,
-		"MULTICA_SERVER_URL":   serverURL,
-		"MULTICA_DAEMON_PORT":  strconv.Itoa(healthPort),
-		"MULTICA_WORKSPACE_ID": task.WorkspaceID,
-		"MULTICA_AGENT_NAME":   agentName,
-		"MULTICA_AGENT_ID":     task.AgentID,
-		"MULTICA_TASK_ID":      task.ID,
-		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
-		"TMPDIR":               tempDir,
-		"TMP":                  tempDir,
-		"TEMP":                 tempDir,
+		"MULTICA_TOKEN":                 token,
+		cli.TaskConfigRootEnv:           configRoot,
+		TaskWorkspacesRootEnv:           workspacesRoot,
+		"MULTICA_SERVER_URL":            serverURL,
+		"MULTICA_DAEMON_PORT":           strconv.Itoa(healthPort),
+		"MULTICA_WORKSPACE_ID":          task.WorkspaceID,
+		"MULTICA_AGENT_NAME":            agentName,
+		"MULTICA_AGENT_ID":              task.AgentID,
+		"MULTICA_TASK_ID":               task.ID,
+		"MULTICA_WORKFLOW_EXECUTION_ID": task.WorkflowExecutionID,
+		"MULTICA_TASK_SLOT":             strconv.Itoa(slot),
+		"TMPDIR":                        tempDir,
+		"TMP":                           tempDir,
+		"TEMP":                          tempDir,
 	}
 }
 
@@ -638,6 +639,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	cacheRoot := filepath.Join(cfg.WorkspacesRoot, ".repos")
 	skillCacheRoot := filepath.Join(cfg.WorkspacesRoot, ".skill-cache", "v1")
 	client := NewClient(cfg.ServerBaseURL)
+	client.configureDebugDelivery(cfg.WorkspacesRoot)
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
@@ -5017,6 +5019,25 @@ func (d *Daemon) restartTargetBinary() (string, error) {
 // per-request timeout (WS) / the client's timeout (HTTP fallback), and the
 // server-side batch claim is index-backed + short.
 func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) error {
+	deliveryCtx, deliveryCancel := context.WithCancel(ctx)
+	deliveryDone := make(chan struct{})
+	go func() {
+		defer close(deliveryDone)
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-deliveryCtx.Done():
+				return
+			case <-ticker.C:
+				if err := d.client.ReplayDebugDeliveries(deliveryCtx); err != nil {
+					d.logger.Warn("draft trial delivery remains pending", "error", err)
+				}
+			}
+		}
+	}()
+	defer func() { deliveryCancel(); <-deliveryDone }()
+
 	sem := newTaskSlotSemaphore(d.cfg.MaxConcurrentTasks)
 	var taskWG sync.WaitGroup // tracks in-flight handleTask goroutines
 
@@ -5122,6 +5143,22 @@ func (d *Daemon) runBatchPoller(pollerCtx, parentCtx context.Context, sem chan i
 		}
 
 		claimResult, err := d.claimTasksWSFirst(pollerCtx, d.cfg.DaemonID, runtimeIDs, len(slots))
+		if err == nil && len(claimResult.Tasks) == 0 {
+			for _, runtimeID := range runtimeIDs {
+				trial, trialErr := d.client.claimDebugTask(pollerCtx, runtimeID)
+				if trialErr != nil {
+					d.logger.Warn("draft trial claim failed", "error", trialErr)
+					break
+				}
+				if trial != nil {
+					claimResult.Tasks = append(claimResult.Tasks, trial)
+					if len(claimResult.Tasks) >= len(slots) {
+						break
+					}
+				}
+			}
+		}
+
 		if err != nil {
 			d.exitClaim()
 			releaseSlots(slots)
@@ -8474,6 +8511,16 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
+	defer func() {
+		if task.WorkflowExecutionMode == "draft_test" {
+			reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			_ = d.reportDebugCheckoutEvidence(reportCtx, task, env.WorkDir, "after_execution", &msgSeq)
+		}
+	}()
+	if err := d.reportDebugCheckoutEvidence(ctx, task, env.WorkDir, "before_execution", &msgSeq); err != nil {
+		return TaskResult{}, err
+	}
 	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
 	if err != nil {
 		return TaskResult{}, err

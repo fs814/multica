@@ -41,4 +41,22 @@ explicit Keep or Remove choice. Applying changes only the local edit; Save chang
 persists the new binding and reviewed values. Keeping an unknown value preserves
 it for review, but existing engine rules block running until unknown fields are
 explicitly removed. Historical runs keep their original version and inputs.
-Draft trial execution is not available in this implementation.
+
+## Draft trials (default disabled)
+
+When deployment readiness and the workspace's administrator setting allow it,
+Test draft executes the current working graph without publishing or saving it.
+Apply or discard unapplied JSON first. Confirm the input, final image, project,
+execution limits and real execution warning on each new trial. Trials consume
+agent capacity and can modify external resources; they are not a sandbox.
+
+The result panel and history render the immutable execution snapshot. Closing the
+panel preserves the editor's working graph and dirty state. Ordinary runs and
+input instances keep their existing version bindings. Trial APIs live under
+`workflow-test-runs`; do not pass a trial ID to the published-run action surface.
+
+Cancellation ends logical workflow progress, while process stop and delivery
+confirmation can remain pending. Retention cleanup waits for those confirmations
+and settled uploads. Expired details show a metadata tombstone; late writes cannot
+restore removed content. Deleting trial records never rolls back files, commits,
+or other external effects. Disabling new trials leaves existing recovery active.

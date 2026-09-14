@@ -12,3 +12,5 @@ export {
 
 export { WorkflowInstancesPage } from "../instances/workflow-instances-page";
 export { WorkflowInstanceDetailPage } from "../instances/workflow-instance-detail-page";
+
+export { WorkflowDebugDetailPage } from "../debug/workflow-debug-detail";

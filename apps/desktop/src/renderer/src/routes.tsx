@@ -1,4 +1,5 @@
 import { WorkflowInstancesPage } from "@multica/views/workflows/components";
+import { WorkflowDebugPage } from "./pages/workflow-debug-detail-page";
 import { WorkflowInstanceDetailPage } from "./pages/workflow-instance-detail-page";
 import { useEffect } from "react";
 import { createMemoryRouter, Outlet, useMatches } from "react-router-dom";
@@ -203,7 +204,8 @@ export const appRoutes: RouteObject[] = [
             element: <WorkflowRunsPage />,
             handle: { title: "Runs" },
           },
-          {
+          { path: "workflow-test-runs/:id", element: <WorkflowDebugPage /> },
+            {
             path: "workflow-runs/:id",
             // Fallback title; the wrapper replaces it with the run's own input
             // title once the detail resolves.

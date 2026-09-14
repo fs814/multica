@@ -288,3 +288,26 @@ it("binds run_changed without workspace_id to the connection across switching an
     vi.useRealTimers();
   }
 });
+
+it("refreshes draft trials once without touching instance or published run caches", () => {
+  vi.useFakeTimers();
+  workspace.id="ws-1";
+  const qc=new QueryClient();
+  const debug=["workflow-test-runs","ws-1"];
+  const normal=workflowRunKeys.all("ws-1");
+  const instances=workflowInstanceKeys.all("ws-1");
+  for(const key of [debug,normal,instances]) qc.setQueryData(key,{});
+  const spy=vi.spyOn(qc,"invalidateQueries");
+  const rec=createRecordingWs();
+  const hook=renderHook(()=>useRealtimeSync(rec.ws,createStores()),{wrapper:createWrapper(qc)});
+  try {
+    for(const type of ["workflow:run_changed","workflow:event"]) rec.emit(type,{execution_mode:"draft_test"});
+    vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(debug)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(normal)?.isInvalidated).toBe(false);
+    expect(qc.getQueryState(instances)?.isInvalidated).toBe(false);
+    expect(spy.mock.calls.filter(([filter])=>JSON.stringify(filter?.queryKey)===JSON.stringify(debug))).toHaveLength(1);
+    rec.emit("workflow:event",{execution_mode:"unknown_mode"});vi.advanceTimersByTime(150);
+    expect(qc.getQueryState(normal)?.isInvalidated).toBe(false);
+  } finally {hook.unmount();qc.clear();vi.useRealTimers();}
+});

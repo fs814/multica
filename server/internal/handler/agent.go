@@ -498,7 +498,9 @@ type AgentTaskResponse struct {
 	// something an older build assembles wrongly or not at all, and a workflow
 	// step whose agent was not told the submission format blocks the whole run
 	// with submission_contract_invalid.
-	WorkflowPrompt string `json:"workflow_prompt,omitempty"`
+	WorkflowExecutionID   string `json:"workflow_execution_id,omitempty"`
+	WorkflowExecutionMode string `json:"workflow_execution_mode,omitempty"`
+	WorkflowPrompt        string `json:"workflow_prompt,omitempty"`
 	// WorkflowRunID / WorkflowStepInstanceID / WorkflowNodeKey identify the Step
 	// this task executes. Surfaced separately from the prompt so the daemon can
 	// label the run and so the agent's submission can name the step it answers

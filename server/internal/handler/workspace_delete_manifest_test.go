@@ -136,6 +136,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"workflow_callback_destination":      workspaceDelete,
 	"workflow_execution_snapshot":        workspaceDelete,
 	"workflow_debug_policy":              workspaceDelete,
+	"workflow_debug_upload":              workspaceDelete,
 	"workflow_debug_quota":               workspaceDelete,
 	"workflow_debug_task_execution":      workspaceDelete,
 	"workflow_debug_stop_request":        workspaceDelete,

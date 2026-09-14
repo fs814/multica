@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -58,8 +60,11 @@ func debugDuration(explicit int, p DebugPolicy, w WorkspacePolicy) (int, error) 
 }
 func debugMember(ctx context.Context, q *db.Queries, ws, user pgtype.UUID, edit bool) error {
 	m, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{UserID: user, WorkspaceID: ws})
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return newEngineError(ErrCodeNotFound, "workspace not found")
+	}
+	if err != nil {
+		return err
 	}
 	if edit && m.Role != "owner" && m.Role != "admin" {
 		return newEngineError("debug_forbidden", "owner or admin permission required")

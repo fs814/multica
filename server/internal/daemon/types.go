@@ -153,6 +153,8 @@ type Task struct {
 	// consequence here is total: without WorkflowPrompt the agent is never told to
 	// emit the delimited submission block, so every step of every run blocks with
 	// submission_contract_invalid even though the work was done correctly.
+	WorkflowExecutionID    string `json:"workflow_execution_id,omitempty"`
+	WorkflowExecutionMode  string `json:"workflow_execution_mode,omitempty"`
 	WorkflowPrompt         string `json:"workflow_prompt,omitempty"`
 	WorkflowRunID          string `json:"workflow_run_id,omitempty"`
 	WorkflowStepInstanceID string `json:"workflow_step_instance_id,omitempty"`

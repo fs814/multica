@@ -1,4 +1,5 @@
 "use client";
+import { workflowDebugKeys } from "../workflows/debug-runs";
 import { workflowInstanceKeys } from "../workflows/input-instances";
 
 import { useEffect, useRef } from "react";
@@ -1007,8 +1008,14 @@ export function useRealtimeSync(
       // Refresh authoritative snapshots, never reconstruct state from events.
       // Capture workspace identity before debouncing; tab switches cannot redirect it.
       if (prefix === "workflow") {
-        const payload = msg.payload as { workspace_id?: string } | undefined;
+        const payload = msg.payload as { workspace_id?: string; execution_mode?: string } | undefined;
         const wsId = payload?.workspace_id || connectionWorkspaceId;
+        if (payload?.execution_mode && payload.execution_mode !== "published") {
+          if (wsId && payload.execution_mode === "draft_test") debouncedRefresh(`workflow-debug:${wsId}`, () => {
+            void qc.invalidateQueries({ queryKey: workflowDebugKeys.all(wsId) });
+          });
+          return;
+        }
         if (wsId) debouncedRefresh(`workflow:${wsId}`, () => {
           void qc.invalidateQueries({ queryKey: workflowRunKeys.all(wsId) });
           void qc.invalidateQueries({ queryKey: workflowInstanceKeys.all(wsId) });

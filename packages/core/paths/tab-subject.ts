@@ -36,6 +36,7 @@ export type TabSubject =
    * from.
    */
   | { kind: "workflowInstance"; id: string }
+  | { kind: "workflowTestRun"; id: string }
   | { kind: "workflowRun"; id: string }
   /** An agent / member / squad detail (has an avatar identity). */
   | { kind: "actor"; actorType: TabActorType; id: string }
@@ -97,6 +98,8 @@ export function parseTabSubject(url: string): TabSubject {
       return id ? { kind: "autopilot", id } : { kind: "page", page: "autopilots" };
     case "workflow-instances":
       return id?{kind:"workflowInstance",id}:{kind:"page",page:"workflowInstances"};
+    case "workflow-test-runs":
+      return id ? {kind:"workflowTestRun",id} : {kind:"unknown"};
     case "workflow-runs":
       return id
         ? { kind: "workflowRun", id }
@@ -166,6 +169,8 @@ export function tabSubjectKey(subject: TabSubject): string {
       return `autopilot:${subject.id}`;
     case "workflowInstance":
       return "workflow-instance:"+subject.id;
+    case "workflowTestRun":
+      return `workflow-test-run:${subject.id}`;
     case "workflowRun":
       return `workflow-run:${subject.id}`;
     case "actor":

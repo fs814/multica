@@ -96,7 +96,9 @@ export function InstanceFields({
   onChange,
   disabled = false,
   onUploadingChange,
+  hideMetadata = false,
 }: {
+  hideMetadata?: boolean;
   value: SaveWorkflowInputInstance;
   onChange: (value: SaveWorkflowInputInstance) => void;
   disabled?: boolean;
@@ -119,7 +121,7 @@ export function InstanceFields({
   const unknown = Object.keys(value.input).filter((k) => !known.has(k));
   return (
     <div className="flex flex-col gap-4">
-      <label className="text-caption">
+      {!hideMetadata && <><label className="text-caption">
         {t(($) => $.input_instances.name)}
         <Input
           value={value.name}
@@ -136,6 +138,7 @@ export function InstanceFields({
           onChange={(e) => onChange({ ...value, description: e.target.value })}
         />
       </label>
+      </>}
       <label className="text-caption">
         {t(($) => $.instances.project)}
         <select

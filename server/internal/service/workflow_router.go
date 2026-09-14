@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -168,7 +169,7 @@ func (r *WorkflowRouter) routeExplicit(
 	if err != nil {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %s not found in this workspace", reasonPrefix, agentID)
 	}
-	if reason, ok := r.eligible(ctx, q, agent, actor, requiresVision); !ok {
+	if reason, ok := r.eligible(ctx, q, agent, actor, requiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest); !ok {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %q is not eligible: %s", reasonPrefix, agent.Name, reason)
 	}
 	return workflow.RouteResult{
@@ -255,7 +256,7 @@ func (r *WorkflowRouter) routeCapability(
 
 	var rejections []string
 	for _, agent := range candidates {
-		reason, ok := r.eligible(ctx, q, agent, actor, req.RequiresVision)
+		reason, ok := r.eligible(ctx, q, agent, actor, req.RequiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest)
 		if ok {
 			return workflow.RouteResult{
 				AgentID:   agent.ID,
@@ -277,7 +278,7 @@ func (r *WorkflowRouter) routeCapability(
 // transient, self-healing case and reporting it is more useful than reporting a
 // permission problem the operator would then chase for an agent that could not
 // have run anyway.
-func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor, requiresVision bool) (string, bool) {
+func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor, requiresVision, requiresDebug bool) (string, bool) {
 	// Upstream reshaped AgentReadiness to take a RuntimeLookup (so each
 	// admission path is distinguishable in multica_agent_runtime_lookup_total)
 	// and to return a verdict struct. The lookup MUST carry the caller's
@@ -301,6 +302,25 @@ func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.A
 		// enumerating why a specific person is excluded from someone else's
 		// agent leaks the allow-list's shape.
 		return "the run's accountable user may not invoke this agent", false
+	}
+	if requiresDebug {
+		runtime, err := q.GetAgentRuntime(ctx, agent.RuntimeID)
+		if err != nil {
+			return "could not verify draft trial runtime capabilities", false
+		}
+		var metadata struct {
+			Capabilities []string `json:"capabilities"`
+		}
+		if json.Unmarshal(runtime.Metadata, &metadata) != nil {
+			return "runtime lacks draft trial capabilities", false
+		}
+		supported := map[string]bool{}
+		for _, capability := range metadata.Capabilities {
+			supported[capability] = true
+		}
+		if !supported[workflow.DebugStopReceiptCapability] || !supported[workflow.DebugFixedEnvironmentCapability] {
+			return "runtime lacks draft trial stop receipts or fixed environments", false
+		}
 	}
 	if requiresVision {
 		hasVision, err := agentHasVisionCapability(ctx, q, agent.ID, agent.WorkspaceID)
