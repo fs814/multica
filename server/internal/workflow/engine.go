@@ -36,6 +36,10 @@ import (
 // activation and Task enqueue must share one application transaction ...
 // dual-write repair must not be the normal path" (plan section 7).
 type Engine struct {
+	// DebugReady is false until the dual-source worker fleet and delivery gates are ready.
+	DebugReady              bool
+	ResolveDraftEnvironment DraftEnvironmentResolver
+
 	Queries   *db.Queries
 	TxStarter TxStarter
 
@@ -179,6 +183,11 @@ func (e *Engine) projectRunIssueStatuses(ctx context.Context, q *db.Queries, eff
 		})
 		if err != nil {
 			return fmt.Errorf("reload workflow run for issue projection: %w", err)
+		}
+		if run.ExecutionMode == ExecutionDraftTest && IsTerminalRunStatus(RunStatus(run.Status)) {
+			if err := q.MarkWorkflowDebugTerminal(ctx, db.MarkWorkflowDebugTerminalParams{ID: run.ID, WorkspaceID: run.WorkspaceID}); err != nil {
+				return err
+			}
 		}
 		status, ok := IssueStatusForRun(RunStatus(run.Status))
 		if !ok || !run.IssueID.Valid {

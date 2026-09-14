@@ -154,11 +154,7 @@ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUI
 		if IsTerminalRunStatus(RunStatus(run.Status)) || run.Status == string(RunBlocked) {
 			return nil
 		}
-		version, err := q.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{ID: run.TemplateVersionID, WorkspaceID: workspaceID})
-		if err != nil {
-			return err
-		}
-		def, err := ParseDefinition(version.Definition)
+		def, err := ResolveRunDefinition(ctx, q, workspaceID, run)
 		if err != nil {
 			return err
 		}

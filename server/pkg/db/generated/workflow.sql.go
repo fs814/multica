@@ -160,7 +160,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type CancelWorkflowRunParams struct {
@@ -199,6 +199,19 @@ func (q *Queries) CancelWorkflowRun(ctx context.Context, arg CancelWorkflowRunPa
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -270,7 +283,7 @@ UPDATE workflow_run SET
     completed_at = now(),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status = 'running'
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type CompleteWorkflowRunParams struct {
@@ -312,6 +325,19 @@ func (q *Queries) CompleteWorkflowRun(ctx context.Context, arg CompleteWorkflowR
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -344,7 +370,7 @@ func (q *Queries) CountWorkflowReworkRounds(ctx context.Context, arg CountWorkfl
 
 const countWorkflowRuns = `-- name: CountWorkflowRuns :one
 SELECT count(*)::bigint FROM workflow_run
-WHERE workspace_id = $1
+WHERE workspace_id = $1 AND execution_mode = 'published'
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::uuid IS NULL OR template_id = $3::uuid)
 `
@@ -425,7 +451,7 @@ VALUES (
     $7, $8,
     'workflow_step', $6::uuid
 )
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, workflow_step_instance_id, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, workflow_step_instance_id, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, debug_never_dispatched_at
 `
 
 type CreateWorkflowAgentTaskParams struct {
@@ -535,6 +561,7 @@ func (q *Queries) CreateWorkflowAgentTask(ctx context.Context, arg CreateWorkflo
 		&i.CancelledByType,
 		&i.CancelledByID,
 		&i.CancelledByName,
+		&i.DebugNeverDispatchedAt,
 	)
 	return i, err
 }
@@ -608,7 +635,7 @@ INSERT INTO workflow_run (
     $12, $13, $14::uuid,
     $15::bigint, $16::text, $17::text, $18::uuid
 )
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type CreateWorkflowRunParams struct {
@@ -682,6 +709,19 @@ func (q *Queries) CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunPa
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -1016,7 +1056,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type FailWorkflowRunParams struct {
@@ -1062,6 +1102,19 @@ func (q *Queries) FailWorkflowRun(ctx context.Context, arg FailWorkflowRunParams
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -1324,7 +1377,7 @@ func (q *Queries) GetWorkflowAcceptance(ctx context.Context, arg GetWorkflowAcce
 }
 
 const getWorkflowRun = `-- name: GetWorkflowRun :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -1364,12 +1417,25 @@ func (q *Queries) GetWorkflowRun(ctx context.Context, arg GetWorkflowRunParams) 
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
 
 const getWorkflowRunByIdempotencyKey = `-- name: GetWorkflowRunByIdempotencyKey :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
 WHERE workspace_id = $1 AND idempotency_key = $2
 `
 
@@ -1411,12 +1477,25 @@ func (q *Queries) GetWorkflowRunByIdempotencyKey(ctx context.Context, arg GetWor
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
 
 const getWorkflowRunForUpdate = `-- name: GetWorkflowRunForUpdate :one
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
 WHERE id = $1 AND workspace_id = $2
 FOR UPDATE
 `
@@ -1459,6 +1538,19 @@ func (q *Queries) GetWorkflowRunForUpdate(ctx context.Context, arg GetWorkflowRu
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -1790,7 +1882,7 @@ func (q *Queries) ListActiveAgentTaskIDsForWorkflowRun(ctx context.Context, arg 
 }
 
 const listActiveWorkflowRunsForIssue = `-- name: ListActiveWorkflowRunsForIssue :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
 WHERE issue_id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
 ORDER BY created_at DESC
@@ -1839,6 +1931,19 @@ func (q *Queries) ListActiveWorkflowRunsForIssue(ctx context.Context, arg ListAc
 			&i.InputInstanceName,
 			&i.InputSource,
 			&i.InputProjectID,
+			&i.ExecutionMode,
+			&i.ExecutionSnapshotID,
+			&i.DebugDeadlineAt,
+			&i.DebugRequestHash,
+			&i.DebugPolicyRevision,
+			&i.DebugRetentionSeconds,
+			&i.DebugPurgeAfter,
+			&i.DebugPayloadBytes,
+			&i.DebugStopRequestedAt,
+			&i.DebugCleanupState,
+			&i.DetailsPurgedAt,
+			&i.PurgeCompletedAt,
+			&i.BytesReleasedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1960,7 +2065,7 @@ func (q *Queries) ListAutopilotWorkflowRunsAwaitingSync(ctx context.Context, lim
 }
 
 const listStaleActiveWorkflowRuns = `-- name: ListStaleActiveWorkflowRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
 WHERE status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
   AND updated_at < now() - make_interval(secs => $1::float)
 ORDER BY updated_at ASC
@@ -2013,6 +2118,19 @@ func (q *Queries) ListStaleActiveWorkflowRuns(ctx context.Context, arg ListStale
 			&i.InputInstanceName,
 			&i.InputSource,
 			&i.InputProjectID,
+			&i.ExecutionMode,
+			&i.ExecutionSnapshotID,
+			&i.DebugDeadlineAt,
+			&i.DebugRequestHash,
+			&i.DebugPolicyRevision,
+			&i.DebugRetentionSeconds,
+			&i.DebugPurgeAfter,
+			&i.DebugPayloadBytes,
+			&i.DebugStopRequestedAt,
+			&i.DebugCleanupState,
+			&i.DetailsPurgedAt,
+			&i.PurgeCompletedAt,
+			&i.BytesReleasedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2111,8 +2229,8 @@ func (q *Queries) ListWorkflowEventsForRun(ctx context.Context, arg ListWorkflow
 }
 
 const listWorkflowRuns = `-- name: ListWorkflowRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id FROM workflow_run
-WHERE workspace_id = $1
+SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run
+WHERE workspace_id = $1 AND execution_mode = 'published'
   AND ($2::text IS NULL OR status = $2::text)
   AND ($3::uuid IS NULL OR template_id = $3::uuid)
 ORDER BY created_at DESC
@@ -2170,6 +2288,19 @@ func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsPara
 			&i.InputInstanceName,
 			&i.InputSource,
 			&i.InputProjectID,
+			&i.ExecutionMode,
+			&i.ExecutionSnapshotID,
+			&i.DebugDeadlineAt,
+			&i.DebugRequestHash,
+			&i.DebugPolicyRevision,
+			&i.DebugRetentionSeconds,
+			&i.DebugPurgeAfter,
+			&i.DebugPayloadBytes,
+			&i.DebugStopRequestedAt,
+			&i.DebugCleanupState,
+			&i.DetailsPurgedAt,
+			&i.PurgeCompletedAt,
+			&i.BytesReleasedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2552,7 +2683,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type MarkWorkflowRunBlockedParams struct {
@@ -2598,6 +2729,19 @@ func (q *Queries) MarkWorkflowRunBlocked(ctx context.Context, arg MarkWorkflowRu
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -2610,7 +2754,7 @@ UPDATE workflow_run SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2
   AND status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type MarkWorkflowRunRunningParams struct {
@@ -2651,6 +2795,19 @@ func (q *Queries) MarkWorkflowRunRunning(ctx context.Context, arg MarkWorkflowRu
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }
@@ -2660,7 +2817,7 @@ UPDATE workflow_run SET
     status = 'waiting_acceptance',
     updated_at = now()
 WHERE id = $1 AND workspace_id = $2 AND status = 'running'
-RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id
+RETURNING id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at
 `
 
 type MarkWorkflowRunWaitingAcceptanceParams struct {
@@ -2699,6 +2856,19 @@ func (q *Queries) MarkWorkflowRunWaitingAcceptance(ctx context.Context, arg Mark
 		&i.InputInstanceName,
 		&i.InputSource,
 		&i.InputProjectID,
+		&i.ExecutionMode,
+		&i.ExecutionSnapshotID,
+		&i.DebugDeadlineAt,
+		&i.DebugRequestHash,
+		&i.DebugPolicyRevision,
+		&i.DebugRetentionSeconds,
+		&i.DebugPurgeAfter,
+		&i.DebugPayloadBytes,
+		&i.DebugStopRequestedAt,
+		&i.DebugCleanupState,
+		&i.DetailsPurgedAt,
+		&i.PurgeCompletedAt,
+		&i.BytesReleasedAt,
 	)
 	return i, err
 }

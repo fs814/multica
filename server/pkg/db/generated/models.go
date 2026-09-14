@@ -164,19 +164,20 @@ type AgentTaskQueue struct {
 	// The row id referenced by trigger_evidence_kind (a comment id, autopilot_run id, rule_version id, source task id, ...). No FK; resolvable per-kind in the app layer (MUL-4302 §2).
 	TriggerEvidenceRefID pgtype.UUID `json:"trigger_evidence_ref_id"`
 	// The one human accountable for this run, for audit / visibility / cost only — NEVER consulted for authorization (that is originator_user_id). Invariant: when originator_user_id IS NOT NULL, this equals it; the two diverge only when originator_user_id IS NULL (autopilot rule_owner / degraded owner_fallback name an accountable human while authorization carries none). No FK, no cascade (MUL-4302 §1/§7). NULL means no accountable human was resolved: a pre-migration row, OR a NEW row whose audit source is not-yet-resolved / unattributed (e.g. run_only autopilot until rule_owner lands) — NOT pre-migration only.
-	AccountableUserID         pgtype.UUID `json:"accountable_user_id"`
-	SessionRolloutMissing     bool        `json:"session_rollout_missing"`
-	RetiredSessionID          pgtype.Text `json:"retired_session_id"`
-	QuickActionsDisabled      bool        `json:"quick_actions_disabled"`
-	RegenerateQuickActionsFor pgtype.UUID `json:"regenerate_quick_actions_for"`
-	WorkflowStepInstanceID    pgtype.UUID `json:"workflow_step_instance_id"`
-	BranchName                pgtype.Text `json:"branch_name"`
-	DurableWorkDir            pgtype.Text `json:"durable_work_dir"`
-	ChannelContextRevision    pgtype.Int8 `json:"channel_context_revision"`
-	CommentThreadID           pgtype.UUID `json:"comment_thread_id"`
-	CancelledByType           pgtype.Text `json:"cancelled_by_type"`
-	CancelledByID             pgtype.UUID `json:"cancelled_by_id"`
-	CancelledByName           pgtype.Text `json:"cancelled_by_name"`
+	AccountableUserID         pgtype.UUID        `json:"accountable_user_id"`
+	SessionRolloutMissing     bool               `json:"session_rollout_missing"`
+	RetiredSessionID          pgtype.Text        `json:"retired_session_id"`
+	QuickActionsDisabled      bool               `json:"quick_actions_disabled"`
+	RegenerateQuickActionsFor pgtype.UUID        `json:"regenerate_quick_actions_for"`
+	WorkflowStepInstanceID    pgtype.UUID        `json:"workflow_step_instance_id"`
+	BranchName                pgtype.Text        `json:"branch_name"`
+	DurableWorkDir            pgtype.Text        `json:"durable_work_dir"`
+	ChannelContextRevision    pgtype.Int8        `json:"channel_context_revision"`
+	CommentThreadID           pgtype.UUID        `json:"comment_thread_id"`
+	CancelledByType           pgtype.Text        `json:"cancelled_by_type"`
+	CancelledByID             pgtype.UUID        `json:"cancelled_by_id"`
+	CancelledByName           pgtype.Text        `json:"cancelled_by_name"`
+	DebugNeverDispatchedAt    pgtype.Timestamptz `json:"debug_never_dispatched_at"`
 }
 
 type AgentToLabel struct {
@@ -1681,6 +1682,70 @@ type WorkflowCallbackDestination struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
+type WorkflowDebugCleanupObject struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	RunID         pgtype.UUID        `json:"run_id"`
+	ObjectID      pgtype.UUID        `json:"object_id"`
+	ObjectKind    string             `json:"object_kind"`
+	Attempts      int32              `json:"attempts"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorCode     pgtype.Text        `json:"error_code"`
+	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
+}
+
+type WorkflowDebugPolicy struct {
+	WorkspaceID          pgtype.UUID        `json:"workspace_id"`
+	Revision             int64              `json:"revision"`
+	Enabled              bool               `json:"enabled"`
+	UserActiveRuns       int32              `json:"user_active_runs"`
+	WorkspaceActiveRuns  int32              `json:"workspace_active_runs"`
+	UserStartsPerHour    int32              `json:"user_starts_per_hour"`
+	MaxDurationSeconds   int32              `json:"max_duration_seconds"`
+	RetentionSeconds     int32              `json:"retention_seconds"`
+	PayloadCapacityBytes int64              `json:"payload_capacity_bytes"`
+	UpdatedBy            pgtype.UUID        `json:"updated_by"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
+}
+
+type WorkflowDebugQuotum struct {
+	WorkspaceID  pgtype.UUID `json:"workspace_id"`
+	PayloadBytes int64       `json:"payload_bytes"`
+}
+
+type WorkflowDebugStopRequest struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	RunID         pgtype.UUID        `json:"run_id"`
+	TaskID        pgtype.UUID        `json:"task_id"`
+	ClaimID       pgtype.UUID        `json:"claim_id"`
+	Attempts      int32              `json:"attempts"`
+	NextAttemptAt pgtype.Timestamptz `json:"next_attempt_at"`
+	ErrorCode     pgtype.Text        `json:"error_code"`
+	ResolvedAt    pgtype.Timestamptz `json:"resolved_at"`
+}
+
+type WorkflowDebugTaskExecution struct {
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	RunID               pgtype.UUID        `json:"run_id"`
+	StepID              pgtype.UUID        `json:"step_id"`
+	TaskID              pgtype.UUID        `json:"task_id"`
+	TaskAttempt         int32              `json:"task_attempt"`
+	RuntimeID           pgtype.UUID        `json:"runtime_id"`
+	DaemonIncarnationID pgtype.UUID        `json:"daemon_incarnation_id"`
+	ClaimGeneration     int64              `json:"claim_generation"`
+	ClaimedAt           pgtype.Timestamptz `json:"claimed_at"`
+	StopRequestedAt     pgtype.Timestamptz `json:"stop_requested_at"`
+	ReceiptKind         pgtype.Text        `json:"receipt_kind"`
+	ReceiptID           pgtype.UUID        `json:"receipt_id"`
+	ReceiptHash         pgtype.Text        `json:"receipt_hash"`
+	ReceiptReceivedAt   pgtype.Timestamptz `json:"receipt_received_at"`
+	ProcessStoppedAt    pgtype.Timestamptz `json:"process_stopped_at"`
+	FinalMessageSeq     pgtype.Int4        `json:"final_message_seq"`
+	DeliveryDrainedAt   pgtype.Timestamptz `json:"delivery_drained_at"`
+}
+
 type WorkflowEvent struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1692,6 +1757,21 @@ type WorkflowEvent struct {
 	ActorID        pgtype.UUID        `json:"actor_id"`
 	Payload        []byte             `json:"payload"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type WorkflowExecutionSnapshot struct {
+	ID                  pgtype.UUID        `json:"id"`
+	WorkspaceID         pgtype.UUID        `json:"workspace_id"`
+	TemplateID          pgtype.UUID        `json:"template_id"`
+	BaseRevision        int64              `json:"base_revision"`
+	BaseDraftVersionID  pgtype.UUID        `json:"base_draft_version_id"`
+	Definition          []byte             `json:"definition"`
+	GraphSchemaVersion  int32              `json:"graph_schema_version"`
+	DefinitionHash      string             `json:"definition_hash"`
+	EnvironmentSnapshot []byte             `json:"environment_snapshot"`
+	CreatedBy           pgtype.UUID        `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	PurgedAt            pgtype.Timestamptz `json:"purged_at"`
 }
 
 type WorkflowInputInstance struct {
@@ -1743,6 +1823,19 @@ type WorkflowRun struct {
 	InputInstanceName     pgtype.Text        `json:"input_instance_name"`
 	InputSource           pgtype.Text        `json:"input_source"`
 	InputProjectID        pgtype.UUID        `json:"input_project_id"`
+	ExecutionMode         string             `json:"execution_mode"`
+	ExecutionSnapshotID   pgtype.UUID        `json:"execution_snapshot_id"`
+	DebugDeadlineAt       pgtype.Timestamptz `json:"debug_deadline_at"`
+	DebugRequestHash      pgtype.Text        `json:"debug_request_hash"`
+	DebugPolicyRevision   pgtype.Int8        `json:"debug_policy_revision"`
+	DebugRetentionSeconds pgtype.Int4        `json:"debug_retention_seconds"`
+	DebugPurgeAfter       pgtype.Timestamptz `json:"debug_purge_after"`
+	DebugPayloadBytes     pgtype.Int8        `json:"debug_payload_bytes"`
+	DebugStopRequestedAt  pgtype.Timestamptz `json:"debug_stop_requested_at"`
+	DebugCleanupState     pgtype.Text        `json:"debug_cleanup_state"`
+	DetailsPurgedAt       pgtype.Timestamptz `json:"details_purged_at"`
+	PurgeCompletedAt      pgtype.Timestamptz `json:"purge_completed_at"`
+	BytesReleasedAt       pgtype.Timestamptz `json:"bytes_released_at"`
 }
 
 type WorkflowStepInstance struct {

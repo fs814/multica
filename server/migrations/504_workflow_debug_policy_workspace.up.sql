@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY idx_workflow_debug_policy_workspace ON workflow_debug_policy (workspace_id);
