@@ -27,15 +27,18 @@ function PortName({
   id,
   disabled,
   duplicate,
+  canRename,
   onRename,
 }: {
   id: string;
   disabled: boolean;
   duplicate(value: string): boolean;
+  canRename(value: string): boolean;
   onRename(value: string): void;
 }) {
   const { t } = useT("workflows");
   const [value, setValue] = useState(id);
+  const contractBlocked = !canRename(value);
   const invalid =
     !value.trim() ||
     value !== value.trim() ||
@@ -46,7 +49,7 @@ function PortName({
         aria-label={t(($) => $.graph_v2.port_id)}
         value={value}
         disabled={disabled}
-        aria-invalid={invalid}
+        aria-invalid={invalid || contractBlocked}
         onChange={(event) => setValue(event.target.value)}
       />
       {value !== id && (
@@ -54,8 +57,10 @@ function PortName({
           <Button
             size="sm"
             variant="outline"
-            disabled={disabled || invalid}
-            onClick={() => onRename(value)}
+            disabled={disabled || invalid || contractBlocked}
+            onClick={() => {
+              if (!contractBlocked) onRename(value);
+            }}
           >
             {t(($) => $.authoring.rename)}
           </Button>
@@ -63,6 +68,11 @@ function PortName({
             {t(($) => $.instances.cancel)}
           </Button>
         </>
+      )}
+      {contractBlocked && (
+        <p role="alert" className="text-caption text-muted-foreground">
+          {t(($) => $.authoring.output_contract)}
+        </p>
       )}
       {invalid && (
         <p role="alert" className="text-caption text-destructive">
@@ -118,6 +128,9 @@ export function PortsSection({
                     !onRenamePort ||
                     !canRenameWorkflowPort(node, direction, port.id)
                   }
+                  canRename={(value) =>
+                    canRenameWorkflowPort(node, direction, port.id, value)
+                  }
                   duplicate={(value) =>
                     Boolean(node[direction]?.some((p) => p.id === value))
                   }
@@ -125,11 +138,6 @@ export function PortsSection({
                     onRenamePort?.(direction, port.id, value)
                   }
                 />
-                {!canRenameWorkflowPort(node, direction, port.id) && (
-                  <p className="text-caption text-muted-foreground">
-                    {t(($) => $.authoring.output_contract)}
-                  </p>
-                )}
                 <PanelSelect
                   ariaLabel={t(($) => $.graph_v2.port_type)}
                   value={port.type}

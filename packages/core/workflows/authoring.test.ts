@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { WorkflowDefinitionSchema, WorkflowValidationResultSchema } from "./schemas";
-import { renameWorkflowPort, compareInputFields, unknownInputKeys, compareWorkflowVersions } from "./authoring";
+import { canRenameWorkflowPort, renameWorkflowPort, compareInputFields, unknownInputKeys, compareWorkflowVersions } from "./authoring";
 import { diagnoseGraphV2 } from "./graph-v2";
 const graph = () => WorkflowDefinitionSchema.parse({ schema_version: 2, entry_node: "input", nodes: [
   { key: "input", type: "input", next: ["gate"], next_ids: ["flow"], output_ports: [{ id: "x", type: "string" }], input_fields: [{ key: "old", type: "select", options: ["a"] }] },
@@ -85,5 +85,24 @@ describe("output producer contracts", () => {
     expect(after).toBe(before);
     expect(after).toEqual(WorkflowDefinitionSchema.parse(fixture.after));
     expect(diagnoseGraphV2(after)).toEqual([]);
+  });
+});
+
+describe("condition input execution contracts", () => {
+  const cases = JSON.parse(readFileSync(new URL("../../../server/internal/workflow/testdata/condition-port-rename.json", import.meta.url), "utf8")) as Array<{name: string; before: unknown; after: unknown; previous: string; next: string; allowed: boolean}>;
+  it.each(cases)("preserves branch fixture $name", (fixture) => {
+    const before = WorkflowDefinitionSchema.parse(fixture.before);
+    const node = before.nodes.find(n => n.key === "gate")!;
+    expect(node.output_ports ?? []).toEqual([]);
+    expect(canRenameWorkflowPort(node, "input_ports", fixture.previous, fixture.next)).toBe(fixture.allowed);
+    const after = renameWorkflowPort(before, "gate", "input_ports", fixture.previous, fixture.next);
+    expect(after).toEqual(WorkflowDefinitionSchema.parse(fixture.after));
+    if (!fixture.allowed) expect(after).toBe(before);
+    expect(diagnoseGraphV2(after)).toEqual([]);
+  });
+  it("does not introduce a coupled output ID through an input rename", () => {
+    const before = graph();
+    before.nodes[1]!.output_ports = [{id: "result", type: "string"}];
+    expect(renameWorkflowPort(before, "gate", "input_ports", "x", "result")).toBe(before);
   });
 });
