@@ -376,3 +376,42 @@ it("requires an explicit keep/remove decision before applying an upgrade", async
   expect(vi.mocked(api.saveWorkflowInputInstance).mock.calls[0]?.[1].input).not.toHaveProperty("discard");
   expect(instance.templateVersionId).toBe("v1");
 });
+
+it("Review: constructor field requires an explicit upgrade choice", async () => {
+  const instance = row();
+  instance.input = { ...instance.input, constructor: "keep this user value" };
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(instance);
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Review latest published version" }));
+  await screen.findByRole("group", { name: /Field constructor is not in this version/ });
+  expect(screen.getByRole("radio", { name: "Keep value" })).not.toBeChecked();
+  expect(screen.getByRole("radio", { name: "Remove" })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "Apply version to this edit" })).toBeDisabled();
+});
+
+it.each(["constructor", "toString", "__proto__", "legacy"].flatMap(key => ["keep", "remove"].map(choice => ({key, choice}))))("requires an explicit $choice decision for $key and saves only after confirmation", async ({key, choice}) => {
+  const instance = { ...row(), input: { ...row().input, [key]: "historical value" } };
+  vi.mocked(api.getWorkflowInstance).mockResolvedValue(instance);
+  mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Review latest published version" }));
+  const apply = await screen.findByRole("button", { name: "Apply version to this edit" });
+  const group = screen.getByRole("group", { name: new RegExp(`Field ${key} is not in this version`) });
+  expect(apply).toBeDisabled();
+  expect(within(group).getByRole("radio", { name: "Keep value" })).not.toBeChecked();
+  expect(within(group).getByRole("radio", { name: "Remove" })).not.toBeChecked();
+  fireEvent.click(apply);
+  expect(api.saveWorkflowInputInstance).not.toHaveBeenCalled();
+  fireEvent.click(within(group).getByRole("radio", { name: "Keep value" }));
+  expect(apply).toBeEnabled();
+  if (choice === "remove") fireEvent.click(within(group).getByRole("radio", { name: "Remove" }));
+  fireEvent.click(apply);
+  expect(api.saveWorkflowInputInstance).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.saveWorkflowInputInstance).toHaveBeenCalled());
+  const saved = vi.mocked(api.saveWorkflowInputInstance).mock.calls[0]![1];
+  expect(Object.hasOwn(saved.input, key)).toBe(choice === "keep");
+  if (choice === "keep") expect(saved.input[key]).toBe("historical value");
+  expect(saved.templateVersionId).toBe("v2");
+  expect(instance.input[key]).toBe("historical value");
+  expect(instance.templateVersionId).toBe("v1");
+});
