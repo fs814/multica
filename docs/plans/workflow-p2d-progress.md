@@ -21,7 +21,9 @@ Final Core workflow/realtime suite: 235 tests in 17 files; Views workflow suite:
 Electron production builds pass. Web 1280×900 and real Electron 1440×900 tests
 pass, including unsaved snapshot, manual acceptance, controlled subprocess HTTP
 claim/delivery, receipt replay, fixed empty repositories and expired payload gates.
-The final graph-heading correction is a text-only change after these screenshots.
+The final graph-heading correction is a text-only change after these screenshots;
+its shared presentation regression passed 32 tests. A final attachment lookup
+error now conservatively retains proxy URLs; it has compile verification only.
 
 Web build uses a test-only local font response adapter because Google Fonts failed
 with ECONNRESET. Workflow UI fonts are the installed matching fontsource assets;

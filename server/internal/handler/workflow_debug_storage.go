@@ -14,7 +14,12 @@ func (h *Handler) isWorkflowDebugAttachment(a db.Attachment) bool {
 		return false
 	}
 	run, err := h.Queries.GetWorkflowDebugTaskRun(context.Background(), a.TaskID)
-	return err == nil && run.ExecutionMode == workflow.ExecutionDraftTest
+	// On lookup failure keep the authenticated proxy boundary instead of
+	// issuing an independently usable object URL. Ordinary tasks have no row.
+	if err != nil {
+		return !errors.Is(err, pgx.ErrNoRows)
+	}
+	return run.ExecutionMode == workflow.ExecutionDraftTest
 }
 func (h *Handler) DeleteDebugObject(ctx context.Context, object db.WorkflowDebugCleanupObject) error {
 	if object.ObjectKind != "attachment" {
