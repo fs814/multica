@@ -753,6 +753,7 @@
     "entry": "Entry changed",
     "limits": "Limits changed",
     "bindings": "Data bindings changed",
-    "keep_value": "Keep value"
+    "keep_value": "Keep value",
+    "output_contract": "This port is part of the output value contract and cannot be renamed here."
   }
 }

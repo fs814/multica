@@ -1,6 +1,19 @@
 import type { WorkflowDefinition, WorkflowNode } from "./schemas";
 
-/** A confirmed rename preserves edge identity and rewrites only owned references. */
+/** Output IDs name produced values, not labels. Without an explicit producer
+ * mapping, an output rename (or a coupled passthrough input rename) loses data. */
+export function canRenameWorkflowPort(
+  node: WorkflowNode,
+  direction: "input_ports" | "output_ports",
+  previous: string,
+): boolean {
+  return (
+    direction === "input_ports" &&
+    !node.output_ports?.some((port) => port.id === previous)
+  );
+}
+
+/** A confirmed safe input rename preserves binding identity and owned predicates. */
 export function renameWorkflowPort(
   definition: WorkflowDefinition,
   nodeKey: string,
@@ -12,6 +25,7 @@ export function renameWorkflowPort(
   if (
     definition.schema_version !== 2 ||
     !node ||
+    !canRenameWorkflowPort(node, direction, previous) ||
     !next.trim() ||
     next !== next.trim() ||
     previous === next ||
