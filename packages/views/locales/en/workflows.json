@@ -754,7 +754,7 @@
     "limits": "Limits changed",
     "bindings": "Data bindings changed",
     "keep_value": "Keep value",
-    "output_contract": "This port is part of the output value contract and cannot be renamed here."
+    "output_contract": "This port name is part of the execution value contract and cannot be used for this rename."
   },
   "debug": {
     "title": "Draft trial",

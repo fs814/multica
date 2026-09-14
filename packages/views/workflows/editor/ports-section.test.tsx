@@ -45,8 +45,33 @@ it("explains why produced output IDs and coupled inputs cannot be renamed", () =
   );
   for (const field of screen.getAllByRole("textbox", { name: "Port ID" }))
     expect(field).toBeDisabled();
-  expect(screen.getAllByText(/part of the output value contract/)).toHaveLength(
+  expect(screen.getAllByText(/part of the execution value contract/)).toHaveLength(
     2,
   );
   expect(rename).not.toHaveBeenCalled();
+});
+
+it("blocks an existing condition verdict input without declared output ports", () => {
+  const definition = WorkflowDefinitionSchema.parse({schema_version: 2, nodes: [{key: "gate", type: "condition", input_ports: [{id: "verdict", type: "string"}]}]});
+  const rename = vi.fn();
+  render(<I18nProvider locale="en" resources={{en:{workflows:en}}}><PortsSection node={definition.nodes[0]!} definition={definition} readOnly={false} onChange={vi.fn()} onRenamePort={rename} /></I18nProvider>);
+  expect(screen.getByRole("textbox", {name:"Port ID"})).toBeDisabled();
+  expect(screen.getByRole("alert")).toHaveTextContent(/execution value contract/);
+  expect(rename).not.toHaveBeenCalled();
+});
+it.each(["verdict", "result"])("blocks proposed contract name %s, then allows a safe input name", (next) => {
+  const definition = WorkflowDefinitionSchema.parse({schema_version: 2, nodes: [{key: "gate", type: "condition", input_ports: [{id: "decision", type: "string"}], output_ports: next === "result" ? [{id:"result",type:"string"}] : []}]});
+  const rename = vi.fn();
+  render(<I18nProvider locale="en" resources={{en:{workflows:en}}}><PortsSection node={definition.nodes[0]!} definition={definition} readOnly={false} onChange={vi.fn()} onRenamePort={rename} /></I18nProvider>);
+  const input = screen.getAllByRole("textbox", {name:"Port ID"})[0]!;
+  fireEvent.change(input,{target:{value:next}});
+  const confirm = screen.getByRole("button", {name:"Confirm rename"});
+  expect(confirm).toBeDisabled();
+  fireEvent.click(confirm);
+  expect(rename).not.toHaveBeenCalled();
+  expect(screen.getAllByText(/execution value contract/).length).toBeGreaterThan(0);
+  fireEvent.change(input,{target:{value:"choice"}});
+  expect(confirm).toBeEnabled();
+  fireEvent.click(confirm);
+  expect(rename).toHaveBeenCalledExactlyOnceWith("input_ports","decision","choice");
 });

@@ -1,15 +1,23 @@
 import type { WorkflowDefinition, WorkflowNode } from "./schemas";
 
 /** Output IDs name produced values, not labels. Without an explicit producer
- * mapping, an output rename (or a coupled passthrough input rename) loses data. */
+ * mapping, output/coupled input renames lose data. Conditions also consume the
+ * implicit verdict key. Neither endpoint may move across these contracts. */
 export function canRenameWorkflowPort(
   node: WorkflowNode,
   direction: "input_ports" | "output_ports",
   previous: string,
+  next: string = previous,
 ): boolean {
   return (
     direction === "input_ports" &&
-    !node.output_ports?.some((port) => port.id === previous)
+    !node.output_ports?.some(
+      (port) => port.id === previous || port.id === next,
+    ) &&
+    !(
+      node.type === "condition" &&
+      (previous === "verdict" || next === "verdict")
+    )
   );
 }
 
@@ -25,7 +33,7 @@ export function renameWorkflowPort(
   if (
     definition.schema_version !== 2 ||
     !node ||
-    !canRenameWorkflowPort(node, direction, previous) ||
+    !canRenameWorkflowPort(node, direction, previous, next) ||
     !next.trim() ||
     next !== next.trim() ||
     previous === next ||
