@@ -18,3 +18,35 @@ it("keeps typing local until rename confirmation and prevents duplicate IDs", ()
   expect(screen.getByRole("button", { name: "Confirm rename" })).toBeDisabled();
   expect(screen.getByText(/Waits for all activated/)).toBeInTheDocument();
 });
+
+it("explains why produced output IDs and coupled inputs cannot be renamed", () => {
+  const definition = WorkflowDefinitionSchema.parse({
+    schema_version: 2,
+    nodes: [
+      {
+        key: "join",
+        type: "join",
+        input_ports: [{ id: "value", type: "string" }],
+        output_ports: [{ id: "value", type: "string" }],
+      },
+    ],
+  });
+  const rename = vi.fn();
+  render(
+    <I18nProvider locale="en" resources={{ en: { workflows: en } }}>
+      <PortsSection
+        node={definition.nodes[0]!}
+        definition={definition}
+        readOnly={false}
+        onChange={vi.fn()}
+        onRenamePort={rename}
+      />
+    </I18nProvider>,
+  );
+  for (const field of screen.getAllByRole("textbox", { name: "Port ID" }))
+    expect(field).toBeDisabled();
+  expect(screen.getAllByText(/part of the output value contract/)).toHaveLength(
+    2,
+  );
+  expect(rename).not.toHaveBeenCalled();
+});

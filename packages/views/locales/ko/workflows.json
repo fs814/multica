@@ -747,7 +747,8 @@
     "entry": "진입점 변경",
     "limits": "제한 변경",
     "bindings": "데이터 연결 변경",
-    "keep_value": "값 유지"
+    "keep_value": "값 유지",
+    "output_contract": "이 포트는 출력 값 계약의 일부이므로 여기에서 이름을 변경할 수 없습니다."
   },
   "debug": {
     "title": "초안 시험 실행",

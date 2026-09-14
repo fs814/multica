@@ -1,0 +1,680 @@
+[
+  {
+    "name": "input-fixed-output",
+    "before": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "je"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        }
+      ]
+    },
+    "after": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "je"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        }
+      ]
+    },
+    "node": "source",
+    "direction": "output_ports",
+    "previous": "title",
+    "next": "renamed",
+    "source_output": {
+      "title": "request value"
+    },
+    "expected": [
+      {
+        "node": "join",
+        "port": "value",
+        "value": "request value"
+      }
+    ]
+  },
+  {
+    "name": "agent-fixed-artifact",
+    "before": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "agent",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "routing": {
+            "strategy": "capability",
+            "capability": "analysis"
+          },
+          "submission_schema": "analysis",
+          "output_ports": [
+            {
+              "id": "summary",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "je"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "summary",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        }
+      ]
+    },
+    "after": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "agent",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "routing": {
+            "strategy": "capability",
+            "capability": "analysis"
+          },
+          "submission_schema": "analysis",
+          "output_ports": [
+            {
+              "id": "summary",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "je"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "summary",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        }
+      ]
+    },
+    "node": "source",
+    "direction": "output_ports",
+    "previous": "summary",
+    "next": "renamed",
+    "source_output": {
+      "summary": "agent value"
+    },
+    "expected": [
+      {
+        "node": "join",
+        "port": "value",
+        "value": "agent value"
+      }
+    ]
+  },
+  {
+    "name": "join-coupled-input",
+    "before": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "consumer"
+          ],
+          "next_ids": [
+            "jc"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "value",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "consumer",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "ce"
+          ],
+          "input_ports": [
+            {
+              "id": "result",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        },
+        {
+          "id": "consumer-binding",
+          "source": "join",
+          "source_port": "value",
+          "target": "consumer",
+          "target_port": "result",
+          "order": 0
+        }
+      ]
+    },
+    "after": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "consumer"
+          ],
+          "next_ids": [
+            "jc"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "value",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "consumer",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "ce"
+          ],
+          "input_ports": [
+            {
+              "id": "result",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        },
+        {
+          "id": "consumer-binding",
+          "source": "join",
+          "source_port": "value",
+          "target": "consumer",
+          "target_port": "result",
+          "order": 0
+        }
+      ]
+    },
+    "node": "join",
+    "direction": "input_ports",
+    "previous": "value",
+    "next": "renamed",
+    "source_output": {
+      "title": "request value"
+    },
+    "expected": [
+      {
+        "node": "join",
+        "port": "value",
+        "value": "request value"
+      },
+      {
+        "node": "consumer",
+        "port": "result",
+        "value": "request value"
+      }
+    ]
+  },
+  {
+    "name": "join-passthrough-output",
+    "before": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "consumer"
+          ],
+          "next_ids": [
+            "jc"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "value",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "consumer",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "ce"
+          ],
+          "input_ports": [
+            {
+              "id": "result",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        },
+        {
+          "id": "consumer-binding",
+          "source": "join",
+          "source_port": "value",
+          "target": "consumer",
+          "target_port": "result",
+          "order": 0
+        }
+      ]
+    },
+    "after": {
+      "schema_version": 2,
+      "entry_node": "source",
+      "nodes": [
+        {
+          "key": "source",
+          "type": "input",
+          "next": [
+            "join"
+          ],
+          "next_ids": [
+            "sj"
+          ],
+          "input_fields": [
+            {
+              "key": "title",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "title",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "join",
+          "type": "join",
+          "next": [
+            "consumer"
+          ],
+          "next_ids": [
+            "jc"
+          ],
+          "input_ports": [
+            {
+              "id": "value",
+              "type": "string",
+              "required": true
+            }
+          ],
+          "output_ports": [
+            {
+              "id": "value",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "key": "consumer",
+          "type": "join",
+          "next": [
+            "end"
+          ],
+          "next_ids": [
+            "ce"
+          ],
+          "input_ports": [
+            {
+              "id": "result",
+              "type": "string",
+              "required": true
+            }
+          ]
+        },
+        {
+          "key": "end",
+          "type": "end"
+        }
+      ],
+      "data_edges": [
+        {
+          "id": "binding",
+          "source": "source",
+          "source_port": "title",
+          "target": "join",
+          "target_port": "value",
+          "order": 0
+        },
+        {
+          "id": "consumer-binding",
+          "source": "join",
+          "source_port": "value",
+          "target": "consumer",
+          "target_port": "result",
+          "order": 0
+        }
+      ]
+    },
+    "node": "join",
+    "direction": "output_ports",
+    "previous": "value",
+    "next": "renamed",
+    "source_output": {
+      "title": "request value"
+    },
+    "expected": [
+      {
+        "node": "join",
+        "port": "value",
+        "value": "request value"
+      },
+      {
+        "node": "consumer",
+        "port": "result",
+        "value": "request value"
+      }
+    ]
+  }
+]

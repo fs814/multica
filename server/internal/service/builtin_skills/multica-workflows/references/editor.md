@@ -24,8 +24,10 @@ selects and brings a diagnosed node into view, opening its properties panel.
 
 Graph v2 input ports offer a source-output picker with type labels. Incompatible
 sources are disabled; combined control/data cycles and other graph rules remain
-server-authoritative. Confirm a port rename to atomically rewrite its data edges
-and owned condition predicates. Typing a proposed name does not rename the port.
+server-authoritative. Confirm a safe input-port rename to atomically rewrite its
+data edges and owned condition predicates. Output IDs and input IDs coupled to an
+output value are fixed producer contracts and cannot be renamed by this control.
+Typing a proposed name does not rename the port.
 One Undo restores the complete pre-rename graph. Join nodes wait only for activated
 predecessors. These controls do not convert graph v1 to v2.
 

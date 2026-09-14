@@ -1,4 +1,5 @@
 "use client";
+import { canRenameWorkflowPort } from "@multica/core/workflows";
 import { useState } from "react";
 import { ArrowUp, Plus, Trash2 } from "lucide-react";
 import type {
@@ -112,7 +113,11 @@ export function PortsSection({
                 <PortName
                   key={`${node.key}:${direction}:${port.id}`}
                   id={port.id}
-                  disabled={readOnly || !onRenamePort}
+                  disabled={
+                    readOnly ||
+                    !onRenamePort ||
+                    !canRenameWorkflowPort(node, direction, port.id)
+                  }
                   duplicate={(value) =>
                     Boolean(node[direction]?.some((p) => p.id === value))
                   }
@@ -120,6 +125,11 @@ export function PortsSection({
                     onRenamePort?.(direction, port.id, value)
                   }
                 />
+                {!canRenameWorkflowPort(node, direction, port.id) && (
+                  <p className="text-caption text-muted-foreground">
+                    {t(($) => $.authoring.output_contract)}
+                  </p>
+                )}
                 <PanelSelect
                   ariaLabel={t(($) => $.graph_v2.port_type)}
                   value={port.type}

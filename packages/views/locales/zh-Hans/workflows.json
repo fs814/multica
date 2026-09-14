@@ -747,7 +747,8 @@
     "entry": "入口变化",
     "limits": "限制变化",
     "bindings": "数据绑定变化",
-    "keep_value": "保留值"
+    "keep_value": "保留值",
+    "output_contract": "此端口属于输出值契约，不能在此改名。"
   },
   "debug": {
     "title": "草稿试运行",

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { WorkflowDefinitionSchema, WorkflowValidationResultSchema } from "./schemas";
 import { renameWorkflowPort, compareInputFields, unknownInputKeys, compareWorkflowVersions } from "./authoring";
@@ -15,7 +16,8 @@ describe("P2 authoring", () => {
     expect(input.data_edges![0]).toEqual({ ...before.data_edges![0], target_port: "request" });
     expect(input.nodes[1]!.branches[0]!.predicate).toEqual({ input_port: "request", equals: "yes" });
     const output = renameWorkflowPort(input, "input", "output_ports", "x", "response");
-    expect(output.data_edges![0]!.source_port).toBe("response");
+    expect(output).toBe(input);
+    expect(output.data_edges![0]!.source_port).toBe("x");
     expect(before.data_edges![0]!.target_port).toBe("x");
   });
   it("rejects collisions, missing IDs and v1 edits without mutation", () => {
@@ -49,5 +51,39 @@ describe("P2 authoring", () => {
   it("summarizes graph and binding changes independently of input fields", () => {
     const before = graph(), after = graph(); after.nodes[2]!.name = "Changed"; after.data_edges = [];
     expect(compareWorkflowVersions(before, after)).toMatchObject({ changed: ["end"], dataChanged: true, schemaChanged: false });
+  });
+});
+
+// Shared fixtures also run through the real Go planner in port_rename_value_flow_test.go.
+describe("output producer contracts", () => {
+  const cases = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../server/internal/workflow/testdata/port-rename-value-flow.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as Array<{
+    name: string;
+    before: unknown;
+    after: unknown;
+    node: string;
+    direction: "input_ports" | "output_ports";
+    previous: string;
+    next: string;
+  }>;
+  it.each(cases)("preserves actual value-flow fixture $name", (fixture) => {
+    const before = WorkflowDefinitionSchema.parse(fixture.before);
+    const after = renameWorkflowPort(
+      before,
+      fixture.node,
+      fixture.direction,
+      fixture.previous,
+      fixture.next,
+    );
+    expect(after).toBe(before);
+    expect(after).toEqual(WorkflowDefinitionSchema.parse(fixture.after));
+    expect(diagnoseGraphV2(after)).toEqual([]);
   });
 });
