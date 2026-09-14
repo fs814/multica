@@ -337,9 +337,21 @@ function InstanceEditor({
                   <Button
                     disabled={
                       pending ||
-                      upgradeUnknown.some((key) => !fieldDecisions[key])
+                      upgradeUnknown.some(
+                        (key) =>
+                          !Object.hasOwn(fieldDecisions, key) ||
+                          !["keep", "remove"].includes(fieldDecisions[key]!),
+                      )
                     }
                     onClick={() => {
+                      if (
+                        upgradeUnknown.some(
+                          (key) =>
+                            !Object.hasOwn(fieldDecisions, key) ||
+                            !["keep", "remove"].includes(fieldDecisions[key]!),
+                        )
+                      )
+                        return;
                       const input = { ...value.input };
                       for (const key of upgradeUnknown)
                         if (fieldDecisions[key] === "remove") delete input[key];
