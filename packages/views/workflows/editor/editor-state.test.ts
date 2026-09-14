@@ -597,18 +597,46 @@ describe("property edits after changing connections", () => {
     expect(workingDefinition(edited).nodes.find((node) => node.key === "analyze")?.instruction).toBe("New requirements");
   });
 });
-it("renames a connected v2 port as one undoable graph edit", async () => {
+async function portRenameDefinition(previous = "decision") {
   const { WorkflowDefinitionSchema } = await import("@multica/core/workflows");
-  const definition = WorkflowDefinitionSchema.parse({ schema_version: 2, entry_node: "input", nodes: [
-    { key: "input", type: "input", next: ["end"], next_ids: ["flow"], output_ports: [{ id: "old", type: "string" }] },
-    { key: "end", type: "end", input_ports: [{ id: "value", type: "string" }] },
-  ], data_edges: [{ id: "edge", source: "input", source_port: "old", target: "end", target_port: "value", order: 0 }] });
+  return WorkflowDefinitionSchema.parse({ schema_version: 2, entry_node: "input", nodes: [
+    { key: "input", type: "input", next: ["gate"], next_ids: ["flow"], output_ports: [{ id: "title", type: "string" }] },
+    { key: "gate", type: "condition", input_ports: [{id: previous, type: "string"}], output_ports: [{id: "result", type: "string"}], branches: [{id:"matched",target:"end",predicate:{input_port:previous,equals:"fail"}},{id:"default",target:"end"}] },
+    { key: "end", type: "end" },
+  ], data_edges: [{ id: "edge", source: "input", source_port: "title", target: "gate", target_port: previous, order: 0 }] });
+}
+it("renames a safe input and its predicate as one undoable and redoable graph edit", async () => {
+  const definition = await portRenameDefinition();
   const initial = seeded(definition);
-  const renamed = workflowEditorReducer(initial, { type: "rename_port", nodeKey: "input", direction: "output_ports", previous: "old", next: "new" });
-  expect(workingDefinition(renamed).data_edges![0]).toMatchObject({ id: "edge", source_port: "new" });
+  const renamed = workflowEditorReducer(initial, { type: "rename_port", nodeKey: "gate", direction: "input_ports", previous: "decision", next: "choice" });
+  const after = workingDefinition(renamed);
+  expect(after.nodes[1]!.input_ports![0]!.id).toBe("choice");
+  expect(after.nodes[1]!.branches[0]!.predicate).toEqual({input_port:"choice",equals:"fail"});
+  expect(after.data_edges![0]).toEqual({...definition.data_edges![0],target_port:"choice"});
   expect(renamed.past).toHaveLength(1);
-  expect(workingDefinition(workflowEditorReducer(renamed, { type: "undo" }))).toEqual(definition);
-  const deleted = workflowEditorReducer(renamed, { type: "patch_node", node: { ...workingDefinition(renamed).nodes[0]!, output_ports: [] } });
+  const undone = workflowEditorReducer(renamed, { type: "undo" });
+  expect(workingDefinition(undone)).toEqual(definition);
+  const redone = workflowEditorReducer(undone, { type: "redo" });
+  expect(workingDefinition(redone)).toEqual(after);
+  expect(redone.past).toHaveLength(1);
+  const deleted = workflowEditorReducer(redone, { type: "patch_node", node: { ...after.nodes[1]!, input_ports: [] } });
   expect(workingDefinition(deleted).data_edges).toEqual([]);
-  expect(workingDefinition(workflowEditorReducer(deleted, { type: "undo" }))).toEqual(workingDefinition(renamed));
+  expect(workingDefinition(workflowEditorReducer(deleted, { type: "undo" }))).toEqual(after);
+});
+it.each([
+  {nodeKey:"input",direction:"output_ports" as const,previous:"title",next:"new",input:"decision"},
+  {nodeKey:"gate",direction:"input_ports" as const,previous:"verdict",next:"decision",input:"verdict"},
+  {nodeKey:"gate",direction:"input_ports" as const,previous:"decision",next:"verdict",input:"decision"},
+  {nodeKey:"gate",direction:"input_ports" as const,previous:"result",next:"decision",input:"result"},
+  {nodeKey:"gate",direction:"input_ports" as const,previous:"decision",next:"result",input:"decision"},
+])("refused $direction $previous → $next preserves history and redo", async ({input,...action}) => {
+  const initial = seeded(await portRenameDefinition(input));
+  const edited = workflowEditorReducer(initial, {type:"patch_node",node:{...workingDefinition(initial).nodes[0]!,name:"Local edit"}});
+  const state = workflowEditorReducer(edited,{type:"undo"});
+  expect(canRedo(state)).toBe(true);
+  const rejected = workflowEditorReducer(state,{type:"rename_port",...action});
+  expect(rejected).toBe(state);
+  expect(rejected.past).toBe(state.past);
+  expect(rejected.future).toBe(state.future);
+  expect(workingDefinition(workflowEditorReducer(rejected,{type:"redo"}))).toEqual(workingDefinition(edited));
 });
