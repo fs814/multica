@@ -347,6 +347,10 @@ func (b *cursorBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 		background.Close()
 		exitErr := cmd.Wait()
+		var stoppedAt time.Time
+		if opts.RequireProcessStopProof && cmd.ProcessState != nil && background.stopConfirmed() && waitProcessGroupGone(cmd, 2*time.Second) {
+			stoppedAt = time.Now().UTC()
+		}
 		releaseProcessGroup(cmd)
 		duration := time.Since(startTime)
 
@@ -454,12 +458,13 @@ func (b *cursorBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		}
 
 		resCh <- Result{
-			Status:     finalStatus,
-			Output:     finalOutput,
-			Error:      finalError,
-			DurationMs: duration.Milliseconds(),
-			SessionID:  sessionID,
-			Usage:      resultUsage,
+			ProcessStoppedAt: stoppedAt,
+			Status:           finalStatus,
+			Output:           finalOutput,
+			Error:            finalError,
+			DurationMs:       duration.Milliseconds(),
+			SessionID:        sessionID,
+			Usage:            resultUsage,
 		}
 	}()
 

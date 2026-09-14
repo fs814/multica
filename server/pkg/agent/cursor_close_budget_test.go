@@ -56,6 +56,9 @@ func TestCursorBackgroundCloseIsBoundedAcrossTools(t *testing.T) {
 
 	start := time.Now()
 	b.Close()
+	if b.stopConfirmed() {
+		t.Error("live background tools must prevent stop proof")
+	}
 	elapsed := time.Since(start)
 
 	// One in-flight signal may still be running when the budget expires.
@@ -120,6 +123,9 @@ func TestCursorBackgroundCloseIsBoundedBehindAConcurrentPass(t *testing.T) {
 
 	start := time.Now()
 	b.Close()
+	if b.stopConfirmed() {
+		t.Error("live background tools must prevent stop proof")
+	}
 	elapsed := time.Since(start)
 
 	// Worst case is one lock wait plus the closing pass, each bounded, plus a

@@ -280,6 +280,10 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		// The leader is reaped; drop ownership. On Windows that closes the Job
 		// Object, which kills anything still inside it — precisely what should
 		// happen to a descendant that outlived the CLI (GH #7522).
+		var stoppedAt time.Time
+		if opts.RequireProcessStopProof && cmd.ProcessState != nil && waitProcessGroupGone(cmd, 2*time.Second) {
+			stoppedAt = time.Now().UTC()
+		}
 		releaseProcessGroup(cmd)
 		duration := time.Since(startTime)
 		// writeDone is buffered (cap 1) and the writer always sends — by the
@@ -350,13 +354,14 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		}
 
 		resCh <- Result{
-			Status:         finalStatus,
-			Output:         finalOutput,
-			Error:          finalError,
-			DurationMs:     duration.Milliseconds(),
-			SessionID:      reportedSessionID,
-			Usage:          usage,
-			ResumeRejected: resumeRejected,
+			ProcessStoppedAt: stoppedAt,
+			Status:           finalStatus,
+			Output:           finalOutput,
+			Error:            finalError,
+			DurationMs:       duration.Milliseconds(),
+			SessionID:        reportedSessionID,
+			Usage:            usage,
+			ResumeRejected:   resumeRejected,
 		}
 	}()
 

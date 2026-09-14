@@ -24,6 +24,9 @@ type Backend interface {
 
 // ExecOptions configures a single execution.
 type ExecOptions struct {
+	// RequireProcessStopProof requests explicit owned-process exit evidence.
+	RequireProcessStopProof bool
+
 	// OutputSchema constrains Codex's final reply; other backends ignore it.
 	OutputSchema json.RawMessage
 	Cwd          string
@@ -235,6 +238,10 @@ const CostUSDTicksPerUSD = 10_000_000_000
 
 // Result is the final outcome after an agent session completes.
 type Result struct {
+	// ProcessStoppedAt is set only after observing the owned process group and
+	// managed descendants gone. Zero means unconfirmed, regardless of Status.
+	ProcessStoppedAt time.Time
+
 	Status     string // "completed", "failed", "aborted", "timeout", "cancelled"
 	Output     string // final user-facing output selected by the backend
 	Error      string // error message if failed

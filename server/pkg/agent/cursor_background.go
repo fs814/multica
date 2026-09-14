@@ -17,6 +17,8 @@ type cursorBackgroundTool struct {
 // The daemon owns the only budget timer. This tracker owns process cleanup and
 // the matching tool result, so expiration cannot race a second run-cancel timer.
 type cursorBackgroundTools struct {
+	unconfirmed bool
+
 	ctx              context.Context
 	cmd              *exec.Cmd
 	messages         chan<- Message
@@ -117,6 +119,7 @@ func (b *cursorBackgroundTools) Add(call cursorToolCall) {
 		// No work was claimed. Preserve Cursor's launch completion so the idle
 		// watchdog remains available even when the tool watchdog is disabled.
 		// This grants no cleanup recovery window and never signals the PID.
+		b.unconfirmed = true
 		b.logger.Warn("cannot own Cursor background shell; returning launch result for idle watchdog fallback", "error", err)
 		b.SendResult(call)
 		return
@@ -227,6 +230,9 @@ func (b *cursorBackgroundTools) Close() {
 			// final claim. Persistent errors remain explicitly unconfirmed.
 			b.finish(true, deadline)
 		}
+		if len(b.tools) > 0 {
+			b.unconfirmed = true
+		}
 		for _, tool := range b.tools {
 			// The stream is closing, so preserve even unverifiable launch
 			// payloads without pretending cleanup succeeded in native accounting.
@@ -239,4 +245,10 @@ func (b *cursorBackgroundTools) Close() {
 		close(b.stop)
 		<-b.done
 	})
+}
+
+func (b *cursorBackgroundTools) stopConfirmed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closed && !b.unconfirmed
 }

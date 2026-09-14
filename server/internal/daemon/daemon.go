@@ -375,6 +375,8 @@ type repoCacheBackend interface {
 
 // Daemon is the local agent runtime that polls for and executes tasks.
 type Daemon struct {
+	debugStopWaitBudget time.Duration // zero uses the production terminal handoff budget
+
 	cfg        Config
 	client     *Client
 	repoCache  repoCacheBackend
@@ -5423,6 +5425,16 @@ func (d *Daemon) watchTaskCancellation(ctx context.Context, taskID string, pollI
 }
 
 func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
+	if task.WorkflowExecutionMode == "draft_test" {
+		defer func() {
+			proofCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := d.client.finishDebugTaskDelivery(proofCtx, task.ID); err != nil {
+				slog.Warn("draft trial receipt remains pending", "task_id", task.ID, "error", err)
+			}
+		}()
+	}
+
 	d.mu.Lock()
 	rt, tracked := d.runtimeIndex[task.RuntimeID]
 	d.mu.Unlock()
@@ -9035,7 +9047,21 @@ func freshSessionMayHelp(errText string) bool {
 // messages and is owned by the caller so a same-task retry continues the
 // sequence instead of restarting at 1 — the server orders the transcript by
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
+func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (out agent.Result, tools int32, outErr error) {
+	debug, beginErr := d.client.beginDebugExecution(taskID)
+	if beginErr != nil {
+		return agent.Result{}, 0, beginErr
+	}
+	var fullyDrained atomic.Bool
+	if debug {
+		opts.RequireProcessStopProof = true
+		defer func() {
+			if err := d.client.endDebugExecution(taskID, out.ProcessStoppedAt, fullyDrained.Load(), msgSeq.Load()); err != nil {
+				taskLog.Warn("draft trial stop proof was not persisted", "error", err)
+			}
+		}()
+	}
+
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
@@ -9078,6 +9104,12 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		drainCtx, drainCancel = context.WithCancel(agentCtx)
 	}
 	defer drainCancel()
+	messageCtx := drainCtx
+	stopMessages := drainCancel
+	if debug {
+		messageCtx, stopMessages = context.WithCancel(context.WithoutCancel(drainCtx))
+		defer stopMessages()
+	}
 
 	var toolCount atomic.Int32
 	// lastActivityAt records (as unix nanos) when the drain loop most
@@ -9145,6 +9177,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	drainFinished := make(chan struct{})
 	go func() {
 		defer close(drainFinished)
+		reachedEOF := false
 		var mu sync.Mutex
 		var pendingText strings.Builder
 		var pendingThinking strings.Builder
@@ -9214,6 +9247,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 			select {
 			case msg, ok := <-session.Messages:
 				if !ok {
+					reachedEOF = true
 					goto drainDone
 				}
 				if isTaskOutputReceived(msg) {
@@ -9360,7 +9394,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 					})
 					mu.Unlock()
 				}
-			case <-drainCtx.Done():
+			case <-messageCtx.Done():
 				goto drainDone
 			}
 		}
@@ -9371,6 +9405,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		// signalled that the transcript tail was persisted.
 		<-tickerDone
 		flush()
+		fullyDrained.Store(reachedEOF)
 	}()
 
 	// waitForDrain blocks until the drain goroutine has flushed the transcript
@@ -9388,6 +9423,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		case <-drainFinished:
 		case <-time.After(10 * time.Second):
 			drainCancel()
+			stopMessages()
 			select {
 			case <-drainFinished:
 			case <-time.After(12 * time.Second):
@@ -9416,6 +9452,26 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		}
 		return result, toolCount.Load(), nil
 	case <-drainCtx.Done():
+		if debug {
+			agentCancel()
+			budget := d.debugStopWaitBudget
+			if budget <= 0 {
+				budget = terminalResultHandoffBudget
+			}
+			timer := time.NewTimer(budget)
+			defer timer.Stop()
+			select {
+			case result, ok := <-session.Result:
+				if ok {
+					waitForDrain()
+					return result, toolCount.Load(), nil
+				}
+			case <-timer.C:
+			}
+			// A timeout is not physical exit. Preserve pending proof and never
+			// fabricate a receipt even if a terminal API call succeeds later.
+			return agent.Result{Status: "cancelled", Error: "draft trial process stop remains unconfirmed"}, toolCount.Load(), nil
+		}
 		// The drain loop is exiting on this same Done signal; wait for its
 		// final flush so the timeout/watchdog/cancel terminals below cannot
 		// hand back (and let runTask fail-and-broadcast) a still-flushing

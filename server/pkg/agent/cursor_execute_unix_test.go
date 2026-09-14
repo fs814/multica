@@ -64,7 +64,7 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"f
 	if err != nil {
 		t.Fatalf("New(cursor): %v", err)
 	}
-	session, err := backend.Execute(t.Context(), "hello", ExecOptions{Timeout: 5 * time.Second})
+	session, err := backend.Execute(t.Context(), "hello", ExecOptions{Timeout: 5 * time.Second, RequireProcessStopProof: true})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -80,6 +80,9 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"f
 
 	result := <-session.Result
 	<-done
+	if result.ProcessStoppedAt.IsZero() {
+		t.Error("terminal result lacks process stop proof")
+	}
 
 	if result.Status != "completed" {
 		t.Fatalf("status = %q, want completed; error=%q", result.Status, result.Error)

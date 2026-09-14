@@ -95,6 +95,15 @@ func TestDebugDeliverySurvivesRestartAndLostReceiptResponse(t *testing.T) {
 	if err := client.postJSON(ctx, "/api/daemon/tasks/"+taskID+"/cancel-ack", map[string]any{}, nil); err == nil {
 		t.Fatal("offline ack unexpectedly succeeded")
 	}
+	if _, err := client.beginDebugExecution(taskID); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.endDebugExecution(taskID, time.Now().UTC(), true, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.finishDebugTaskDelivery(ctx, taskID); err == nil {
+		t.Fatal("offline receipt unexpectedly succeeded")
+	}
 	mu.Lock()
 	available = true
 	mu.Unlock()

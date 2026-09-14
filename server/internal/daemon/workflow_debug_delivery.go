@@ -24,12 +24,17 @@ type debugDeliveryRecord struct {
 	Disposition  string          `json:"disposition,omitempty"`
 }
 type debugDeliveryJournal struct {
-	TaskID      string                          `json:"task_id"`
-	ExecutionID string                          `json:"execution_id"`
-	Records     []debugDeliveryRecord           `json:"records,omitempty"`
-	Receipt     *workflow.DebugExecutionReceipt `json:"receipt,omitempty"`
-	FinalSeq    int32                           `json:"final_seq"`
-	Sealed      bool                            `json:"sealed"`
+	Attempts          int                             `json:"attempts"`
+	Unconfirmed       bool                            `json:"unconfirmed"`
+	StoppedAt         time.Time                       `json:"stopped_at"`
+	LifecycleComplete bool                            `json:"lifecycle_complete"`
+	TerminalKind      string                          `json:"terminal_kind,omitempty"`
+	TaskID            string                          `json:"task_id"`
+	ExecutionID       string                          `json:"execution_id"`
+	Records           []debugDeliveryRecord           `json:"records,omitempty"`
+	Receipt           *workflow.DebugExecutionReceipt `json:"receipt,omitempty"`
+	FinalSeq          int32                           `json:"final_seq"`
+	Sealed            bool                            `json:"sealed"`
 }
 type debugDeliveryState struct {
 	mu   sync.Mutex
@@ -124,6 +129,11 @@ func (c *Client) loadDebugDelivery() error {
 				return fmt.Errorf("draft trial journal route mismatch")
 			}
 		}
+		// Journals written before lifecycle proofs must not replay inferred receipts.
+		if !data.LifecycleComplete {
+			data.Receipt = nil
+			data.Sealed = false
+		}
 		c.debugDeliveries[taskID] = &debugDeliveryState{file: file, data: data}
 	}
 	return nil
@@ -157,6 +167,9 @@ func (c *Client) registerDebugTask(task *Task) error {
 	return nil
 }
 func (c *Client) debugState(path string) *debugDeliveryState {
+	if c == nil {
+		return nil
+	}
 	parts := strings.Split(path, "/")
 	if len(parts) < 6 || parts[1] != "api" || parts[2] != "daemon" || parts[3] != "tasks" {
 		return nil
@@ -219,9 +232,10 @@ func (c *Client) deliverDebugRequest(ctx context.Context, httpClient *http.Clien
 		if strings.HasSuffix(path, "/cancel-ack") {
 			kind = "cancel_ack"
 		}
-		if kind != "" && state.data.Receipt == nil {
-			state.data.Receipt = &workflow.DebugExecutionReceipt{SchemaVersion: "1", ReceiptID: uuid.NewString(), Kind: kind, ProcessStopped: true, DeliveryDrained: true, ProcessStoppedAt: time.Now().UTC()}
+		if kind != "" {
+			state.data.TerminalKind = kind
 		}
+
 		if err = persistDebugDelivery(state); err != nil {
 			return true, err
 		}
@@ -322,4 +336,64 @@ func (c *Client) claimDebugTask(ctx context.Context, runtimeID string) (*Task, e
 		return nil, err
 	}
 	return response.Task, nil
+}
+
+// beginDebugExecution and endDebugExecution are lifecycle boundaries, never
+// transport callbacks. Every attempt must be proved stopped before a receipt.
+func (c *Client) beginDebugExecution(taskID string) (bool, error) {
+	s := c.debugState("/api/daemon/tasks/" + taskID + "/start")
+	if s == nil {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Attempts > 0 && s.data.StoppedAt.IsZero() {
+		s.data.Unconfirmed = true
+	}
+	s.data.Attempts++
+	s.data.StoppedAt = time.Time{}
+	s.data.LifecycleComplete = false
+	return true, persistDebugDelivery(s)
+}
+func (c *Client) endDebugExecution(taskID string, stopped time.Time, drained bool, finalSeq int32) error {
+	s := c.debugState("/api/daemon/tasks/" + taskID + "/start")
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if stopped.IsZero() || !drained || s.data.FinalSeq != finalSeq {
+		s.data.Unconfirmed = true
+	} else {
+		s.data.StoppedAt = stopped
+	}
+	return persistDebugDelivery(s)
+}
+
+// Called only after the task runner, usage, finalization and terminal reporting
+// have finished. Queue acknowledgments alone can never attest physical exit.
+func (c *Client) finishDebugTaskDelivery(ctx context.Context, taskID string) error {
+	s := c.debugState("/api/daemon/tasks/" + taskID + "/start")
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Sealed || s.data.Unconfirmed {
+		return nil
+	}
+	if s.data.Attempts == 0 {
+		s.data.StoppedAt = time.Now().UTC()
+	} // lifecycle ended before launching any backend
+	if s.data.StoppedAt.IsZero() || s.data.TerminalKind == "" {
+		return nil
+	}
+	s.data.LifecycleComplete = true
+	if s.data.Receipt == nil {
+		s.data.Receipt = &workflow.DebugExecutionReceipt{SchemaVersion: "1", ReceiptID: uuid.NewString(), Kind: s.data.TerminalKind, ProcessStopped: true, DeliveryDrained: true, ProcessStoppedAt: s.data.StoppedAt}
+	}
+	if err := persistDebugDelivery(s); err != nil {
+		return err
+	}
+	return c.flushDebugDelivery(ctx, c.client, s)
 }

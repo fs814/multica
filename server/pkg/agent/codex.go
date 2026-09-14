@@ -1424,6 +1424,14 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		})
 	}
 
+	sendResult := func(result Result) {
+		drainAndWait()
+		if opts.RequireProcessStopProof && cleanupConfirmed {
+			result.ProcessStoppedAt = time.Now().UTC()
+		}
+		resCh <- result
+	}
+
 	// Drive the session lifecycle in a goroutine.
 	// Shutdown sequence: lifecycle goroutine closes stdin + cancels context →
 	// codex process exits → reader goroutine's scanner.Scan() returns false →
@@ -1488,7 +1496,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				finalError += "; retry suppressed: process-tree cleanup cannot be confirmed on this platform"
 			}
 			b.cfg.Logger.Warn("codex lifecycle", "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
-			resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe}
+			sendResult(Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe})
 			return
 		}
 		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
@@ -1537,12 +1545,12 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 					"stderr_bare_timeout_count", classification.bareTimeout,
 				)
 			}
-			resCh <- Result{
+			sendResult(Result{
 				Status:         finalStatus,
 				Error:          finalError,
 				DurationMs:     time.Since(startTime).Milliseconds(),
 				ResumeRejected: isCodexResumeOverflow(opts, err),
-			}
+			})
 			return
 		}
 		c.setThreadID(threadID)
@@ -1634,7 +1642,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 					drainAndWait() // flush os/exec stderr goroutine before sampling Tail
 					finalStatus = "failed"
 					finalError = withAgentStderr(fmt.Sprintf("codex turn/start failed: %v", err), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
-					resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds()}
+					sendResult(Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds()})
 					return
 				}
 			}
@@ -1866,7 +1874,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			usageMap = map[string]TokenUsage{model: u}
 		}
 
-		resCh <- Result{
+		sendResult(Result{
 			Status:                       finalStatus,
 			Output:                       finalOutput,
 			Error:                        finalError,
@@ -1874,7 +1882,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			DurationMs:                   duration.Milliseconds(),
 			Usage:                        usageMap,
 			codexStartupRefreshRetrySafe: startupRefreshRetrySafe,
-		}
+		})
 	}()
 
 	return &Session{Messages: msgCh, Result: resCh}, nil

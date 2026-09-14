@@ -32,7 +32,7 @@ func TestCodexThreadStartTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := backend.Execute(context.Background(), "prompt", ExecOptions{Timeout: 8 * time.Second, HandshakeTimeout: 3 * time.Second})
+	session, err := backend.Execute(context.Background(), "prompt", ExecOptions{Timeout: 8 * time.Second, HandshakeTimeout: 3 * time.Second, RequireProcessStopProof: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,6 +41,9 @@ func TestCodexThreadStartTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 		}
 	}()
 	result := <-session.Result
+	if result.ProcessStoppedAt.IsZero() {
+		t.Error("cleanup result lacks physical process-group stop proof")
+	}
 	if result.Status != "failed" {
 		t.Fatalf("expected thread/start failure, got %+v", result)
 	}
@@ -75,7 +78,7 @@ func TestCodexInitializeTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 		t.Fatal(err)
 	}
 	backend := backendRaw.(*codexBackend)
-	session, err := backend.executeOnce(context.Background(), "prompt", ExecOptions{Timeout: 8 * time.Second, HandshakeTimeout: 3 * time.Second}, 1)
+	session, err := backend.executeOnce(context.Background(), "prompt", ExecOptions{Timeout: 8 * time.Second, HandshakeTimeout: 3 * time.Second, RequireProcessStopProof: true}, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +87,9 @@ func TestCodexInitializeTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 		}
 	}()
 	result := <-session.Result
+	if result.ProcessStoppedAt.IsZero() {
+		t.Error("cleanup result lacks physical process-group stop proof")
+	}
 	if result.Status != "failed" || !strings.Contains(result.Error, "initialize") {
 		t.Fatalf("expected initialize timeout failure, got %+v", result)
 	}
