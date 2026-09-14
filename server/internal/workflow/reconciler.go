@@ -20,11 +20,13 @@ const (
 )
 
 type Reconciler struct {
-	Engine     *Engine
-	Queries    *db.Queries
-	Interval   time.Duration
-	StaleAfter time.Duration
-	BatchSize  int32
+	debugAfterCreatedAt pgtype.Timestamptz
+	debugAfterID        pgtype.UUID
+	Engine              *Engine
+	Queries             *db.Queries
+	Interval            time.Duration
+	StaleAfter          time.Duration
+	BatchSize           int32
 }
 
 func NewReconciler(engine *Engine, queries *db.Queries) *Reconciler {
@@ -67,11 +69,18 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	if limit <= 0 {
 		limit = DefaultReconcileBatchSize
 	}
-	debugRuns, err := r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, limit)
+	params := db.ListWorkflowDebugMaintenanceRunsParams{AfterCreatedAt: r.debugAfterCreatedAt, AfterID: r.debugAfterID, LimitCount: limit}
+	debugRuns, err := r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, params)
+	if err == nil && len(debugRuns) == 0 && r.debugAfterCreatedAt.Valid {
+		// Wrap only after exhausting the current pass, including failed work.
+		r.debugAfterCreatedAt, r.debugAfterID = pgtype.Timestamptz{}, pgtype.UUID{}
+		debugRuns, err = r.Queries.ListWorkflowDebugMaintenanceRuns(ctx, db.ListWorkflowDebugMaintenanceRunsParams{LimitCount: limit})
+	}
 	if err != nil {
 		return err
 	}
 	for _, run := range debugRuns {
+		r.debugAfterCreatedAt, r.debugAfterID = run.CreatedAt, run.ID
 		if err := r.Engine.PurgeDebugRun(ctx, run.WorkspaceID, run.ID); err != nil {
 			slog.Warn("draft trial maintenance failed", "run_id", uuidString(run.ID), "error", err)
 		}

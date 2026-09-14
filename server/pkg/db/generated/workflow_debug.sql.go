@@ -1030,14 +1030,41 @@ func (q *Queries) ListWorkflowDebugExecutions(ctx context.Context, arg ListWorkf
 }
 
 const listWorkflowDebugMaintenanceRuns = `-- name: ListWorkflowDebugMaintenanceRuns :many
-SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash, callback_destination_id, input_instance_id, input_instance_revision, input_instance_name, input_source, input_project_id, execution_mode, execution_snapshot_id, debug_deadline_at, debug_request_hash, debug_policy_revision, debug_retention_seconds, debug_purge_after, debug_payload_bytes, debug_stop_requested_at, debug_cleanup_state, details_purged_at, purge_completed_at, bytes_released_at FROM workflow_run WHERE execution_mode = 'draft_test' AND (
- (status IN ('pending','running','blocked','waiting_acceptance') AND debug_deadline_at <= clock_timestamp()) OR
- (status IN ('completed','failed','cancelled') AND purge_completed_at IS NULL))
-ORDER BY created_at LIMIT $1
+SELECT r.id, r.workspace_id, r.issue_id, r.template_id, r.template_version_id, r.status, r.source, r.source_event_id, r.idempotency_key, r.accountable_user_id, r.input, r.context, r.policy, r.blocked_reason, r.failure_reason, r.failure_detail, r.started_at, r.completed_at, r.created_at, r.updated_at, r.request_hash, r.callback_destination_id, r.input_instance_id, r.input_instance_revision, r.input_instance_name, r.input_source, r.input_project_id, r.execution_mode, r.execution_snapshot_id, r.debug_deadline_at, r.debug_request_hash, r.debug_policy_revision, r.debug_retention_seconds, r.debug_purge_after, r.debug_payload_bytes, r.debug_stop_requested_at, r.debug_cleanup_state, r.details_purged_at, r.purge_completed_at, r.bytes_released_at FROM workflow_run r
+WHERE r.execution_mode = 'draft_test'
+ AND ($1::timestamptz IS NULL
+      OR (r.created_at,r.id) > ($1::timestamptz,$2::uuid))
+ AND (
+ (r.status IN ('pending','running','blocked','waiting_acceptance') AND r.debug_deadline_at <= clock_timestamp()) OR
+ (r.status IN ('completed','failed','cancelled') AND r.purge_completed_at IS NULL AND (
+   r.debug_stop_requested_at IS NULL OR
+   (r.details_purged_at IS NULL AND (
+     EXISTS (SELECT 1 FROM workflow_debug_task_execution x WHERE x.run_id=r.id AND x.delivery_drained_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.claim_id=x.id))
+     OR EXISTS (SELECT 1 FROM agent_task_queue t JOIN workflow_step_instance step ON step.id=t.workflow_step_instance_id
+                WHERE step.run_id=r.id AND t.debug_never_dispatched_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM workflow_debug_task_execution x WHERE x.task_id=t.id)))) OR
+   (r.details_purged_at IS NULL AND (
+     r.debug_cleanup_state = 'waiting_stop' OR r.debug_purge_after <= clock_timestamp())
+     AND (NOT EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.run_id=r.id AND s.resolved_at IS NULL)
+          OR EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.run_id=r.id AND s.resolved_at IS NULL AND s.next_attempt_at <= clock_timestamp()))) OR
+   (r.details_purged_at IS NOT NULL AND (
+     NOT EXISTS (SELECT 1 FROM workflow_debug_cleanup_object o WHERE o.run_id=r.id AND o.completed_at IS NULL)
+     OR EXISTS (SELECT 1 FROM workflow_debug_cleanup_object o WHERE o.run_id=r.id AND o.completed_at IS NULL AND o.next_attempt_at <= clock_timestamp())))
+ )))
+ORDER BY r.created_at,r.id LIMIT $3
 `
 
-func (q *Queries) ListWorkflowDebugMaintenanceRuns(ctx context.Context, limit int32) ([]WorkflowRun, error) {
-	rows, err := q.db.Query(ctx, listWorkflowDebugMaintenanceRuns, limit)
+type ListWorkflowDebugMaintenanceRunsParams struct {
+	AfterCreatedAt pgtype.Timestamptz `json:"after_created_at"`
+	AfterID        pgtype.UUID        `json:"after_id"`
+	LimitCount     int32              `json:"limit_count"`
+}
+
+// Retained, confirmed runs have no work until their retention deadline. A
+// keyset cursor lets unprovable/offline runs yield to later work on each sweep.
+func (q *Queries) ListWorkflowDebugMaintenanceRuns(ctx context.Context, arg ListWorkflowDebugMaintenanceRunsParams) ([]WorkflowRun, error) {
+	rows, err := q.db.Query(ctx, listWorkflowDebugMaintenanceRuns, arg.AfterCreatedAt, arg.AfterID, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}

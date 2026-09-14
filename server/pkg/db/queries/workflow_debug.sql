@@ -61,10 +61,31 @@ WHERE id = $1 AND workspace_id = $2 AND execution_mode = 'draft_test'
  AND status IN ('completed','failed','cancelled');
 
 -- name: ListWorkflowDebugMaintenanceRuns :many
-SELECT * FROM workflow_run WHERE execution_mode = 'draft_test' AND (
- (status IN ('pending','running','blocked','waiting_acceptance') AND debug_deadline_at <= clock_timestamp()) OR
- (status IN ('completed','failed','cancelled') AND purge_completed_at IS NULL))
-ORDER BY created_at LIMIT $1;
+-- Retained, confirmed runs have no work until their retention deadline. A
+-- keyset cursor lets unprovable/offline runs yield to later work on each sweep.
+SELECT r.* FROM workflow_run r
+WHERE r.execution_mode = 'draft_test'
+ AND (sqlc.narg('after_created_at')::timestamptz IS NULL
+      OR (r.created_at,r.id) > (sqlc.narg('after_created_at')::timestamptz,sqlc.narg('after_id')::uuid))
+ AND (
+ (r.status IN ('pending','running','blocked','waiting_acceptance') AND r.debug_deadline_at <= clock_timestamp()) OR
+ (r.status IN ('completed','failed','cancelled') AND r.purge_completed_at IS NULL AND (
+   r.debug_stop_requested_at IS NULL OR
+   (r.details_purged_at IS NULL AND (
+     EXISTS (SELECT 1 FROM workflow_debug_task_execution x WHERE x.run_id=r.id AND x.delivery_drained_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.claim_id=x.id))
+     OR EXISTS (SELECT 1 FROM agent_task_queue t JOIN workflow_step_instance step ON step.id=t.workflow_step_instance_id
+                WHERE step.run_id=r.id AND t.debug_never_dispatched_at IS NULL
+                AND NOT EXISTS (SELECT 1 FROM workflow_debug_task_execution x WHERE x.task_id=t.id)))) OR
+   (r.details_purged_at IS NULL AND (
+     r.debug_cleanup_state = 'waiting_stop' OR r.debug_purge_after <= clock_timestamp())
+     AND (NOT EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.run_id=r.id AND s.resolved_at IS NULL)
+          OR EXISTS (SELECT 1 FROM workflow_debug_stop_request s WHERE s.run_id=r.id AND s.resolved_at IS NULL AND s.next_attempt_at <= clock_timestamp()))) OR
+   (r.details_purged_at IS NOT NULL AND (
+     NOT EXISTS (SELECT 1 FROM workflow_debug_cleanup_object o WHERE o.run_id=r.id AND o.completed_at IS NULL)
+     OR EXISTS (SELECT 1 FROM workflow_debug_cleanup_object o WHERE o.run_id=r.id AND o.completed_at IS NULL AND o.next_attempt_at <= clock_timestamp())))
+ )))
+ORDER BY r.created_at,r.id LIMIT sqlc.arg('limit_count');
 
 -- name: ListWorkflowDebugTasksForRun :many
 -- Follow every durable task binding, not the step's latest task pointer.
