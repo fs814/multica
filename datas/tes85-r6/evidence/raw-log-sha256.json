@@ -1,0 +1,8 @@
+{
+  "workspace-tests.jsonl": "f285a414454597e5483ab7347bb1917d953e651acc3bb629c045de72bf620048",
+  "handler-focused-verified.jsonl": "9f1c3ca148dab75a7ec3a25deebd91f54b5d0b75df2d2453b7bc379bf93969af",
+  "workflow-full.jsonl": "50cd1f14972bdecb7f1c3a659a7859e5e06c2d4b657ce76d9b66c7a570f051a3",
+  "handler-full.jsonl": "b0f4ab0044337171b7c059e29bb96f5d6e16263790be7fb17668802fda35e9e2",
+  "r6-final.jsonl": "61f5ad04ef9b2c8f0a18b869793bbb489ef0d4628b4036e064ed9d669120753e",
+  "cli-boundary.jsonl": "7dd2b5125153299583ea553f82f9baa9e1a7a284c60fab6f04fb23b0fe7ca0a9"
+}

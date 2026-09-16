@@ -1,0 +1,581 @@
+diff --git a/server/internal/handler/issue.go b/server/internal/handler/issue.go
+index 6de55d842..66b71bfed 100644
+--- a/server/internal/handler/issue.go
++++ b/server/internal/handler/issue.go
+@@ -3414,6 +3414,9 @@ func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.
+ 	}
+ 	tx := scope.tx
+ 	qtx := h.Queries.WithTx(tx)
++	if _, err := qtx.LockWorkspaceForWorkflowWrite(ctx, workspaceID); err != nil {
++		return db.Issue{}, db.Issue{}, false, fmt.Errorf("lock issue workspace: %w", err)
++	}
+ 	// This path opens its own transaction, so it carries the archive-race guard
+ 	// itself rather than going through runWithIssueStatusGuard. The catalog lock
+ 	// must precede both attachment and issue row locks everywhere. (MUL-6243)
+@@ -4592,6 +4595,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 		batchScope = &issueWorkflowTx{tx: tx, actor: parseUUID(userID), skipped: skipped, initialStatuses: initialStatuses}
+ 		r = r.WithContext(context.WithValue(r.Context(), issueWorkflowTxKey{}, batchScope))
+ 		qtx := h.Queries.WithTx(tx)
++		if _, err := qtx.LockWorkspaceForWorkflowWrite(r.Context(), wsUUID); err != nil {
++			writeError(w, http.StatusConflict, "workspace changed during batch validation")
++			return
++		}
+ 		if err := assertIssueStatusStillActive(r.Context(), qtx, wsUUID, batchStatusKey); err != nil {
+ 			if !writeIssueStatusRaceError(w, err) {
+ 				writeError(w, http.StatusInternalServerError, "cannot validate batch status")
+diff --git a/server/internal/handler/workflow_template.go b/server/internal/handler/workflow_template.go
+index 0c65d2d46..14a241a0c 100644
+--- a/server/internal/handler/workflow_template.go
++++ b/server/internal/handler/workflow_template.go
+@@ -473,6 +473,11 @@ func (h *Handler) seedBuiltinWorkflowTemplates(r *http.Request, workspaceID pgty
+ 	}
+ 	defer tx.Rollback(r.Context())
+ 
++	if _, err := h.Queries.WithTx(tx).LockWorkspaceForWorkflowWrite(r.Context(), workspaceID); err != nil {
++		slog.Warn("lock builtin workflow workspace failed", append(logger.RequestAttrs(r), "error", err)...)
++		return
++	}
++
+ 	// The transaction doubles as the schema prober so the check and the writes see
+ 	// one consistent view: probing on a different connection could observe a
+ 	// migration this transaction cannot yet use, or the reverse.
+@@ -654,6 +659,14 @@ func (h *Handler) CreateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
+ 	}
+ 	defer tx.Rollback(r.Context())
+ 	qtx := h.Queries.WithTx(tx)
++	if _, err := qtx.LockWorkspaceForWorkflowWrite(r.Context(), wsUUID); err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			writeError(w, http.StatusNotFound, "workspace not found")
++		} else {
++			writeError(w, http.StatusInternalServerError, "failed to lock workflow workspace")
++		}
++		return
++	}
+ 
+ 	tpl, err := qtx.CreateWorkflowTemplate(r.Context(), db.CreateWorkflowTemplateParams{
+ 		WorkspaceID:   wsUUID,
+@@ -730,6 +743,14 @@ func (h *Handler) DuplicateBuiltinWorkflowTemplate(w http.ResponseWriter, r *htt
+ 	}
+ 	defer tx.Rollback(r.Context())
+ 	qtx := h.Queries.WithTx(tx)
++	if _, err := qtx.LockWorkspaceForWorkflowWrite(r.Context(), source.WorkspaceID); err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			writeError(w, http.StatusNotFound, "workspace not found")
++		} else {
++			writeError(w, http.StatusInternalServerError, "failed to lock workflow workspace")
++		}
++		return
++	}
+ 
+ 	// Serialise key selection per workspace. Without the lock two clicks can
+ 	// both observe bug_fix_copy as free and one loses to the unique index.
+@@ -877,6 +898,14 @@ func (h *Handler) PublishWorkflowTemplate(w http.ResponseWriter, r *http.Request
+ 	}
+ 	defer tx.Rollback(r.Context())
+ 	qtx := h.Queries.WithTx(tx)
++	if _, err := qtx.LockWorkspaceForWorkflowWrite(r.Context(), tpl.WorkspaceID); err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			writeError(w, http.StatusNotFound, "workspace not found")
++		} else {
++			writeError(w, http.StatusInternalServerError, "failed to lock workflow workspace")
++		}
++		return
++	}
+ 	// Save locks the template before writing its draft. Use the same order so
+ 	// the validated bytes cannot change before publication, including legacy calls.
+ 	tpl, err = qtx.GetWorkflowTemplateForUpdate(r.Context(), db.GetWorkflowTemplateForUpdateParams{ID: tpl.ID, WorkspaceID: tpl.WorkspaceID})
+@@ -1180,6 +1209,14 @@ func (h *Handler) UpdateWorkflowTemplate(w http.ResponseWriter, r *http.Request)
+ 	}
+ 	defer tx.Rollback(r.Context())
+ 	qtx := h.Queries.WithTx(tx)
++	if _, err := qtx.LockWorkspaceForWorkflowWrite(r.Context(), tpl.WorkspaceID); err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			writeError(w, http.StatusNotFound, "workspace not found")
++		} else {
++			writeError(w, http.StatusInternalServerError, "failed to lock workflow workspace")
++		}
++		return
++	}
+ 
+ 	// This guarded update is also the definition-only save fence: two editors
+ 	// that both read revision N cannot overwrite each other. Exactly one moves
+diff --git a/server/internal/handler/workspace.go b/server/internal/handler/workspace.go
+index 8f0c55f51..864475f38 100644
+--- a/server/internal/handler/workspace.go
++++ b/server/internal/handler/workspace.go
+@@ -1212,6 +1212,10 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+ 			name: "delete tasks",
+ 			run:  func() error { return deleteWorkspaceTasks(ctx, qtx, requester.WorkspaceID) },
+ 		},
++		{
++			name: "delete workflow data",
++			run:  func() error { return qtx.DeleteWorkspaceWorkflowData(ctx, requester.WorkspaceID) },
++		},
+ 		{
+ 			name: "delete leaf data",
+ 			run:  func() error { return qtx.DeleteWorkspaceLeafData(ctx, requester.WorkspaceID) },
+diff --git a/server/internal/handler/workspace_delete_manifest_test.go b/server/internal/handler/workspace_delete_manifest_test.go
+index 778304552..172b51d7a 100644
+--- a/server/internal/handler/workspace_delete_manifest_test.go
++++ b/server/internal/handler/workspace_delete_manifest_test.go
+@@ -128,6 +128,13 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
+ 	"vcs_pull_request":                   workspaceDelete,
+ 	"verification_code":                  workspaceDeleteKeep,
+ 	"webhook_delivery":                   workspaceDelete,
++	"workflow_template":                  workspaceDelete,
++	"workflow_template_version":          workspaceDelete,
++	"workflow_run":                       workspaceDelete,
++	"workflow_step_instance":             workspaceDelete,
++	"workflow_submission":                workspaceDelete,
++	"workflow_acceptance":                workspaceDelete,
++	"workflow_event":                     workspaceDelete,
+ 	"workspace":                          workspaceDelete,
+ 	"workspace_invitation":               workspaceDelete,
+ 	"workspace_share_link":               workspaceDelete,
+diff --git a/server/internal/handler/workspace_workflow_r6_test.go b/server/internal/handler/workspace_workflow_r6_test.go
+new file mode 100644
+index 000000000..bf1394d18
+--- /dev/null
++++ b/server/internal/handler/workspace_workflow_r6_test.go
+@@ -0,0 +1,263 @@
++package handler
++
++import (
++	"context"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++
++	"github.com/google/uuid"
++	"github.com/jackc/pgx/v5"
++	"github.com/multica-ai/multica/server/internal/testutil"
++	"github.com/multica-ai/multica/server/internal/workflow"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++)
++
++var r6WorkflowTables = []string{"workflow_template", "workflow_template_version", "workflow_run", "workflow_step_instance", "workflow_submission", "workflow_acceptance", "workflow_event"}
++
++func r6Workspace(t *testing.T) string {
++	t.Helper()
++	id := dbfx.Workspace(t, "Workflow teardown", "r6-"+uuid.NewString())
++	dbfx.InsertNoID(t, "member", testutil.Cols{"workspace_id": id, "user_id": testUserID, "role": "owner"}, "workspace_id=$1", id)
++	return id
++}
++
++func r6SeedWorkflowRows(t *testing.T, ws string) {
++	t.Helper()
++	tpl := dbfx.Insert(t, "workflow_template", testutil.Cols{"workspace_id": ws, "key": "r6", "name": "Teardown", "created_by_type": "member", "created_by_id": testUserID})
++	ver := dbfx.Insert(t, "workflow_template_version", testutil.Cols{"workspace_id": ws, "template_id": tpl, "version": 1, "definition": testutil.Raw("'{}'::jsonb")})
++	run := dbfx.Insert(t, "workflow_run", testutil.Cols{"workspace_id": ws, "template_id": tpl, "template_version_id": ver, "source": "manual", "idempotency_key": "r6"})
++	step := dbfx.Insert(t, "workflow_step_instance", testutil.Cols{"workspace_id": ws, "run_id": run, "node_key": "analyze", "node_type": "agent", "trace_position": 1})
++	dbfx.Insert(t, "workflow_submission", testutil.Cols{"workspace_id": ws, "run_id": run, "step_id": step, "verdict": "pass"})
++	dbfx.Insert(t, "workflow_acceptance", testutil.Cols{"workspace_id": ws, "run_id": run, "step_id": step})
++	dbfx.Insert(t, "workflow_event", testutil.Cols{"workspace_id": ws, "run_id": run, "event_type": "run.created", "idempotency_key": "r6", "actor_type": "member"})
++}
++
++func TestR6WorkspaceDeleteRemovesSevenWorkflowTablesAndPreservesNeighbor(t *testing.T) {
++	target, neighbor := r6Workspace(t), r6Workspace(t)
++	r6SeedWorkflowRows(t, target)
++	r6SeedWorkflowRows(t, neighbor)
++	testutil.Call(t, testHandler.DeleteWorkspace, withURLParam(newRequest("DELETE", "/api/workspaces/"+target, nil), "id", target)).Want(204)
++	for _, table := range r6WorkflowTables {
++		for ws, want := range map[string]int{target: 0, neighbor: 1} {
++			if got := dbfx.Count(t, "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", ws); got != want {
++				t.Errorf("%s workspace %s: got %d want %d", table, ws, got, want)
++			}
++		}
++	}
++}
++
++// Exercise the real handler against the exact lock held by DeleteWorkspace.
++// Commit deletion while the creator is waiting: it must recheck existence,
++// return 404, and leave no template/version behind after the sweep.
++func TestR6TemplateCreateLosesToWorkspaceDeletion(t *testing.T) {
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	ws := r6Workspace(t)
++	tx, err := testPool.Begin(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer tx.Rollback(context.Background())
++	if _, err := db.New(tx).LockWorkspaceForDelete(ctx, parseUUID(ws)); err != nil {
++		t.Fatal(err)
++	}
++	req := newRequest("POST", "/api/workflow-templates?workspace_id="+ws, map[string]any{"key": "r6-create", "name": "Race", "definition": builtinBugFixDefinition(t)})
++	req.Header.Set("X-Workspace-ID", ws)
++	requestCtx, requestCancel := context.WithTimeout(req.Context(), 10*time.Second)
++	defer requestCancel()
++	req = req.WithContext(requestCtx)
++	rec := httptest.NewRecorder()
++	done := make(chan struct{})
++	go func() { defer close(done); testHandler.CreateWorkflowTemplate(rec, req) }()
++	if !waitForBlockedBackend(t, done) {
++		t.Fatal("template create did not wait for workspace deletion")
++	}
++	if _, err := tx.Exec(ctx, "DELETE FROM member WHERE workspace_id=$1", ws); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := tx.Exec(ctx, "DELETE FROM workspace WHERE id=$1", ws); err != nil {
++		t.Fatal(err)
++	}
++	if err := tx.Commit(ctx); err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case <-done:
++	case <-ctx.Done():
++		t.Fatal(ctx.Err())
++	}
++	if rec.Code != http.StatusNotFound {
++		t.Fatalf("got %d: %s", rec.Code, rec.Body.String())
++	}
++	for _, table := range []string{"workflow_template", "workflow_template_version"} {
++		if n := dbfx.Count(t, "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", ws); n != 0 {
++			t.Fatalf("orphaned %s: %d", table, n)
++		}
++	}
++}
++
++// The workflow engine must wait at the workspace lock before it touches an
++// existing issue/run. This also covers the terminal callback/reconciler path.
++func TestR6EngineCommandsWaitForWorkspaceDeleteFence(t *testing.T) {
++	detail, engine := r5ActiveRun(t)
++	for _, command := range []string{"cancel", "reconcile", "start"} {
++		t.Run(command, func(t *testing.T) {
++			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++			defer cancel()
++			tx, err := testPool.Begin(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer tx.Rollback(context.Background())
++			if _, err := db.New(tx).LockWorkspaceForDelete(ctx, parseUUID(testWorkspaceID)); err != nil {
++				t.Fatal(err)
++			}
++			done := make(chan struct{})
++			outcome := make(chan error, 1)
++			go func() {
++				defer close(done)
++				var err error
++				switch command {
++				case "cancel":
++					_, err = engine.CancelRun(ctx, parseUUID(testWorkspaceID), parseUUID(detail.ID), parseUUID(testUserID))
++				case "reconcile":
++					err = engine.ReconcileRun(ctx, parseUUID(testWorkspaceID), parseUUID(detail.ID))
++				case "start":
++					_, err = engine.StartRun(ctx, workflow.StartRunInput{WorkspaceID: parseUUID(testWorkspaceID), TemplateID: parseUUID(detail.TemplateID), IdempotencyKey: "r6-start", Input: []byte(`{"title":"R6", "description":"Workspace fence"}`), AccountableUserID: parseUUID(testUserID), Source: "manual", ActorType: "member", ActorID: parseUUID(testUserID)})
++				}
++				outcome <- err
++			}()
++			if !waitForBlockedBackend(t, done) {
++				t.Fatal("engine did not wait for workspace fence")
++			}
++			// Rollback stands in for a failed delete. The blocked writer may then proceed.
++			if err := tx.Rollback(ctx); err != nil && err != pgx.ErrTxClosed {
++				t.Fatal(err)
++			}
++			select {
++			case <-done:
++			case <-ctx.Done():
++				t.Fatal(ctx.Err())
++			}
++			if err := <-outcome; err != nil {
++				t.Fatal(fmt.Errorf("%s after rollback: %w", command, err))
++			}
++		})
++	}
++}
++
++func TestR6WorkspaceDeleteFailureRollsBackWorkflowRows(t *testing.T) {
++	target := r6Workspace(t)
++	r6SeedWorkflowRows(t, target)
++	old := testHandler.TxStarter
++	testHandler.TxStarter = &r5FailCommitStarter{}
++	defer func() { testHandler.TxStarter = old }()
++	testutil.Call(t, testHandler.DeleteWorkspace, withURLParam(newRequest("DELETE", "/api/workspaces/"+target, nil), "id", target)).Want(500)
++	for _, table := range r6WorkflowTables {
++		if n := dbfx.Count(t, "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", target); n != 1 {
++			t.Fatalf("rollback lost %s: %d", table, n)
++		}
++	}
++	if n := dbfx.Count(t, "SELECT count(*) FROM workspace WHERE id=$1", target); n != 1 {
++		t.Fatal("workspace lost after rollback")
++	}
++}
++
++func TestR6TemplateMutationsWaitForWorkspaceDeleteFence(t *testing.T) {
++	cleanupWorkflowTemplates(t)
++	for _, command := range []string{"publish", "save", "copy", "seed"} {
++		t.Run(command, func(t *testing.T) {
++			created := createWorkflowTemplateForTest(t, "r6-"+command)
++			builtin := seededBugFixTemplate(t)
++			var req *http.Request
++			var handler http.HandlerFunc
++			switch command {
++			case "publish":
++				handler = testHandler.PublishWorkflowTemplate
++				req = withURLParam(newRequest("POST", "/api/workflow-templates/"+created.ID+"/publish", nil), "id", created.ID)
++			case "save":
++				handler = testHandler.UpdateWorkflowTemplate
++				req = withURLParam(newRequest("PATCH", "/api/workflow-templates/"+created.ID, map[string]any{"revision": created.Revision, "name": "Changed"}), "id", created.ID)
++			case "copy":
++				handler = testHandler.DuplicateBuiltinWorkflowTemplate
++				req = withURLParam(newRequest("POST", "/api/workflow-templates/"+builtin.ID+"/duplicate", nil), "id", builtin.ID)
++			case "seed":
++				handler = testHandler.ListWorkflowTemplates
++				req = newRequest("GET", "/api/workflow-templates", nil)
++			}
++			ctx, cancel := context.WithTimeout(req.Context(), 10*time.Second)
++			defer cancel()
++			req = req.WithContext(ctx)
++			tx, err := testPool.Begin(ctx)
++			if err != nil {
++				t.Fatal(err)
++			}
++			defer tx.Rollback(context.Background())
++			if _, err := db.New(tx).LockWorkspaceForDelete(ctx, parseUUID(testWorkspaceID)); err != nil {
++				t.Fatal(err)
++			}
++			done := make(chan struct{})
++			rec := httptest.NewRecorder()
++			go func() { defer close(done); handler(rec, req) }()
++			if !waitForBlockedBackend(t, done) {
++				t.Fatal("template mutation did not wait for deletion")
++			}
++			if err := tx.Rollback(ctx); err != nil {
++				t.Fatal(err)
++			}
++			select {
++			case <-done:
++			case <-ctx.Done():
++				t.Fatal(ctx.Err())
++			}
++			if rec.Code < 200 || rec.Code >= 300 {
++				t.Fatalf("after rollback: %d %s", rec.Code, rec.Body.String())
++			}
++		})
++	}
++}
++
++func TestR6WorkspaceDeleteWaitsForWorkflowWriterAndSweepsItsCommit(t *testing.T) {
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	ws := r6Workspace(t)
++	tx, err := testPool.Begin(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer tx.Rollback(context.Background())
++	q := db.New(tx)
++	if _, err := q.LockWorkspaceForWorkflowWrite(ctx, parseUUID(ws)); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := q.CreateWorkflowTemplate(ctx, db.CreateWorkflowTemplateParams{WorkspaceID: parseUUID(ws), Key: "r6-late", Name: "Late writer", CreatedByType: "member", CreatedByID: parseUUID(testUserID)}); err != nil {
++		t.Fatal(err)
++	}
++	req := withURLParam(newRequest("DELETE", "/api/workspaces/"+ws, nil), "id", ws)
++	requestCtx, requestCancel := context.WithTimeout(req.Context(), 10*time.Second)
++	defer requestCancel()
++	req = req.WithContext(requestCtx)
++	rec := httptest.NewRecorder()
++	done := make(chan struct{})
++	go func() { defer close(done); testHandler.DeleteWorkspace(rec, req) }()
++	if !waitForBlockedBackend(t, done) {
++		t.Fatal("delete did not wait for uncommitted workflow writer")
++	}
++	if err := tx.Commit(ctx); err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case <-done:
++	case <-ctx.Done():
++		t.Fatal(ctx.Err())
++	}
++	if rec.Code != 204 {
++		t.Fatalf("delete after writer committed: %d %s", rec.Code, rec.Body.String())
++	}
++	if n := dbfx.Count(t, "SELECT count(*) FROM workflow_template WHERE workspace_id=$1", ws); n != 0 {
++		t.Fatalf("late commit survived sweep: %d", n)
++	}
++}
+diff --git a/server/internal/workflow/commands.go b/server/internal/workflow/commands.go
+index 420e863e5..d35f8b7b9 100644
+--- a/server/internal/workflow/commands.go
++++ b/server/internal/workflow/commands.go
+@@ -203,7 +203,7 @@ func (e *Engine) SubmitResult(ctx context.Context, in SubmitResultInput) (db.Wor
+ 	var out db.WorkflowStepInstance
+ 	effects := &txEffects{}
+ 
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, in.WorkspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		step, run, err := e.lockStepAndRun(ctx, q, in.WorkspaceID, in.StepID)
+ 		if err != nil {
+ 			return err
+@@ -757,7 +757,7 @@ func (e *Engine) RecordTaskTerminal(ctx context.Context, in RecordTaskTerminalIn
+ 
+ func (e *Engine) recordTaskFailure(ctx context.Context, step db.WorkflowStepInstance, in RecordTaskTerminalInput) error {
+ 	effects := &txEffects{}
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, step.WorkspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		locked, run, err := e.lockStepAndRun(ctx, q, step.WorkspaceID, step.ID)
+ 		if err != nil {
+ 			return err
+@@ -859,7 +859,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
+ 	var out db.WorkflowAcceptance
+ 	effects := &txEffects{}
+ 	deadlineExpired := false
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, in.WorkspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		acceptance, err := q.GetWorkflowAcceptance(ctx, db.GetWorkflowAcceptanceParams{
+ 			ID:          in.AcceptanceID,
+ 			WorkspaceID: in.WorkspaceID,
+@@ -1042,7 +1042,7 @@ func (e *Engine) DecideAcceptance(ctx context.Context, in DecideAcceptanceInput)
+ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID, actorID pgtype.UUID) (db.WorkflowRun, error) {
+ 	var out db.WorkflowRun
+ 	effects := &txEffects{}
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, workspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		var err error
+ 		out, err = e.cancelRun(ctx, q, effects, workspaceID, runID, actorID)
+ 		return err
+@@ -1056,6 +1056,7 @@ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID,
+ 
+ // CancelRunInTx participates in the caller's transaction. The returned function
+ // must run only after that transaction commits; rollback discards all effects.
++// The caller must fence the workspace before locking any issue rows.
+ func (e *Engine) CancelRunInTx(ctx context.Context, tx pgx.Tx, workspaceID, runID, actorID pgtype.UUID) (db.WorkflowRun, func(context.Context), error) {
+ 	effects := &txEffects{}
+ 	txCtx := context.WithValue(ctx, txEffectsContextKey{}, effects)
+diff --git a/server/internal/workflow/engine.go b/server/internal/workflow/engine.go
+index 2037d7013..7630713d2 100644
+--- a/server/internal/workflow/engine.go
++++ b/server/internal/workflow/engine.go
+@@ -132,7 +132,7 @@ func (e *Engine) now() time.Time {
+ 
+ // runInTx runs fn inside a transaction, mirroring TaskService.runInTx so the
+ // rollback/commit discipline is identical across the codebase.
+-func (e *Engine) runInTx(ctx context.Context, effects *txEffects, fn func(context.Context, *db.Queries) error) error {
++func (e *Engine) runInTx(ctx context.Context, workspaceID pgtype.UUID, effects *txEffects, fn func(context.Context, *db.Queries) error) error {
+ 	txCtx := context.WithValue(ctx, txEffectsContextKey{}, effects)
+ 	if e.TxStarter == nil {
+ 		if err := fn(txCtx, e.Queries); err != nil {
+@@ -146,6 +146,12 @@ func (e *Engine) runInTx(ctx context.Context, effects *txEffects, fn func(contex
+ 	}
+ 	defer tx.Rollback(ctx)
+ 	q := e.Queries.WithTx(tx)
++	if _, err := q.LockWorkspaceForWorkflowWrite(ctx, workspaceID); err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			return newEngineError(ErrCodeNotFound, "workspace not found")
++		}
++		return fmt.Errorf("lock workflow workspace: %w", err)
++	}
+ 	if err := fn(txCtx, q); err != nil {
+ 		return err
+ 	}
+@@ -442,7 +448,7 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
+ 
+ 	var result StartRunResult
+ 	effects := &txEffects{}
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, in.WorkspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		version, err := e.resolveVersion(ctx, q, in.WorkspaceID, in.TemplateID, in.TemplateVersionID)
+ 		if err != nil {
+ 			return err
+diff --git a/server/internal/workflow/reconciler.go b/server/internal/workflow/reconciler.go
+index 765da8714..8600fbbb0 100644
+--- a/server/internal/workflow/reconciler.go
++++ b/server/internal/workflow/reconciler.go
+@@ -156,7 +156,7 @@ func workflowTaskOutput(result []byte) string {
+ // directly invents a successful status; irreconcilable state is blocked.
+ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUID) error {
+ 	effects := &txEffects{}
+-	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
++	err := e.runInTx(ctx, workspaceID, effects, func(ctx context.Context, q *db.Queries) error {
+ 		run, err := e.lockRun(ctx, q, db.GetWorkflowRunForUpdateParams{ID: runID, WorkspaceID: workspaceID})
+ 		if err != nil {
+ 			return err
+diff --git a/server/pkg/db/generated/workspace.sql.go b/server/pkg/db/generated/workspace.sql.go
+index e011c8f88..8a2fdec12 100644
+--- a/server/pkg/db/generated/workspace.sql.go
++++ b/server/pkg/db/generated/workspace.sql.go
+@@ -430,6 +430,20 @@ func (q *Queries) LockWorkspaceForDelete(ctx context.Context, id pgtype.UUID) (p
+ 	return id_2, err
+ }
+ 
++const lockWorkspaceForWorkflowWrite = `-- name: LockWorkspaceForWorkflowWrite :one
++SELECT id FROM workspace WHERE id = $1 FOR KEY SHARE
++`
++
++// Acquire before template, issue, run, step, or task locks. The shared lock
++// fences workflow writers against LockWorkspaceForDelete without serializing
++// independent workflow commands. A missing workspace rejects a stale writer.
++func (q *Queries) LockWorkspaceForWorkflowWrite(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error) {
++	row := q.db.QueryRow(ctx, lockWorkspaceForWorkflowWrite, id)
++	var id_2 pgtype.UUID
++	err := row.Scan(&id_2)
++	return id_2, err
++}
++
+ const updateWorkspace = `-- name: UpdateWorkspace :one
+ UPDATE workspace SET
+     name = COALESCE($2, name),
+diff --git a/server/pkg/db/generated/workspace_delete.sql.go b/server/pkg/db/generated/workspace_delete.sql.go
+index 203fcd7d3..03ad6825c 100644
+--- a/server/pkg/db/generated/workspace_delete.sql.go
++++ b/server/pkg/db/generated/workspace_delete.sql.go
+@@ -597,6 +597,21 @@ func (q *Queries) DeleteWorkspaceSquadsAndSkills(ctx context.Context, workspaceI
+ 	return err
+ }
+ 
++const deleteWorkspaceWorkflowData = `-- name: DeleteWorkspaceWorkflowData :exec
++WITH removed_events AS (DELETE FROM workflow_event WHERE workflow_event.workspace_id = $1),
++removed_acceptances AS (DELETE FROM workflow_acceptance WHERE workflow_acceptance.workspace_id = $1),
++removed_submissions AS (DELETE FROM workflow_submission WHERE workflow_submission.workspace_id = $1),
++removed_steps AS (DELETE FROM workflow_step_instance WHERE workflow_step_instance.workspace_id = $1),
++removed_runs AS (DELETE FROM workflow_run WHERE workflow_run.workspace_id = $1),
++removed_versions AS (DELETE FROM workflow_template_version WHERE workflow_template_version.workspace_id = $1)
++DELETE FROM workflow_template WHERE workflow_template.workspace_id = $1
++`
++
++func (q *Queries) DeleteWorkspaceWorkflowData(ctx context.Context, workspaceID pgtype.UUID) error {
++	_, err := q.db.Exec(ctx, deleteWorkspaceWorkflowData, workspaceID)
++	return err
++}
++
+ const detachTaskBatchReferences = `-- name: DetachTaskBatchReferences :exec
+ WITH detached_runs AS (
+     UPDATE autopilot_run
+diff --git a/server/pkg/db/queries/workspace.sql b/server/pkg/db/queries/workspace.sql
+index 5922db914..52999dd65 100644
+--- a/server/pkg/db/queries/workspace.sql
++++ b/server/pkg/db/queries/workspace.sql
+@@ -237,3 +237,9 @@ cleared_client_usage_workspace AS (
+     UPDATE client_usage_daily SET workspace_id = NULL WHERE workspace_id = $1
+ )
+ DELETE FROM workspace WHERE workspace.id = $1;
++
++-- name: LockWorkspaceForWorkflowWrite :one
++-- Acquire before template, issue, run, step, or task locks. The shared lock
++-- fences workflow writers against LockWorkspaceForDelete without serializing
++-- independent workflow commands. A missing workspace rejects a stale writer.
++SELECT id FROM workspace WHERE id = $1 FOR KEY SHARE;
+diff --git a/server/pkg/db/queries/workspace_delete.sql b/server/pkg/db/queries/workspace_delete.sql
+index fad5152cc..8b9211d1b 100644
+--- a/server/pkg/db/queries/workspace_delete.sql
++++ b/server/pkg/db/queries/workspace_delete.sql
+@@ -690,3 +690,12 @@ deleted_share_links AS (
+ )
+ DELETE FROM workspace_invitation
+ WHERE workspace_invitation.workspace_id = $1;
++
++-- name: DeleteWorkspaceWorkflowData :exec
++WITH removed_events AS (DELETE FROM workflow_event WHERE workflow_event.workspace_id = $1),
++removed_acceptances AS (DELETE FROM workflow_acceptance WHERE workflow_acceptance.workspace_id = $1),
++removed_submissions AS (DELETE FROM workflow_submission WHERE workflow_submission.workspace_id = $1),
++removed_steps AS (DELETE FROM workflow_step_instance WHERE workflow_step_instance.workspace_id = $1),
++removed_runs AS (DELETE FROM workflow_run WHERE workflow_run.workspace_id = $1),
++removed_versions AS (DELETE FROM workflow_template_version WHERE workflow_template_version.workspace_id = $1)
++DELETE FROM workflow_template WHERE workflow_template.workspace_id = $1;

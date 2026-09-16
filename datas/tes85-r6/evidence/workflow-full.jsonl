@@ -1,0 +1,392 @@
+{"Time": "2026-09-16T05:12:01.8093365-07:00", "Action": "start", "Package": "github.com/multica-ai/multica/server/internal/workflow"}
+{"Time": "2026-09-16T05:12:02.3051456-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestConditionRoutesStructuredFailure"}
+{"Time": "2026-09-16T05:12:02.4622833-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestConditionRoutesStructuredFailure", "Elapsed": 0.16}
+{"Time": "2026-09-16T05:12:02.4622833-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFanOutJoinIsBoundedDurableAndReplaySafe"}
+{"Time": "2026-09-16T05:12:02.5814527-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFanOutJoinIsBoundedDurableAndReplaySafe", "Elapsed": 0.12}
+{"Time": "2026-09-16T05:12:02.5814527-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFanOutJoinFailFastFailsAfterAllChildrenAreTerminal"}
+{"Time": "2026-09-16T05:12:02.6903868-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFanOutJoinFailFastFailsAfterAllChildrenAreTerminal", "Elapsed": 0.11}
+{"Time": "2026-09-16T05:12:02.6903868-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunActivatesEntryStepAndEnqueuesTaskAtomically"}
+{"Time": "2026-09-16T05:12:02.7562089-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunActivatesEntryStepAndEnqueuesTaskAtomically", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:02.7562089-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunCreatesIssueAndRunAtomicallyWithStableReplay"}
+{"Time": "2026-09-16T05:12:02.8496404-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunCreatesIssueAndRunAtomicallyWithStableReplay", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:02.8496404-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunIsIdempotent"}
+{"Time": "2026-09-16T05:12:02.913673-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunIsIdempotent", "Elapsed": 0.06}
+{"Time": "2026-09-16T05:12:02.913673-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunConcurrentReplayIsSingleMaterialization"}
+{"Time": "2026-09-16T05:12:02.9966628-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunConcurrentReplayIsSingleMaterialization", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:02.9966628-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunReachesCompletionOnlyThroughEnd"}
+{"Time": "2026-09-16T05:12:03.0899036-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunReachesCompletionOnlyThroughEnd", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:03.0899036-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunStatusProjectsOntoParentIssue"}
+{"Time": "2026-09-16T05:12:03.1845328-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunStatusProjectsOntoParentIssue", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:03.1845328-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInvalidSubmissionBlocksAndNeverPasses"}
+{"Time": "2026-09-16T05:12:03.2594471-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInvalidSubmissionBlocksAndNeverPasses", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:03.2594471-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFailVerdictTriggersReworkWithContext"}
+{"Time": "2026-09-16T05:12:03.3527438-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestFailVerdictTriggersReworkWithContext", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:03.3527438-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAutomaticReworkHonorsRunRoundLimit"}
+{"Time": "2026-09-16T05:12:03.4695194-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAutomaticReworkHonorsRunRoundLimit", "Elapsed": 0.12}
+{"Time": "2026-09-16T05:12:03.4695194-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceGateSeparatesTaskCompletionFromBusinessDone"}
+{"Time": "2026-09-16T05:12:03.5656944-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceGateSeparatesTaskCompletionFromBusinessDone", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:03.5656944-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRejectionCreatesTargetedReworkAttempt"}
+{"Time": "2026-09-16T05:12:03.6632855-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRejectionCreatesTargetedReworkAttempt", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:03.6632855-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceRejectionHonorsRunRoundLimit"}
+{"Time": "2026-09-16T05:12:03.7822295-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceRejectionHonorsRunRoundLimit", "Elapsed": 0.12}
+{"Time": "2026-09-16T05:12:03.7822295-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSecondReviewerLosesTheRace"}
+{"Time": "2026-09-16T05:12:03.8855427-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSecondReviewerLosesTheRace", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:03.8855427-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRejectionToUnpermittedTargetIsRefused"}
+{"Time": "2026-09-16T05:12:03.9743244-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRejectionToUnpermittedTargetIsRefused", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:03.9743244-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRoutingFailureBlocksRunWithReason"}
+{"Time": "2026-09-16T05:12:04.0386288-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRoutingFailureBlocksRunWithReason", "Elapsed": 0.06}
+{"Time": "2026-09-16T05:12:04.0386288-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRecordTaskTerminalIgnoresNonWorkflowTasks"}
+{"Time": "2026-09-16T05:12:04.0791427-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRecordTaskTerminalIgnoresNonWorkflowTasks", "Elapsed": 0.04}
+{"Time": "2026-09-16T05:12:04.0791427-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRecordTaskTerminalRoutesFailureThroughPolicy"}
+{"Time": "2026-09-16T05:12:04.151409-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRecordTaskTerminalRoutesFailureThroughPolicy", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:04.151409-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDuplicateTaskTerminalIsIgnored"}
+{"Time": "2026-09-16T05:12:04.2372565-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDuplicateTaskTerminalIsIgnored", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:04.2372565-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestCancelRunCascadesToSteps"}
+{"Time": "2026-09-16T05:12:04.3095963-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestCancelRunCascadesToSteps", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:04.3095963-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkspaceIsolation"}
+{"Time": "2026-09-16T05:12:04.3802577-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkspaceIsolation", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:04.3802577-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRequiresPublishedVersion"}
+{"Time": "2026-09-16T05:12:04.4255015-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRequiresPublishedVersion", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:04.4255015-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestPublishedDefinitionIsImmutable"}
+{"Time": "2026-09-16T05:12:04.4725581-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestPublishedDefinitionIsImmutable", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:04.4725581-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEventLogFormsRunTrace"}
+{"Time": "2026-09-16T05:12:04.5594346-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEventLogFormsRunTrace", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:04.5594346-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineParallelJoinReplayAndVersionIsolation"}
+{"Time": "2026-09-16T05:12:04.7073202-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineParallelJoinReplayAndVersionIsolation", "Elapsed": 0.15}
+{"Time": "2026-09-16T05:12:04.7073202-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineFailureKeepsIndependentBranch"}
+{"Time": "2026-09-16T05:12:04.8212923-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineFailureKeepsIndependentBranch", "Elapsed": 0.11}
+{"Time": "2026-09-16T05:12:04.8212923-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineRetryThenReleaseOnce"}
+{"Time": "2026-09-16T05:12:04.9479352-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineRetryThenReleaseOnce", "Elapsed": 0.13}
+{"Time": "2026-09-16T05:12:04.9479352-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineConditionalMergeAndBoundPrompt"}
+{"Time": "2026-09-16T05:12:05.0494775-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineConditionalMergeAndBoundPrompt", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:05.0494775-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework"}
+{"Time": "2026-09-16T05:12:05.0494775-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework/accept"}
+{"Time": "2026-09-16T05:12:05.1313183-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework/accept", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:05.1313183-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework/reject"}
+{"Time": "2026-09-16T05:12:05.2136893-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework/reject", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:05.2136893-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineAcceptanceWithoutRework", "Elapsed": 0.16}
+{"Time": "2026-09-16T05:12:05.2136893-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineMissingInputTerminatesWithoutTask"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2EngineMissingInputTerminatesWithoutTask", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ParallelJoinAndData"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ParallelJoinAndData", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2FailureRetryAndMissingData"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2FailureRetryAndMissingData", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ConditionalJoin"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ConditionalJoin", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/type_mismatch"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/type_mismatch", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/missing_port"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/missing_port", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/single_input"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/single_input", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/duplicate_id"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/duplicate_id", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/cycle"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/cycle", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/rework"}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy/rework", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2ValidationAndLegacy", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3095573-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2CollectionOrderAndExclusiveRequiredSource"}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2CollectionOrderAndExclusiveRequiredSource", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2DataDependencyWaitsForRetry"}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2DataDependencyWaitsForRetry", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2RejectsDowngradeAndUnboundedAttempts"}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestGraphV2RejectsDowngradeAndUnboundedAttempts", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:05.3100737-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInputNodePassesThroughWithoutDispatchingATask"}
+{"Time": "2026-09-16T05:12:05.3789527-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInputNodePassesThroughWithoutDispatchingATask", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.3789527-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDeclaredInputFieldsReachTheFirstAgentsPrompt"}
+{"Time": "2026-09-16T05:12:05.4497384-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDeclaredInputFieldsReachTheFirstAgentsPrompt", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.4497384-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDeclaredFieldsSurviveToLaterSteps"}
+{"Time": "2026-09-16T05:12:05.5333319-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDeclaredFieldsSurviveToLaterSteps", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:05.5333319-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRejectsMissingRequiredInputField"}
+{"Time": "2026-09-16T05:12:05.6030854-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRejectsMissingRequiredInputField", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.6030854-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRejectsOffListSelectValue"}
+{"Time": "2026-09-16T05:12:05.6525187-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStartRunRejectsOffListSelectValue", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:05.6525187-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunWithNoInputNodeIsUnaffected"}
+{"Time": "2026-09-16T05:12:05.7186221-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunWithNoInputNodeIsUnaffected", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.7186221-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunWithNoDeclaredFieldsStillPassesThrough"}
+{"Time": "2026-09-16T05:12:05.7894464-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunWithNoDeclaredFieldsStillPassesThrough", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.7894464-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIntakeRunCompletesThroughEnd"}
+{"Time": "2026-09-16T05:12:05.8843368-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIntakeRunCompletesThroughEnd", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:05.8843368-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIntakeStepEmitsItsActivationEvent"}
+{"Time": "2026-09-16T05:12:05.9527112-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIntakeStepEmitsItsActivationEvent", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:05.9527112-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputValidatesAttachmentAndDeliversOnlyASafeReference"}
+{"Time": "2026-09-16T05:12:06.0255132-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputValidatesAttachmentAndDeliversOnlyASafeReference", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:06.0255132-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation"}
+{"Time": "2026-09-16T05:12:06.0255132-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/non-image"}
+{"Time": "2026-09-16T05:12:06.0772529-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/non-image", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:06.0772529-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/oversize"}
+{"Time": "2026-09-16T05:12:06.1281624-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/oversize", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:06.1281624-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/missing"}
+{"Time": "2026-09-16T05:12:06.1774832-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation/missing", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:12:06.1774832-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestImageInputRejectsUnavailableAndInvalidAttachmentsBeforeRunCreation", "Elapsed": 0.15}
+{"Time": "2026-09-16T05:12:06.1774832-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcilerReplaysLostTerminalTaskCallback"}
+{"Time": "2026-09-16T05:12:06.2809055-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcilerReplaysLostTerminalTaskCallback", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:06.2809055-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcileRunRepairsReadyAgentWithoutTask"}
+{"Time": "2026-09-16T05:12:06.3628045-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcileRunRepairsReadyAgentWithoutTask", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:06.3628045-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcileRunRepairsRunningRunWithNoActiveStep"}
+{"Time": "2026-09-16T05:12:06.4486377-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReconcileRunRepairsRunningRunWithNoActiveStep", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:12:06.4486377-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkflowReconcilerSQLMetricsReachEndpoint"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkflowReconcilerSQLMetricsReachEndpoint", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunTransitionsMatchPlan"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunTransitionsMatchPlan", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStepTransitionsMatchPlan"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStepTransitionsMatchPlan", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTerminalStatesAreFinal"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTerminalStatesAreFinal", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunCannotCompleteFromNonRunning"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunCannotCompleteFromNonRunning", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIdempotentSelfTransitions"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIdempotentSelfTransitions", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInvalidTransitionErrorIsTyped"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInvalidTransitionErrorIsTyped", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestUnknownStatusIsRejected"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestUnknownStatusIsRejected", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIssueStatusProjection"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestIssueStatusProjection", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestVerdictToStepStatus"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestVerdictToStepStatus", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity"}
+{"Time": "2026-09-16T05:12:06.5274485-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/blocked_clarification"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/blocked_clarification", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/explicit_pass"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/explicit_pass", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/unrelated_JSON"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/unrelated_JSON", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/wrong_step"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/wrong_step", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/unsupported_verdict"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/unsupported_verdict", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/empty_pass"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/empty_pass", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/plain_question"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/plain_question", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/multiple_objects"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/multiple_objects", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/marker_text_inside_JSON_remains_evidence"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity/marker_text_inside_JSON_remains_evidence", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStructuredSubmissionStillValidatesVerdictsAndIdentity", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionAcceptsCanonicalPayload"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionAcceptsCanonicalPayload", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejectsNaturalLanguage"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejectsNaturalLanguage", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/empty_payload"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/empty_payload", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/not_json"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/not_json", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/missing_verdict"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/missing_verdict", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/unknown_verdict"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/unknown_verdict", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/pass_without_artifact_summary"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/pass_without_artifact_summary", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/fail_without_reason"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/fail_without_reason", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/blocked_without_reason"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/blocked_without_reason", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/confidence_out_of_range"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/confidence_out_of_range", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/wrong_step_binding"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/wrong_step_binding", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/unsupported_schema_version"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects/unsupported_schema_version", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionRejects", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionAcceptsNegativeVerdicts"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionAcceptsNegativeVerdicts", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionDistinguishesZeroConfidenceFromAbsent"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionDistinguishesZeroConfidenceFromAbsent", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionToleratesExtraFields"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionToleratesExtraFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionSkipsBindingCheckWhenUnbound"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseSubmissionSkipsBindingCheckWhenUnbound", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmission"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmission", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmissionTakesLastBlock"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmissionTakesLastBlock", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmissionMissing"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestExtractDelimitedSubmissionMissing", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTruncateRawResult"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTruncateRawResult", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSchemaRegistryCoversPilotArtifacts"}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSchemaRegistryCoversPilotArtifacts", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:06.5279534-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestActivatedStepTaskCarriesTheWork"}
+{"Time": "2026-09-16T05:12:06.5951061-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestActivatedStepTaskCarriesTheWork", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:06.5951061-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestActivatedStepPromptRoundTripsThroughSubmissionParser"}
+{"Time": "2026-09-16T05:12:06.6613652-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestActivatedStepPromptRoundTripsThroughSubmissionParser", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:06.6613652-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDownstreamStepReceivesUpstreamArtifact"}
+{"Time": "2026-09-16T05:12:06.7435335-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestDownstreamStepReceivesUpstreamArtifact", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:12:06.7435335-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReworkAttemptTaskCarriesTheRejectionReason"}
+{"Time": "2026-09-16T05:12:06.8411216-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestReworkAttemptTaskCarriesTheRejectionReason", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:12:06.8411216-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceCriteriaReachTheAgent"}
+{"Time": "2026-09-16T05:12:06.9100547-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestAcceptanceCriteriaReachTheAgent", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:06.9100547-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStepInputMirrorsTheBrief"}
+{"Time": "2026-09-16T05:12:06.9786105-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestStepInputMirrorsTheBrief", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:06.9786105-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTaskContextIsNotMistakenForQuickCreate"}
+{"Time": "2026-09-16T05:12:07.0427992-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestTaskContextIsNotMistakenForQuickCreate", "Elapsed": 0.06}
+{"Time": "2026-09-16T05:12:07.0427992-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkflowTaskIsLinkedAtInsert"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestWorkflowTaskIsLinkedAtInsert", "Elapsed": 0.07}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptWithoutInstructionTellsTheAgentToBlock"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptWithoutInstructionTellsTheAgentToBlock", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSubmissionContractRefusesProseAsPass"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestSubmissionContractRefusesProseAsPass", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputToleratesGarbage"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputToleratesGarbage", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForReadsDeclaredFields"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForReadsDeclaredFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForIgnoresUndeclaredKeys"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForIgnoresUndeclaredKeys", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForWithNoNodeIsTheLegacyPath"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseRunInputForWithNoNodeIsTheLegacyPath", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_absent"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_absent", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_blank"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_blank", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_is_whitespace_only"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_is_whitespace_only", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_is_not_a_string"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/required_field_is_not_a_string", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/select_value_outside_the_declared_options"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/select_value_outside_the_declared_options", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/input_is_not_an_object"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields/input_is_not_an_object", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputRejectsMissingRequiredFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputAcceptsSatisfiedAndLegacyInput"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRunInputAcceptsSatisfiedAndLegacyInput", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptWithoutRunFieldsIsByteIdentical"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptWithoutRunFieldsIsByteIdentical", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptLabelsDeclaredFields"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptLabelsDeclaredFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptShowsFieldsEvenWithNoFreeformInput"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptShowsFieldsEvenWithNoFreeformInput", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunFieldsAreNotSerializedBackIntoTheInputBag"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRunFieldsAreNotSerializedBackIntoTheInputBag", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptUsesSafeImageDownloadReference"}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestRenderPromptUsesSafeImageDownloadReference", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1095921-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAcceptsBugFixPilot"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAcceptsBugFixPilot", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAcceptsIntakeGraph"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAcceptsIntakeGraph", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEntryInputNodeOnlyResolvesTheEntry"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEntryInputNodeOnlyResolvesTheEntry", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_is_not_the_entry_node"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_is_not_the_entry_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/two_input_nodes"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/two_input_nodes", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_with_no_outgoing_edge"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_with_no_outgoing_edge", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_with_two_outgoing_edges"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_with_two_outgoing_edges", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_routing"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_routing", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_a_submission_schema"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_a_submission_schema", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_rework_targets"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/input_node_declares_rework_targets", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/image_input_node_has_no_selected_image"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/image_input_node_has_no_selected_image", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/text_input_node_carries_a_hidden_image"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/text_input_node_carries_a_hidden_image", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/acceptance_reworks_back_to_intake"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/acceptance_reworks_back_to_intake", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/agent_node_declares_input_fields"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/agent_node_declares_input_fields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/agent_node_declares_input_mode"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/agent_node_declares_input_mode", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/field_with_no_key"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/field_with_no_key", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/duplicate_field_key"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/duplicate_field_key", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/unknown_field_type"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/unknown_field_type", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/select_with_no_options"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/select_with_no_options", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/select_with_a_blank_option"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse/select_with_a_blank_option", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejectsInputNodeMisuse", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAllowsAnInputNodeWithNoFields"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAllowsAnInputNodeWithNoFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInputNodeSurvivesTheDefinitionRoundTrip"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestInputNodeSurvivesTheDefinitionRoundTrip", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestNoInputNodeGraphMarshalsWithoutTheNewKey"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestNoInputNodeGraphMarshalsWithoutTheNewKey", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects"}
+{"Time": "2026-09-16T05:12:07.110111-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/no_nodes"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/no_nodes", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/duplicate_node_key"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/duplicate_node_key", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/empty_node_key"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/empty_node_key", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_node_type"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_node_type", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/entry_node_not_declared"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/entry_node_not_declared", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/empty_entry_node"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/empty_entry_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/dangling_edge"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/dangling_edge", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/no_end_node"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/no_end_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/end_node_with_outgoing_edge"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/end_node_with_outgoing_edge", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/non-rework_cycle"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/non-rework_cycle", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/rework_target_not_declared"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/rework_target_not_declared", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/self_rework_target"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/self_rework_target", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/agent_node_without_routing"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/agent_node_without_routing", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/explicit_routing_without_agent_id"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/explicit_routing_without_agent_id", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/capability_routing_without_capability"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/capability_routing_without_capability", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/previous_step_routing_from_non-agent_node"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/previous_step_routing_from_non-agent_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/previous_step_routing_from_undeclared_node"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/previous_step_routing_from_undeclared_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_routing_strategy"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_routing_strategy", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_submission_schema"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unknown_submission_schema", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/rework_policy_without_targets"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/rework_policy_without_targets", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/acceptance_without_rework_targets"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/acceptance_without_rework_targets", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/acceptance_rework_target_is_downstream"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/acceptance_rework_target_is_downstream", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/agent_node_with_two_outgoing_edges"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/agent_node_with_two_outgoing_edges", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unreachable_node"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unreachable_node", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/limits_above_workspace_policy"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/limits_above_workspace_policy", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/negative_limit"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/negative_limit", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unsupported_schema_version"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/unsupported_schema_version", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/join_without_sources"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/join_without_sources", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/condition_with_unknown_verdict"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/condition_with_unknown_verdict", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/condition_with_two_defaults"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/condition_with_two_defaults", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/input_node_added_mid-graph_is_not_the_entry"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects/input_node_added_mid-graph_is_not_the_entry", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateRejects", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAllowsDeclaredReworkCycle"}
+{"Time": "2026-09-16T05:12:07.1106379-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateAllowsDeclaredReworkCycle", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateReportsEveryProblemAtOnce"}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestValidateReportsEveryProblemAtOnce", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEffectiveLimitsFillsDefaults"}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEffectiveLimitsFillsDefaults", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEffectiveOnFailureDefaultsToBlock"}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestEffectiveOnFailureDefaultsToBlock", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseDefinitionRejectsUnknownFields"}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseDefinitionRejectsUnknownFields", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseDefinitionRoundTrip"}
+{"Time": "2026-09-16T05:12:07.1111607-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Test": "TestParseDefinitionRoundTrip", "Elapsed": 0}
+{"Time": "2026-09-16T05:12:07.1175605-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/workflow", "Elapsed": 5.308}
