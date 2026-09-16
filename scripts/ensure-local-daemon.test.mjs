@@ -106,3 +106,25 @@ test("configured owner identity must match and equivalent loopback endpoints are
   const equivalent = fixture({ initial: { ...running, server_url: "ws://127.0.0.1:8081/ws" } });
   await ensureLocalDaemon(equivalent.options);
 });
+
+test("a stale running daemon is diagnosed without stopping active work", async () => {
+  const f = fixture({ initial: { ...running, cli_version: "old-release", active_task_count: 2 } });
+  const run = f.options.run;
+  f.options.run = async (file, args) => file === "git"
+    ? { code: 0, stdout: "abc123-dirty\n" }
+    : run(file, args);
+  await ensureLocalDaemon(f.options);
+  assert.match(f.logs.join("\n"), /WARNING: running daemon old-release differs from checkout local-abc123-dirty/);
+  assert.match(f.logs.join("\n"), /Active tasks: 2/);
+  assert.ok(!f.calls.some((call) => call.includes("stop") || call.includes("start") || call[0] === "go"));
+});
+
+test("new builds record checkout version instead of an ambiguous dev label", async () => {
+  const f = fixture({ initial: { status: "stopped" } });
+  const run = f.options.run;
+  f.options.run = async (file, args) => file === "git"
+    ? { code: 0, stdout: "abc123\n" }
+    : run(file, args);
+  await ensureLocalDaemon(f.options);
+  assert.ok(f.calls.find((call) => call[0] === "go").includes("-X main.version=local-abc123"));
+});
