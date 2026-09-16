@@ -427,6 +427,14 @@ workflows, chats, autopilots and quick-create keep their existing contracts.
 
 ## Interrupted local execution
 
+Provider capacity/rate-limit failures are retried with 30/60-second cooldowns,
+within the task's configured attempt budget and a hard maximum of three.
+`max_attempts=1` disables retry; autopilot run-only executions keep their own
+scheduling semantics. `Selected model is at capacity` is not a missing model.
+Inspect the newest run before retrying manually: an earlier failed delegated
+run and a queued/deferred coordinator recovery can coexist. Do not create
+duplicate runs or silently switch the configured model.
+
 If the local daemon stops while a task is executing, it reports `runtime_offline`
 with the available session and work directory so normal server retry rules can
 resume it after the runtime reconnects. This differs from an explicit

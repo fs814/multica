@@ -356,6 +356,8 @@ func main() {
 	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}")
 	if !s.Scan() { return }
 	if !s.Scan() { return }
+	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"exitCode\":0}}")
+	if !s.Scan() { return }
 	child := exec.Command(os.Args[0], "descendant")
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
@@ -459,9 +461,11 @@ func main() {
 	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}")
 	if !s.Scan() { return }
 	if !s.Scan() { return }
-	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"thread\":{\"id\":\"thr-windows-cancel\"}}}")
+	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"exitCode\":0}}")
 	if !s.Scan() { return }
-	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{}}")
+	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":3,\"result\":{\"thread\":{\"id\":\"thr-windows-cancel\"}}}")
+	if !s.Scan() { return }
+	fmt.Println("{\"jsonrpc\":\"2.0\",\"id\":4,\"result\":{}}")
 	fmt.Println("{\"jsonrpc\":\"2.0\",\"method\":\"turn/started\",\"params\":{\"threadId\":\"thr-windows-cancel\",\"turn\":{\"id\":\"turn-windows-cancel\"}}}")
 	child := exec.Command(os.Args[0], "descendant")
 	child.Stdout = os.Stdout
