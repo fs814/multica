@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1501,6 +1502,18 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
 		c.notify("initialized")
+
+		// Check the task's effective Windows sandbox before paying for a turn.
+		// Never change sandbox permissions to make this probe pass.
+		if err := codexSandboxPreflight(runCtx, runtime.GOOS, opts.Cwd, c.request); err != nil {
+			stopProcess()
+			status := "failed"
+			if runCtx.Err() != nil {
+				status = "aborted"
+			}
+			sendResult(Result{Status: status, Error: err.Error(), DurationMs: time.Since(startTime).Milliseconds()})
+			return
+		}
 
 		// 2. Start a new thread, or resume the prior one for this issue. When
 		// resume fails (thread GCed on the server, schema drift, etc.) we fall
