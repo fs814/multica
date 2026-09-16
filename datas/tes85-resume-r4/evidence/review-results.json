@@ -1,0 +1,37 @@
+{
+  "fresh": {
+    "business_rows_preserved": true,
+    "repeat_equal": true,
+    "down_refused_without_change": true,
+    "constraint_diff": {}
+  },
+  "existing": {
+    "business_rows_preserved": true,
+    "repeat_equal": true,
+    "down_refused_without_change": true,
+    "constraint_diff": {}
+  },
+  "fork": {
+    "business_rows_preserved": true,
+    "repeat_equal": true,
+    "down_refused_without_change": true,
+    "constraint_diff": {
+      "issue_status.issue_status_category_check": {
+        "before": "CHECK ((category = ANY (ARRAY['backlog'::text, 'todo'::text, 'in_progress'::text, 'in_review'::text, 'done'::text, 'blocked'::text, 'cancelled'::text])))",
+        "after": "CHECK ((category = ANY (ARRAY['backlog'::text, 'todo'::text, 'in_progress'::text, 'in_review'::text, 'blocked'::text, 'done'::text, 'cancelled'::text, 'unstarted'::text, 'started'::text, 'closed'::text]))) NOT VALID"
+      },
+      "issue_status.issue_status_system_is_canonical": {
+        "before": "CHECK (((NOT is_system) OR (key = category)))",
+        "after": "CHECK (((NOT is_system) OR ((((((((((((((key = 'backlog'::text) AND (category = 'backlog'::text)) OR ((key = 'backlog'::text) AND (category = 'unstarted'::text))) OR ((key = 'todo'::text) AND (category = 'todo'::text))) OR ((key = 'todo'::text) AND (category = 'unstarted'::text))) OR ((key = 'in_progress'::text) AND (category = 'in_progress'::text))) OR ((key = 'in_progress'::text) AND (category = 'started'::text))) OR ((key = 'in_review'::text) AND (category = 'in_review'::text))) OR ((key = 'in_review'::text) AND (category = 'started'::text))) OR ((key = 'blocked'::text) AND (category = 'blocked'::text))) OR ((key = 'blocked'::text) AND (category = 'started'::text))) OR ((key = 'done'::text) AND (category = 'done'::text))) OR ((key = 'cancelled'::text) AND (category = 'cancelled'::text))) OR ((key = 'cancelled'::text) AND (category = 'closed'::text))))) NOT VALID"
+      }
+    },
+    "constraints_equal_upstream_control": true
+  },
+  "cleaned_databases": [
+    "tes85_p0_fix_matrix_fresh_0916",
+    "tes85_p0_fix_matrix_existing_0916",
+    "tes85_p0_fix_matrix_fork_0916",
+    "tes85_p0_fix_matrix_fork_0916_restore",
+    "tes85_p0_fix_matrix_control_0916"
+  ]
+}

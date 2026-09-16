@@ -1,0 +1,34 @@
+23:39:34.342 WRN JWT_SECRET is not set — using insecure dev default (allowed only because APP_ENV is not production).
+23:39:34.361 WRN no email backend configured (RESEND_API_KEY and SMTP_HOST both empty) — verification codes will be printed to the log instead of emailed.
+23:39:34.361 INF feature flags initialised file="" rules=0 env_prefix=FF_
+23:39:34.403 INF connected to database
+23:39:34.403 INF db pool config role=primary max_conns=25 min_conns=5 max_conn_lifetime=1h0m0s max_conn_idle_time=30m0s health_check_period=1m0s
+23:39:34.403 INF realtime: REDIS_URL and REALTIME_RELAY_REDIS_URL are unset — using in-memory hub (single-node mode)
+23:39:34.403 INF analytics: POSTHOG_API_KEY not set, using noop client
+EmailService: DEV mode — codes printed to stdout (set MULTICA_DEV_VERIFICATION_CODE in .env for a fixed local code)
+23:39:34.403 INF S3_BUCKET not set, cloud upload disabled
+23:39:34.404 INF local storage initialized dir=./data/uploads baseURL=""
+23:39:34.404 INF CLOUDFRONT_KEY_PAIR_ID not set, signed cookies disabled
+23:39:34.404 INF llm retry policy max_retries=2 source=default request_timeout=1m0s enabled=false
+23:39:34.404 INF channel engine: lease backend configured backend=postgres ttl=3m0s renew_interval=1m0s poll_interval=30s
+23:39:34.404 INF lark integration disabled (MULTICA_LARK_SECRET_KEY not set)
+23:39:34.404 INF slack integration disabled (MULTICA_SLACK_SECRET_KEY not set)
+23:39:34.404 INF dingtalk integration disabled (MULTICA_DINGTALK_SECRET_KEY not set)
+23:39:34.404 INF wecom integration disabled (MULTICA_WECOM_SECRET_KEY not set)
+23:39:34.404 INF telegram integration disabled (MULTICA_TELEGRAM_SECRET_KEY not set)
+23:39:34.404 INF composio integration disabled (COMPOSIO_API_KEY not set)
+23:39:34.404 INF vcs integration disabled (MULTICA_VCS_SECRET_KEY not set)
+23:39:34.404 INF Plugin secrets disabled (MULTICA_PLUGIN_SECRET_KEY not set)
+23:39:34.404 WRN plugins: MULTICA_PLUGIN_API_URL and MULTICA_PUBLIC_URL are not set; hook callbacks will carry no callback_url
+23:39:34.407 WRN auth rate limiting disabled: REDIS_URL not configured
+23:39:34.407 INF server starting port=56993
+23:39:34.407 INF autopilot failure monitor: starting interval=24h0m0s lookback=168h0m0s min_runs=50 fail_ratio=0.9
+23:39:34.407 INF pprof server starting addr=127.0.0.1:6060
+23:39:34.407 INF scheduler starting component=scheduler runner_id=c5eb1b84-7d56-4201-b815-e666900eb362 tick_interval=30s jobs=3
+23:39:34.407 ERR pprof server disabled after startup error error="listen tcp 127.0.0.1:6060: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted."
+23:39:34.413 INF scheduler claimed plan component=scheduler runner_id=c5eb1b84-7d56-4201-b815-e666900eb362 job=rollup_task_usage_hourly scope=global/global plan_time=2026-09-16T06:30:00Z attempt=1 execution_id=01a0a8f1-320a-7d9e-99a5-8e88bcb3673e
+23:39:34.427 INF scheduler: handler succeeded component=scheduler runner_id=c5eb1b84-7d56-4201-b815-e666900eb362 job=rollup_task_usage_hourly scope=global/global plan_time=2026-09-16T06:30:00Z attempt=1 execution_id=01a0a8f1-320a-7d9e-99a5-8e88bcb3673e duration_ms=11 rows_affected=0
+23:39:34.823 INF http request method=POST path=/api/workflow-templates status=201 duration=29.419ms request_id=SHENGFENG-PC4-5090/S5ipYZldyw-000002 user_id=6102916d-da0b-464c-938d-4e1e2ab935e5
+23:39:34.846 INF http request method=POST path=/api/workflow-templates/96942ff4-fcb9-45ce-b1a0-89bc564b9ee9/publish status=200 duration=6.746ms request_id=SHENGFENG-PC4-5090/S5ipYZldyw-000003 user_id=6102916d-da0b-464c-938d-4e1e2ab935e5
+23:39:34.910 INF http request method=POST path=/api/workflow-templates/96942ff4-fcb9-45ce-b1a0-89bc564b9ee9/run status=201 duration=39.123ms request_id=SHENGFENG-PC4-5090/S5ipYZldyw-000004 user_id=6102916d-da0b-464c-938d-4e1e2ab935e5
+23:39:34.914 INF http request method=GET path=/api/workflow-runs/3f6ae7eb-7b2d-4db2-befd-bda61881cda5 status=200 duration=3.441ms request_id=SHENGFENG-PC4-5090/S5ipYZldyw-000005 user_id=6102916d-da0b-464c-938d-4e1e2ab935e5

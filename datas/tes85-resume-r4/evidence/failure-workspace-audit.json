@@ -1,0 +1,14 @@
+{
+  "failed_task_ids": [
+    "01a0a87b-8c37-7afd-99b1-81639d1fdc2b",
+    "01a0a87e-71fe-71dd-9832-70b4d2d94052"
+  ],
+  "both_task_directories_present": true,
+  "worktrees_present": false,
+  "output_files": 0,
+  "current_workspace_initial_head": "a8bcbeff2",
+  "current_workspace_initial_changes": [
+    "AGENTS.md runtime instructions"
+  ],
+  "continuation": "rebuilt candidates from previously delivered bundle; preserved earlier scratch integration untracked files"
+}

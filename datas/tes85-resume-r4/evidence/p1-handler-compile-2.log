@@ -1,0 +1,8 @@
+# github.com/multica-ai/multica/server/internal/handler [github.com/multica-ai/multica/server/internal/handler.test]
+internal\handler\workflow_run_test.go:480:15: testHandler.WorkflowIntake undefined (type *Handler has no field or method WorkflowIntake)
+internal\handler\workflow_run_test.go:488:14: undefined: WorkflowIntakeResponse
+internal\handler\workflow_run_test.go:500:20: undefined: WorkflowIntakeResponse
+internal\handler\workflow_run_test.go:668:14: testHandler.WorkflowIntake undefined (type *Handler has no field or method WorkflowIntake)
+internal\handler\workflow_run_test.go:672:14: undefined: WorkflowIntakeResponse
+FAIL	github.com/multica-ai/multica/server/internal/handler [build failed]
+FAIL

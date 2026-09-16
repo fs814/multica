@@ -1,0 +1,21 @@
+{
+  "old-before": {
+    "health": {
+      "status": "ok",
+      "pid": 20920,
+      "commit": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+      "started_at": "2026-09-16T06:32:21Z"
+    },
+    "pid": 20920,
+    "business": {
+      "template": "40446079-ee29-4f37-94d3-04aa8e0ccb02",
+      "run": "2c3884cd-9871-4b18-ba63-c7b7d0e260f5",
+      "status": "completed",
+      "issue": "a9c226b3-cad5-4347-a267-ad7d86175409"
+    },
+    "stopped": true
+  },
+  "cleaned_databases": [
+    "tes85_p0_old_app_0916"
+  ]
+}

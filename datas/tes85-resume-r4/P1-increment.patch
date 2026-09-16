@@ -1,0 +1,2445 @@
+diff --git a/server/cmd/migrate/README.md b/server/cmd/migrate/README.md
+index 9c4c601bd..f048737e5 100644
+--- a/server/cmd/migrate/README.md
++++ b/server/cmd/migrate/README.md
+@@ -183,3 +183,22 @@ Confirm the statistics landed:
+ ```sql
+ SELECT count(*) FROM pg_statistic WHERE starelid = 'idx_issue_properties_bigm'::regclass;
+ ```
++
++## TES-85 isolated rollback provenance
++
++Application rollback retains the additive workflow schema. The explicit empty
++schema rehearsal also requires the literal `tes85_p0_` database prefix, no data,
++and provenance on both the primary-key constraint and its backing index.
++
++The runner marks an index only after its own CREATE succeeds, or its own CREATE
++fails with a unique violation and leaves an invalid index. An existing equivalent
++index may be attached, preserving its OID, but remains unowned and cannot be
++removed by down. Old `tes85:p0:owned:v1` constraint comments alone prove nothing
++about the index and cannot authorize deletion.
++
++A process crash between CREATE and the provenance comment is conservative:
++a valid unmarked index can be reused without ownership; an invalid unmarked
++index stops up before cleanup. Inspect its origin and preserve or recover it
++under a separate operator decision. Never manufacture a provenance comment to
++make down succeed. Confirmed marked invalid indexes retain automatic retry after
++the duplicate data is corrected. This is not a production rollback procedure.
+diff --git a/server/cmd/migrate/main.go b/server/cmd/migrate/main.go
+index d480b7ec0..9780c9002 100644
+--- a/server/cmd/migrate/main.go
++++ b/server/cmd/migrate/main.go
+@@ -1062,7 +1062,12 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
+ 		}
+ 
+ 		if applySQL {
+-			if _, err := conn.Exec(ctx, string(sql)); err != nil {
++			if opts.Direction == "up" && tes85IndexName(version) != "" {
++				err = tes85CreateIndex(ctx, conn, tes85IndexName(version), string(sql))
++			} else {
++				_, err = conn.Exec(ctx, string(sql))
++			}
++			if err != nil {
+ 				return fmt.Errorf("apply migration %q: %w", file, err)
+ 			}
+ 		}
+@@ -1116,6 +1121,38 @@ func quoteQualifiedIdentifier(name string) (string, error) {
+ // Keep additive schema on application rollback. Destructive rehearsal is opt-in,
+ // restricted to empty isolated databases, and requires object provenance.
+ const tes85Ownership = "tes85:p0:owned:v1"
++const tes85IndexOwnership = "tes85:p0:index-created:v2"
++
++func tes85IndexName(version string) string {
++	for _, table := range tes85PrimaryTables {
++		if version == "254_tes85_"+table+"_id_index" {
++			return "idx_tes85_" + table + "_id"
++		}
++	}
++	return ""
++}
++
++// The migration advisory lock serializes runners. Only a successful CREATE (or
++// its own unique-violation artifact) proves provenance; a name or ledger does not.
++// A crash before COMMENT leaves an unowned object: valid indexes can be reused,
++// but invalid ones require operator inspection and destructive down is refused.
++func tes85CreateIndex(ctx context.Context, conn *pgxpool.Conn, name, sql string) error {
++	var exists bool
++	if err := conn.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
++		return err
++	}
++	if exists {
++		return nil // Shape-checked by the pre-migration hook; never claim it.
++	}
++	// Do not silently adopt an index created by concurrent external DDL.
++	_, createErr := conn.Exec(ctx, strings.Replace(sql, "IF NOT EXISTS ", "", 1))
++	var pgErr *pgconn.PgError
++	if createErr != nil && !(errors.As(createErr, &pgErr) && pgErr.Code == "23505") {
++		return createErr
++	}
++	_, markErr := conn.Exec(ctx, "COMMENT ON INDEX "+pgx.Identifier{name}.Sanitize()+" IS '"+tes85IndexOwnership+"'")
++	return errors.Join(createErr, markErr)
++}
+ 
+ var tes85PrimaryTables = []string{
+ 	"workflow_template", "workflow_template_version", "workflow_run",
+@@ -1167,17 +1204,18 @@ func tes85IndexHook(table string) preMigrationHook {
+ 			return err
+ 		}
+ 		name := "idx_tes85_" + table + "_id"
+-		var shape, valid, attached bool
++		var shape, valid, attached, owned bool
+ 		err = pool.QueryRow(ctx, `SELECT
+ 			COALESCE(i.indrelid=to_regclass($2) AND i.indisunique AND i.indnkeyatts=1
+ 			AND i.indnatts=1 AND i.indexprs IS NULL AND i.indpred IS NULL
+ 			AND a.attname='id' AND am.amname='btree' AND op.opcname='uuid_ops'
+ 			AND i.indoption[0]=0,false), COALESCE(i.indisvalid AND i.indisready,false),
+-			EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conindid=x.oid)
++			EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conindid=x.oid),
++            COALESCE(obj_description(x.oid,'pg_class')=$3,false)
+ 			FROM pg_class x LEFT JOIN pg_index i ON i.indexrelid=x.oid
+ 			LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+ 			LEFT JOIN pg_am am ON am.oid=x.relam LEFT JOIN pg_opclass op ON op.oid=i.indclass[0]
+-			WHERE x.oid=to_regclass($1)`, name, table).Scan(&shape, &valid, &attached)
++			WHERE x.oid=to_regclass($1)`, name, table, tes85IndexOwnership).Scan(&shape, &valid, &attached, &owned)
+ 		if errors.Is(err, pgx.ErrNoRows) {
+ 			return nil
+ 		}
+@@ -1188,6 +1226,9 @@ func tes85IndexHook(table string) preMigrationHook {
+ 			return fmt.Errorf("refuse unexpected or attached index %s", name)
+ 		}
+ 		if !valid {
++			if !owned {
++				return fmt.Errorf("cannot prove invalid index ownership: %s; inspect before recovery", name)
++			}
+ 			return cleanupInvalidConcurrentIndexHook(name)(ctx, pool)
+ 		}
+ 		return nil
+@@ -1221,7 +1262,7 @@ func tes85EmptyRollback(ctx context.Context, pool *pgxpool.Pool) error {
+ 	}
+ 	// The override is deliberately unavailable to ordinary deployment databases.
+ 	var isolated bool
+-	if err := pool.QueryRow(ctx, "SELECT current_database() LIKE 'tes85_p0_%'").Scan(&isolated); err != nil {
++	if err := pool.QueryRow(ctx, "SELECT starts_with(current_database(), 'tes85_p0_')").Scan(&isolated); err != nil {
+ 		return err
+ 	}
+ 	if !isolated {
+@@ -1272,8 +1313,8 @@ func tes85EmptyPrimaryRollback(table string) preMigrationHook {
+ 			return errors.New("cannot prove primary key rollback ownership")
+ 		}
+ 		var owned bool
+-		err = pool.QueryRow(ctx, `SELECT COALESCE(obj_description(oid,'pg_constraint')=$2,false)
+-			FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, tes85Ownership).Scan(&owned)
++		err = pool.QueryRow(ctx, `SELECT COALESCE(obj_description(oid,'pg_constraint')=$2 AND obj_description(conindid,'pg_class')=$2,false)
++			FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, tes85IndexOwnership).Scan(&owned)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/server/cmd/migrate/workflow_migration_provenance_test.go b/server/cmd/migrate/workflow_migration_provenance_test.go
+new file mode 100644
+index 000000000..8b1d31dbe
+--- /dev/null
++++ b/server/cmd/migrate/workflow_migration_provenance_test.go
+@@ -0,0 +1,141 @@
++package main
++
++import (
++	"context"
++	"github.com/jackc/pgx/v5/pgxpool"
++	"strings"
++	"testing"
++)
++
++func tes85CatalogState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
++	t.Helper()
++	var state string
++	err := pool.QueryRow(ctx, `SELECT json_build_array(
++ (SELECT json_agg(r ORDER BY r.oid) FROM (SELECT oid,relname,relkind,obj_description(oid,'pg_class') AS comment FROM pg_class WHERE relnamespace=current_schema()::regnamespace) r),
++ (SELECT json_agg(r ORDER BY r.oid) FROM (SELECT oid,conname,conindid,obj_description(oid,'pg_constraint') AS comment FROM pg_constraint WHERE connamespace=current_schema()::regnamespace) r),
++ (SELECT json_agg(r ORDER BY r.version) FROM schema_migrations r))::text`).Scan(&state)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return state
++}
++
++func TestTES85PreexistingUniqueIndexesRemainUnowned(t *testing.T) {
++	for _, table := range tes85PrimaryTables {
++		t.Run(table, func(t *testing.T) {
++			pool, ctx := tes85TestDB(t)
++			name := "idx_tes85_" + table + "_id"
++			if _, err := pool.Exec(ctx, "CREATE UNIQUE INDEX "+name+" ON "+table+"(id)"); err != nil {
++				t.Fatal(err)
++			}
++			var oid uint32
++			if err := pool.QueryRow(ctx, "SELECT to_regclass($1)::oid", name).Scan(&oid); err != nil {
++				t.Fatal(err)
++			}
++			if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++				t.Fatal(err)
++			}
++			var preserved bool
++			if err := pool.QueryRow(ctx, `SELECT conindid=$2 AND obj_description(oid,'pg_constraint') IS NULL FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, oid).Scan(&preserved); err != nil || !preserved {
++				t.Fatalf("adopted existing index: %v %v", preserved, err)
++			}
++			before := tes85CatalogState(t, ctx, pool)
++			t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++			if err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...); err == nil {
++				t.Fatal("unowned rollback accepted")
++			}
++			if after := tes85CatalogState(t, ctx, pool); after != before {
++				t.Fatal("refusal changed catalog or ledger")
++			}
++		})
++	}
++}
++
++func TestTES85UnknownInvalidIndexPreserved(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if _, err := pool.Exec(ctx, `INSERT INTO workflow_template(id,workspace_id,key,name,created_by_type,created_by_id)
++ SELECT '00000000-0000-0000-0000-000000000001',gen_random_uuid(),n::text,'Historical','system',gen_random_uuid() FROM generate_series(1,2)n`); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, "CREATE UNIQUE INDEX CONCURRENTLY idx_tes85_workflow_template_id ON workflow_template(id)"); err == nil {
++		t.Fatal("expected duplicate failure")
++	}
++	var oid uint32
++	if err := pool.QueryRow(ctx, "SELECT 'idx_tes85_workflow_template_id'::regclass::oid").Scan(&oid); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, "DELETE FROM workflow_template WHERE key='2'"); err != nil {
++		t.Fatal(err)
++	}
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err == nil {
++		t.Fatal("unknown invalid index removed")
++	}
++	var preserved bool
++	if err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_class WHERE oid=$1 AND obj_description(oid,'pg_class') IS NULL)", oid).Scan(&preserved); err != nil || !preserved {
++		t.Fatalf("lost unowned invalid index: %v %v", preserved, err)
++	}
++}
++
++func TestTES85IndexProvenanceSurvivesLedgerRetry(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	names := tes85KeyNames()
++	if err := tes85Run(t, pool, ctx, "up", names...); err != nil {
++		t.Fatal(err)
++	}
++	// Simulate losing only the ledger write after the committed DDL/comment.
++	if _, err := pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version LIKE '25%'"); err != nil {
++		t.Fatal(err)
++	}
++	if err := tes85Run(t, pool, ctx, "up", names...); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	if err := tes85Run(t, pool, ctx, "down", names...); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestTES85LegacyClaimDoesNotProveIndexOwnership(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, `COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:owned:v1'; COMMENT ON INDEX workflow_template_pkey IS NULL`); err != nil {
++		t.Fatal(err)
++	}
++	before := tes85CatalogState(t, ctx, pool)
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	if err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...); err == nil {
++		t.Fatal("legacy claim accepted")
++	}
++	if tes85CatalogState(t, ctx, pool) != before {
++		t.Fatal("legacy refusal changed catalog/ledger")
++	}
++}
++
++// Run on both the literal dedicated prefix and lookalike database names.
++func TestTES85DatabasePrefixBoundary(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++		t.Fatal(err)
++	}
++	var name string
++	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&name); err != nil {
++		t.Fatal(err)
++	}
++	before := tes85CatalogState(t, ctx, pool)
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...)
++	if strings.HasPrefix(name, "tes85_p0_") {
++		if err != nil {
++			t.Fatal(err)
++		}
++	} else {
++		if err == nil {
++			t.Fatal("lookalike database accepted")
++		}
++		if tes85CatalogState(t, ctx, pool) != before {
++			t.Fatal("prefix refusal changed catalog/ledger")
++		}
++	}
++}
+diff --git a/server/cmd/server/main.go b/server/cmd/server/main.go
+index 7634ecb72..b31427153 100644
+--- a/server/cmd/server/main.go
++++ b/server/cmd/server/main.go
+@@ -599,6 +599,7 @@ func main() {
+ 	var channelLeaseMetrics *obsmetrics.ChannelLeaseMetrics
+ 	var wecomMetrics *obsmetrics.WecomMetrics
+ 	var dbRoutingMetrics *obsmetrics.DBRoutingMetrics
++	var workflowMetrics *obsmetrics.WorkflowMetrics
+ 	if metricsConfig.Enabled() {
+ 		metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
+ 			Pool:        pool,
+@@ -614,6 +615,7 @@ func main() {
+ 		channelLeaseMetrics = metricsRegistry.ChannelLease
+ 		wecomMetrics = metricsRegistry.Wecom
+ 		dbRoutingMetrics = metricsRegistry.DBRouting
++		workflowMetrics = metricsRegistry.Workflow
+ 		// Forward inbound daemon WS frames into the per-kind counter so
+ 		// dashboards can split heartbeat / unknown / invalid traffic.
+ 		if daemonHub != nil {
+@@ -727,6 +729,10 @@ func main() {
+ 	if replicaPool != nil {
+ 		go runDBStatsLogger(sweepCtx, "replica", replicaPool)
+ 	}
++	if h.WorkflowReconciler != nil {
++		h.WorkflowEngine.Metrics = workflowMetrics
++		go h.WorkflowReconciler.Run(sweepCtx)
++	}
+ 	if h.WebhookDeliveryWorker != nil {
+ 		go h.WebhookDeliveryWorker.Run(sweepCtx)
+ 	}
+diff --git a/server/cmd/server/router.go b/server/cmd/server/router.go
+index cc0a9ec10..58965c789 100644
+--- a/server/cmd/server/router.go
++++ b/server/cmd/server/router.go
+@@ -42,6 +42,7 @@ import (
+ 	"github.com/multica-ai/multica/server/internal/storage"
+ 	"github.com/multica-ai/multica/server/internal/util"
+ 	"github.com/multica-ai/multica/server/internal/util/secretbox"
++	"github.com/multica-ai/multica/server/internal/workflow"
+ 	composiosdk "github.com/multica-ai/multica/server/pkg/composio"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ 	"github.com/multica-ai/multica/server/pkg/featureflag"
+@@ -70,6 +71,7 @@ var corsAllowedHeaders = []string{
+ 	"Idempotency-Key",
+ 	"If-Match",
+ 	"X-Workspace-ID",
++	"X-Workflow-Template-Version-ID",
+ 	"X-Workspace-Slug",
+ 	"X-Request-ID",
+ 	"X-Agent-ID",
+@@ -508,6 +510,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
+ 		h.InvitationRateLimiters = handler.NewRedisInvitationRateLimiters(rdb, invitationRateLimits)
+ 	}
+ 
++	workflowEngine := &workflow.Engine{
++		Queries: queries, TxStarter: pool,
++		Router:   service.NewWorkflowRouter(queries),
++		Notifier: service.NewWorkflowNotifier(bus, h.TaskService),
++		Schemas:  workflow.DefaultSchemaRegistry,
++	}
++	h.WorkflowEngine = workflowEngine
++	h.WorkflowReconciler = workflow.NewReconciler(workflowEngine, queries)
++	h.AutopilotService.WorkflowEngine = workflowEngine
++	h.TaskService.WorkflowTerminal = workflowEngine
++
+ 	// Channel engine (MUL-3620): the platform-agnostic inbound runtime.
+ 	// Built UNCONDITIONALLY — it drives any channel.Channel, not just
+ 	// Feishu, so it must not depend on the Lark master key (a future
+@@ -2018,6 +2031,27 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
+ 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)
+ 
+ 			// Autopilots
++			r.Route("/api/workflow-templates", func(r chi.Router) {
++				r.Get("/", h.ListWorkflowTemplates)
++				r.Post("/", h.CreateWorkflowTemplate)
++				r.Post("/validate", h.ValidateWorkflowDefinition)
++				r.Route("/{id}", func(r chi.Router) {
++					r.Get("/", h.GetWorkflowTemplate)
++					r.Post("/duplicate", h.DuplicateBuiltinWorkflowTemplate)
++					r.Patch("/", h.UpdateWorkflowTemplate)
++					r.Post("/publish", h.PublishWorkflowTemplate)
++					r.Post("/archive", h.ArchiveWorkflowTemplate)
++					r.Post("/run", h.RunWorkflowTemplate)
++				})
++			})
++			r.Route("/api/workflow-runs", func(r chi.Router) {
++				r.Get("/", h.ListWorkflowRuns)
++				r.Get("/{id}", h.GetWorkflowRun)
++				r.Post("/{id}/cancel", h.CancelWorkflowRun)
++				r.Post("/{id}/acceptance", h.DecideWorkflowAcceptance)
++				r.Post("/{id}/reconcile", h.ReconcileWorkflowRun)
++			})
++
+ 			r.Route("/api/autopilots", func(r chi.Router) {
+ 				r.Get("/", h.ListAutopilots)
+ 				r.Post("/", h.CreateAutopilot)
+diff --git a/server/internal/daemon/daemon.go b/server/internal/daemon/daemon.go
+index 33a966ddd..ad52099e9 100644
+--- a/server/internal/daemon/daemon.go
++++ b/server/internal/daemon/daemon.go
+@@ -8604,6 +8604,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
+ 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
+ 		QwenpawWorkspace:       env.QwenpawWorkspace,
+ 	}
++	prompt = configureWorkflowOutput(task, provider, prompt, &execOpts)
+ 	// Some providers do not reliably load the per-task runtime config files we
+ 	// write into the task workdir:
+ 	//   - openclaw is pinned to the task workdir via the per-task config we
+diff --git a/server/internal/daemon/prompt.go b/server/internal/daemon/prompt.go
+index 0dcc64fe7..b94bbacc6 100644
+--- a/server/internal/daemon/prompt.go
++++ b/server/internal/daemon/prompt.go
+@@ -181,6 +181,14 @@ func buildWorktreeReplayConflictBlock(files []string) string {
+ // post with `--content-file`) because the shell-layer corruption it guards
+ // against is not specific to any one provider or host (MUL-2904, #4182).
+ func BuildPrompt(task Task, provider string, options ...PromptOption) string {
++	// A workflow step's brief is rendered server-side and owns the entire
++	// prompt, so it returns verbatim — ahead of option handling and the
++	// per-turn context blocks below. This daemon is versioned separately from
++	// the server, so it must not append to, or omit any part of, that contract
++	// (see TestWorkflowStepPromptSurvivesTheWireAndWins).
++	if task.WorkflowPrompt != "" {
++		return task.WorkflowPrompt
++	}
+ 	var opts promptOpts
+ 	for _, apply := range options {
+ 		apply(&opts)
+diff --git a/server/internal/daemon/types.go b/server/internal/daemon/types.go
+index 2bc72dbe9..c0493220d 100644
+--- a/server/internal/daemon/types.go
++++ b/server/internal/daemon/types.go
+@@ -12,7 +12,7 @@ type AgentEntry struct {
+ 	Path string // stable startup-resolved CLI entry point; launch resolution may follow platform links to a concrete path
+ 	// Command is the bare command name or MULTICA_*_PATH value that Path was
+ 	// resolved from at startup. It is kept so the daemon can re-resolve Path
+-	// if the pinned executable later vanishes — e.g. a version manager
++	// if the pinned executable later vanishes â€” e.g. a version manager
+ 	// (Homebrew Cask, nvm/fnm) does an in-place upgrade that deletes the old
+ 	// versioned directory Path points into. Empty for synthesized entries
+ 	// (custom runtime profiles) that carry an absolute path directly. See
+@@ -42,7 +42,7 @@ type RepoData struct {
+ 	Ref         string `json:"ref,omitempty"`
+ }
+ 
+-// ProjectResourceData mirrors handler.ProjectResourceData — a single project
++// ProjectResourceData mirrors handler.ProjectResourceData â€” a single project
+ // resource as delivered to the daemon. resource_ref is type-specific JSON.
+ type ProjectResourceData struct {
+ 	ID           string          `json:"id"`
+@@ -68,14 +68,18 @@ type IssueStatusData struct {
+ // Task represents a claimed task from the server.
+ // Agent data (name, skills) is populated by the claim endpoint.
+ type Task struct {
+-	ID                   string                 `json:"id"`
+-	AgentID              string                 `json:"agent_id"`
+-	RuntimeID            string                 `json:"runtime_id"`
+-	IssueID              string                 `json:"issue_id"`
+-	WorkspaceID          string                 `json:"workspace_id"`
+-	WorkspaceSlug        string                 `json:"workspace_slug,omitempty"`
+-	IssueIdentifier      string                 `json:"issue_identifier,omitempty"`
+-	RemoteMCPConnections []remotemcp.Connection `json:"remote_mcp_connections,omitempty"`
++	WorkflowPrompt         string                 `json:"workflow_prompt,omitempty"`
++	WorkflowRunID          string                 `json:"workflow_run_id,omitempty"`
++	WorkflowStepInstanceID string                 `json:"workflow_step_instance_id,omitempty"`
++	WorkflowNodeKey        string                 `json:"workflow_node_key,omitempty"`
++	ID                     string                 `json:"id"`
++	AgentID                string                 `json:"agent_id"`
++	RuntimeID              string                 `json:"runtime_id"`
++	IssueID                string                 `json:"issue_id"`
++	WorkspaceID            string                 `json:"workspace_id"`
++	WorkspaceSlug          string                 `json:"workspace_slug,omitempty"`
++	IssueIdentifier        string                 `json:"issue_identifier,omitempty"`
++	RemoteMCPConnections   []remotemcp.Connection `json:"remote_mcp_connections,omitempty"`
+ 	// RemoteMCPDaemonToken stays inside the daemon and authenticates the local
+ 	// broker's credential-resolution calls. It must never enter agent env/config.
+ 	RemoteMCPDaemonToken string `json:"remote_mcp_daemon_token,omitempty"`
+@@ -84,7 +88,7 @@ type Task struct {
+ 	// server at claim time; the daemon never reads plugin state itself.
+ 	PluginHookTools []PluginHookTool `json:"plugin_hook_tools,omitempty"`
+ 	// WorkspaceContext mirrors workspace.context (the per-workspace system
+-	// prompt set in Settings → General). Server populates this on every claim
++	// prompt set in Settings â†’ General). Server populates this on every claim
+ 	// regardless of task kind so the daemon can inject `## Workspace Context`
+ 	// into the brief. Empty when the owner hasn't set one.
+ 	WorkspaceContext string `json:"workspace_context,omitempty"`
+@@ -104,7 +108,7 @@ type Task struct {
+ 	ProjectDescription            string                 `json:"project_description,omitempty"`              // durable project-level context injected into the brief
+ 	ProjectResources              []ProjectResourceData  `json:"project_resources,omitempty"`                // project-scoped resources to expose to the agent
+ 	IsLeaderTask                  bool                   `json:"is_leader_task,omitempty"`                   // true when executing in the squad-leader coordinator role
+-	LeaderRoleResolved            bool                   `json:"leader_role_resolved,omitempty"`             // server capability: IsLeaderTask/SquadID authoritatively answer "is this a leader run". Absent on servers predating it — those before #4951 never sent is_leader_task at all, later ones send it without this guarantee — so taskIsSquadLeader falls back to the briefing marker for both (MUL-5811)
++	LeaderRoleResolved            bool                   `json:"leader_role_resolved,omitempty"`             // server capability: IsLeaderTask/SquadID authoritatively answer "is this a leader run". Absent on servers predating it â€” those before #4951 never sent is_leader_task at all, later ones send it without this guarantee â€” so taskIsSquadLeader falls back to the briefing marker for both (MUL-5811)
+ 	PriorSessionID                string                 `json:"prior_session_id,omitempty"`                 // Claude session ID from a previous task on this issue
+ 	PriorWorkDir                  string                 `json:"prior_work_dir,omitempty"`                   // work_dir from a previous task on this issue
+ 	PriorSessionResumeUnavailable bool                   `json:"prior_session_resume_unavailable,omitempty"` // MUL-5305: server signals a more recent Codex session was withheld (rollout missing) and PriorSessionID (if any) is an older fallback; the run must disclose the continuity gap even if that older session resumes cleanly. Absent/false on old servers.
+@@ -113,14 +117,14 @@ type Task struct {
+ 	CoalescedComments             []CoalescedCommentData `json:"coalesced_comments,omitempty"`               // MUL-4195: full detail of the folded comments (thread_id/author/created_at/content) so the prompt can address each without assuming a shared thread. Empty for old servers / non-merged runs
+ 	TriggerThreadID               string                 `json:"trigger_thread_id,omitempty"`                // root comment ID for the triggering thread; falls back to trigger_comment_id on old servers
+ 	TriggerCommentContent         string                 `json:"trigger_comment_content,omitempty"`          // content of the triggering comment
+-	TriggerAuthorType             string                 `json:"trigger_author_type,omitempty"`              // "agent" or "member" — author kind for the triggering comment
++	TriggerAuthorType             string                 `json:"trigger_author_type,omitempty"`              // "agent" or "member" â€” author kind for the triggering comment
+ 	TriggerAuthorName             string                 `json:"trigger_author_name,omitempty"`              // display name of the triggering comment author
+ 	NewCommentCount               int                    `json:"new_comment_count,omitempty"`                // issue-wide comments since this agent's last run (excludes its own and the injected trigger); 0/omitted for old daemons or cold start
+ 	NewCommentsSince              string                 `json:"new_comments_since,omitempty"`               // RFC3339 anchor (last run's started_at) the count is measured from; empty on cold start
+ 	NewCommentsDeltaKnown         bool                   `json:"new_comments_delta_known,omitempty"`         // the server actually computed the issue-wide delta this claim (both reads succeeded). A zero NewCommentCount means "nothing was said" only when this is true; otherwise the zero is a failed read, a cold start, or an old server, and the prompt must not present it as the comment scan's answer (MUL-6984)
+ 	ChatSessionID                 string                 `json:"chat_session_id,omitempty"`                  // non-empty for chat tasks
+ 	ChatChannelType               string                 `json:"chat_channel_type,omitempty"`                // "slack" when the chat session is backed by an IM channel; empty for a web-only chat. Drives the channel-awareness block in the prompt
+-	ChatChannelDeliversFiles      bool                   `json:"chat_channel_delivers_files,omitempty"`      // server capability: this deployment carries a file the agent produces the last hop into this conversation. Absent on a server predating it, which reads as false — the run is told to describe its file in words, and the worst case is a delivery that could have happened did not. Must never be re-derived from chat_channel_type: whether the hop exists depends on the SERVER's storage and adapter wiring, which no daemon can see (MUL-4899)
++	ChatChannelDeliversFiles      bool                   `json:"chat_channel_delivers_files,omitempty"`      // server capability: this deployment carries a file the agent produces the last hop into this conversation. Absent on a server predating it, which reads as false â€” the run is told to describe its file in words, and the worst case is a delivery that could have happened did not. Must never be re-derived from chat_channel_type: whether the hop exists depends on the SERVER's storage and adapter wiring, which no daemon can see (MUL-4899)
+ 	ChatType                      string                 `json:"chat_type,omitempty"`                        // "group" when the channel conversation is a shared room, "p2p" for a 1:1 with the bot. Empty for a web chat or an old server; the per-turn prompt then reports unknown rather than guessing 1:1
+ 	ChatInThread                  bool                   `json:"chat_in_thread,omitempty"`                   // true when the latest @mention was a thread reply; selects which read command the prompt tells the agent to start with
+ 	ChatMessage                   string                 `json:"chat_message,omitempty"`                     // user message content for chat tasks
+@@ -142,7 +146,7 @@ type Task struct {
+ 
+ 	SquadID               string `json:"squad_id,omitempty"`                // when the picker was a squad, the squad's UUID; Agent is still the resolved leader
+ 	SquadName             string `json:"squad_name,omitempty"`              // display name for the picker squad, used in prompt text
+-	ParentIssueID         string `json:"parent_issue_id,omitempty"`         // for quick-create tasks opened from "Add sub issue" — UUID of the parent issue the new issue should be filed under
++	ParentIssueID         string `json:"parent_issue_id,omitempty"`         // for quick-create tasks opened from "Add sub issue" â€” UUID of the parent issue the new issue should be filed under
+ 	ParentIssueIdentifier string `json:"parent_issue_identifier,omitempty"` // human-readable identifier (e.g. MUL-123) of the quick-create parent issue, used in prompt context
+ 	// RequestingUserName + RequestingUserProfileDescription describe the human
+ 	// the agent is working on behalf of. v1 sources them from the runtime
+@@ -161,7 +165,7 @@ type Task struct {
+ 	// quick-create). InitiatorEmail is set only for member initiators. The
+ 	// daemon emits these into the brief under `## Task Initiator` so a
+ 	// workspace-visible agent can attribute the request per person. The
+-	// agent's effective credentials stay owner-scoped — this is an attested
++	// agent's effective credentials stay owner-scoped â€” this is an attested
+ 	// identity, not a credential. See MUL-2645.
+ 	InitiatorType  string `json:"initiator_type,omitempty"`
+ 	InitiatorID    string `json:"initiator_id,omitempty"`
+@@ -277,7 +281,7 @@ type TaskUsageEntry struct {
+ 	CacheReadTokens  int64  `json:"cache_read_tokens"`
+ 	CacheWriteTokens int64  `json:"cache_write_tokens"`
+ 	// CostUSDTicks is the provider's own price for this usage, in 1e-10 USD.
+-	// Omitted when the agent reports no cost, which is the common case — the
++	// Omitted when the agent reports no cost, which is the common case â€” the
+ 	// server then leaves the column NULL and the client estimates from the
+ 	// pricing table instead. See agent.TokenUsage.CostUSDTicks.
+ 	CostUSDTicks int64 `json:"cost_usd_ticks,omitempty"`
+@@ -312,7 +316,7 @@ type TaskResult struct {
+ // PluginHookTool is one agent-trigger plugin hook, as the agent will see it.
+ //
+ // Mirrors service.PluginHookTool on the wire. Declared here rather than
+-// imported so the daemon does not depend on the server's service package —
++// imported so the daemon does not depend on the server's service package â€”
+ // same reason Task itself is a daemon-side type.
+ type PluginHookTool struct {
+ 	InstallationID string          `json:"installation_id"`
+diff --git a/server/internal/handler/agent.go b/server/internal/handler/agent.go
+index e666a753c..a2535ca49 100644
+--- a/server/internal/handler/agent.go
++++ b/server/internal/handler/agent.go
+@@ -357,6 +357,10 @@ type TaskCancellationActor struct {
+ }
+ 
+ type AgentTaskResponse struct {
++	WorkflowPrompt           string                 `json:"workflow_prompt,omitempty"`
++	WorkflowRunID            string                 `json:"workflow_run_id,omitempty"`
++	WorkflowStepInstanceID   string                 `json:"workflow_step_instance_id,omitempty"`
++	WorkflowNodeKey          string                 `json:"workflow_node_key,omitempty"`
+ 	CancelledByCommentChange bool                   `json:"cancelled_by_comment_change,omitempty"`
+ 	CancelledBy              *TaskCancellationActor `json:"cancelled_by,omitempty"`
+ 
+diff --git a/server/internal/handler/agent_access.go b/server/internal/handler/agent_access.go
+index 62470b5ac..a26057b6d 100644
+--- a/server/internal/handler/agent_access.go
++++ b/server/internal/handler/agent_access.go
+@@ -6,6 +6,7 @@ import (
+ 	"net/http"
+ 
+ 	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/service"
+ 	"github.com/multica-ai/multica/server/internal/util"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ )
+@@ -71,65 +72,12 @@ func (h *Handler) canInvokeAgent(ctx context.Context, agent db.Agent, actorType,
+ // invokeAgentDecision is canInvokeAgent's pure verdict, split out so the gate has
+ // exactly one place to observe a denial from.
+ func (h *Handler) invokeAgentDecision(ctx context.Context, agent db.Agent, actorType, actorID, originatorUserID, workspaceID string) bool {
+-	effectiveUser := actorID
+-	if actorType != "member" {
+-		// agent / system: never trust the immediate principal, only the
+-		// resolved human originator at the top of the chain.
+-		effectiveUser = originatorUserID
+-	}
+-
+-	// The agent owner may always invoke their own agent.
+-	if effectiveUser != "" && uuidToString(agent.OwnerID) == effectiveUser {
+-		return true
+-	}
+-
+-	if agent.PermissionMode != "public_to" {
+-		// private (or any unknown mode) is deny-by-default: no admin bypass,
+-		// no A2A bypass. Only the owner branch above passes.
+-		return false
+-	}
+-
+-	targets, err := h.Queries.ListAgentInvocationTargets(ctx, agent.ID)
+-	if err != nil {
+-		return false
+-	}
+-
+-	// Agents and system triggers are workspace-internal principals: a
+-	// workspace target admits them even when no human originator resolved.
+-	// This is a DELIBERATE, product-approved exception (MUL-3963): webhook /
+-	// system / workspace-wide automation must be able to trigger a
+-	// `public_to workspace` agent even though there is no human at the top of
+-	// the chain. It is scoped tightly — it ONLY relaxes the *workspace* target.
+-	// member/team targets still require a resolved human originator to match,
+-	// so an unattributed agent/system trigger FAILS CLOSED against a
+-	// member-/team-scoped private-ish allow-list and can never smuggle itself
+-	// onto someone's specific-people grant.
+-	workspaceBroad := actorType == "agent" || actorType == "system"
+-	isWorkspaceMember := false
+-	if effectiveUser != "" {
+-		if _, err := h.getWorkspaceMember(ctx, effectiveUser, workspaceID); err == nil {
+-			isWorkspaceMember = true
+-		}
+-	}
+-
+-	for _, t := range targets {
+-		switch t.TargetType {
+-		case "workspace":
+-			if isWorkspaceMember || workspaceBroad {
+-				return true
+-			}
+-		case "member":
+-			// Requires a resolved human. agent/system triggers with no
+-			// originator (effectiveUser == "") never match here — fail closed.
+-			if effectiveUser != "" && uuidToString(t.TargetID) == effectiveUser {
+-				return true
+-			}
+-		case "team":
+-			// Reserved: team membership does not exist yet in V1, so team
+-			// targets never admit anyone (also fail-closed for system/agent).
+-		}
+-	}
+-	return false
++	return service.AgentInvokePermitted(ctx, h.Queries, agent, service.InvokeActor{
++		ActorType:        actorType,
++		ActorID:          actorID,
++		OriginatorUserID: originatorUserID,
++		WorkspaceID:      workspaceID,
++	})
+ }
+ 
+ // canAccessPrivateAgent gates the VIEW surfaces (list/detail navigation, chat
+diff --git a/server/internal/handler/autopilot.go b/server/internal/handler/autopilot.go
+index 62374028d..b635b2d58 100644
+--- a/server/internal/handler/autopilot.go
++++ b/server/internal/handler/autopilot.go
+@@ -33,11 +33,13 @@ func computeNextRun(cronExpr, timezone string) (time.Time, error) {
+ // ── Response types ──────────────────────────────────────────────────────────
+ 
+ type AutopilotResponse struct {
+-	ID          string  `json:"id"`
+-	WorkspaceID string  `json:"workspace_id"`
+-	Title       string  `json:"title"`
+-	Description *string `json:"description"`
+-	ProjectID   *string `json:"project_id"`
++	WorkflowTemplateID        *string `json:"workflow_template_id"`
++	WorkflowTemplateVersionID *string `json:"workflow_template_version_id"`
++	ID                        string  `json:"id"`
++	WorkspaceID               string  `json:"workspace_id"`
++	Title                     string  `json:"title"`
++	Description               *string `json:"description"`
++	ProjectID                 *string `json:"project_id"`
+ 	// AssigneeType is "agent" or "squad". Path A from MUL-2429: when set
+ 	// to "squad", AssigneeID points at squad(id) rather than agent(id) and
+ 	// dispatch resolves to squad.leader_id at run time.
+@@ -160,6 +162,7 @@ type AutopilotTriggerResponse struct {
+ }
+ 
+ type AutopilotRunResponse struct {
++	WorkflowRunID *string `json:"workflow_run_id"`
+ 	ID            string  `json:"id"`
+ 	AutopilotID   string  `json:"autopilot_id"`
+ 	TriggerID     *string `json:"trigger_id"`
+@@ -199,6 +202,7 @@ func autopilotToResponse(a db.Autopilot, subscribers []db.AutopilotSubscriber) A
+ 		}
+ 	}
+ 	return AutopilotResponse{
++		WorkflowTemplateID: uuidToPtr(a.WorkflowTemplateID), WorkflowTemplateVersionID: uuidToPtr(a.WorkflowTemplateVersionID),
+ 		ID:                 uuidToString(a.ID),
+ 		WorkspaceID:        uuidToString(a.WorkspaceID),
+ 		Title:              a.Title,
+@@ -326,6 +330,7 @@ func runToResponse(r db.AutopilotRun) AutopilotRunResponse {
+ 		json.Unmarshal(r.Result, &result)
+ 	}
+ 	return AutopilotRunResponse{
++		WorkflowRunID:  uuidToPtr(r.WorkflowRunID),
+ 		ID:             uuidToString(r.ID),
+ 		AutopilotID:    uuidToString(r.AutopilotID),
+ 		TriggerID:      uuidToPtr(r.TriggerID),
+@@ -357,9 +362,11 @@ func runToResponseSlim(r db.AutopilotRun) AutopilotRunResponse {
+ // ── Request types ───────────────────────────────────────────────────────────
+ 
+ type CreateAutopilotRequest struct {
+-	Title       string  `json:"title"`
+-	Description *string `json:"description"`
+-	ProjectID   *string `json:"project_id"`
++	WorkflowTemplateID        *string `json:"workflow_template_id"`
++	WorkflowTemplateVersionID *string `json:"workflow_template_version_id"`
++	Title                     string  `json:"title"`
++	Description               *string `json:"description"`
++	ProjectID                 *string `json:"project_id"`
+ 	// AssigneeType is optional and defaults to "agent" — preserves backward
+ 	// compatibility with desktop clients shipped before MUL-2429.
+ 	AssigneeType       *string           `json:"assignee_type"`
+@@ -370,14 +377,16 @@ type CreateAutopilotRequest struct {
+ }
+ 
+ type UpdateAutopilotRequest struct {
+-	Title              *string `json:"title"`
+-	Description        *string `json:"description"`
+-	ProjectID          *string `json:"project_id"`
+-	AssigneeType       *string `json:"assignee_type"`
+-	AssigneeID         *string `json:"assignee_id"`
+-	Status             *string `json:"status"`
+-	ExecutionMode      *string `json:"execution_mode"`
+-	IssueTitleTemplate *string `json:"issue_title_template"`
++	WorkflowTemplateID        *string `json:"workflow_template_id"`
++	WorkflowTemplateVersionID *string `json:"workflow_template_version_id"`
++	Title                     *string `json:"title"`
++	Description               *string `json:"description"`
++	ProjectID                 *string `json:"project_id"`
++	AssigneeType              *string `json:"assignee_type"`
++	AssigneeID                *string `json:"assignee_id"`
++	Status                    *string `json:"status"`
++	ExecutionMode             *string `json:"execution_mode"`
++	IssueTitleTemplate        *string `json:"issue_title_template"`
+ 	// Wholesale replacement when present; omit to leave subscribers untouched.
+ 	Subscribers []SubscriberInput `json:"subscribers"`
+ }
+@@ -805,6 +814,40 @@ func (h *Handler) requireAutopilotAccessManagement(w http.ResponseWriter, r *htt
+ 	return member, true
+ }
+ 
++func (h *Handler) resolveAutopilotWorkflowBinding(ctx context.Context, workspaceID pgtype.UUID, templateRaw, versionRaw *string) (pgtype.UUID, pgtype.UUID, error) {
++	if templateRaw == nil || strings.TrimSpace(*templateRaw) == "" {
++		if versionRaw != nil && strings.TrimSpace(*versionRaw) != "" {
++			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow_template_version_id requires workflow_template_id")
++		}
++		return pgtype.UUID{}, pgtype.UUID{}, nil
++	}
++	templateID, parseErr := util.ParseUUID(strings.TrimSpace(*templateRaw))
++	if parseErr != nil {
++		return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("invalid workflow_template_id")
++	}
++	template, err := h.Queries.GetWorkflowTemplate(ctx, db.GetWorkflowTemplateParams{ID: templateID, WorkspaceID: workspaceID})
++	if err != nil || template.Status != "published" {
++		return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template must be published in this workspace")
++	}
++	var version db.WorkflowTemplateVersion
++	if versionRaw != nil && strings.TrimSpace(*versionRaw) != "" {
++		versionID, parseErr := util.ParseUUID(strings.TrimSpace(*versionRaw))
++		if parseErr != nil {
++			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("invalid workflow_template_version_id")
++		}
++		version, err = h.Queries.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{ID: versionID, WorkspaceID: workspaceID})
++		if err != nil || version.TemplateID != templateID || version.Status != "published" {
++			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template version must be a published version of the selected template")
++		}
++	} else {
++		version, err = h.Queries.GetPublishedWorkflowTemplateVersion(ctx, db.GetPublishedWorkflowTemplateVersionParams{TemplateID: templateID, WorkspaceID: workspaceID})
++		if err != nil {
++			return pgtype.UUID{}, pgtype.UUID{}, fmt.Errorf("workflow template has no published version")
++		}
++	}
++	return templateID, version.ID, nil
++}
++
+ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
+ 	var req CreateAutopilotRequest
+ 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+@@ -869,6 +912,11 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	workflowTemplateID, workflowVersionID, bindErr := h.resolveAutopilotWorkflowBinding(r.Context(), wsUUID, req.WorkflowTemplateID, req.WorkflowTemplateVersionID)
++	if bindErr != nil {
++		writeError(w, http.StatusBadRequest, bindErr.Error())
++		return
++	}
+ 	// Parse before insert so a malformed payload doesn't open a transaction.
+ 	subscribers, ok := parseAutopilotSubscribers(w, req.Subscribers)
+ 	if !ok {
+@@ -900,6 +948,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	autopilot, err := qtx.CreateAutopilot(r.Context(), db.CreateAutopilotParams{
++		WorkflowTemplateID: workflowTemplateID, WorkflowTemplateVersionID: workflowVersionID,
+ 		WorkspaceID:        wsUUID,
+ 		Title:              req.Title,
+ 		AssigneeType:       assigneeType,
+@@ -1066,6 +1115,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
+ 	json.Unmarshal(bodyBytes, &rawFields)
+ 
+ 	params := db.UpdateAutopilotParams{
++		WorkflowTemplateID: prev.WorkflowTemplateID, WorkflowTemplateVersionID: prev.WorkflowTemplateVersionID,
+ 		ID:                 prev.ID,
+ 		Description:        prev.Description,
+ 		AssigneeID:         prev.AssigneeID,
+@@ -1100,6 +1150,28 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
+ 		}
+ 		params.ProjectID = projectID
+ 	}
++	_, workflowTemplateSent := rawFields["workflow_template_id"]
++	_, workflowVersionSent := rawFields["workflow_template_version_id"]
++	if workflowTemplateSent || workflowVersionSent {
++		templateRaw := uuidToPtr(prev.WorkflowTemplateID)
++		versionRaw := uuidToPtr(prev.WorkflowTemplateVersionID)
++		if workflowTemplateSent {
++			templateRaw = req.WorkflowTemplateID
++			if !workflowVersionSent {
++				versionRaw = nil
++			}
++		}
++		if workflowVersionSent {
++			versionRaw = req.WorkflowTemplateVersionID
++		}
++		templateID, versionID, bindErr := h.resolveAutopilotWorkflowBinding(r.Context(), prev.WorkspaceID, templateRaw, versionRaw)
++		if bindErr != nil {
++			writeError(w, http.StatusBadRequest, bindErr.Error())
++			return
++		}
++		params.WorkflowTemplateID = templateID
++		params.WorkflowTemplateVersionID = versionID
++	}
+ 	// assignee_type and assignee_id are validated as a pair: switching
+ 	// between agent and squad without supplying a new id would leave the
+ 	// row pointing at the wrong table. The client is expected to send both
+@@ -1302,7 +1374,8 @@ func autopilotRuleSubstantiveChange(prev, next db.Autopilot) bool {
+ 		prev.Status != next.Status ||
+ 		prev.ExecutionMode != next.ExecutionMode ||
+ 		prev.Description != next.Description ||
+-		prev.IssueTitleTemplate != next.IssueTitleTemplate
++		prev.IssueTitleTemplate != next.IssueTitleTemplate ||
++		prev.WorkflowTemplateID != next.WorkflowTemplateID || prev.WorkflowTemplateVersionID != next.WorkflowTemplateVersionID
+ }
+ 
+ // recordAutopilotRuleVersion appends one rule-version snapshot for a substantive
+diff --git a/server/internal/handler/daemon.go b/server/internal/handler/daemon.go
+index 479f0f27a..6c3d9eb00 100644
+--- a/server/internal/handler/daemon.go
++++ b/server/internal/handler/daemon.go
+@@ -30,6 +30,7 @@ import (
+ 	"github.com/multica-ai/multica/server/internal/runtimeapps"
+ 	"github.com/multica-ai/multica/server/internal/service"
+ 	"github.com/multica-ai/multica/server/internal/util"
++	"github.com/multica-ai/multica/server/internal/workflow"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ 	"github.com/multica-ai/multica/server/pkg/dbid"
+ 	"github.com/multica-ai/multica/server/pkg/protocol"
+@@ -3140,11 +3141,66 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
+ 		projectCtx.applyTo(&resp)
+ 	}
+ 
++	// Workflow Step task: the entire brief lives in the task's context JSONB, the
++	// same way a quick-create task's prompt does. Surfaced here, next to that
++	// precedent, so the two "the job description is in context" paths stay
++	// side by side.
++	//
++	// This is the delivery end of the fix for the engine's central defect: a Step
++	// used to dispatch a task carrying nothing but ids, so the agent had no work
++	// description, replied in prose, and the Step blocked on the submission
++	// contract. WorkflowPrompt is what the agent actually reads.
++	//
++	// Resolved BEFORE the quick-create branch and independently of it: a workflow
++	// task may or may not carry an issue link (the Run's issue_id, which is
++	// optional), whereas a quick-create task never does. Keying this branch on
++	// workflow_step_instance_id rather than on "has no issue/chat/autopilot" is
++	// what keeps an issue-linked workflow task from being invisible here.
++	hasWorkflowStep := false
++	if task.WorkflowStepInstanceID.Valid {
++		if wf, ok := workflow.ParseTaskContext(task.Context); ok {
++			hasWorkflowStep = true
++			resp.WorkflowPrompt = wf.RenderPrompt()
++			resp.WorkflowRunID = wf.RunID
++			resp.WorkflowStepInstanceID = wf.StepInstanceID
++			resp.WorkflowNodeKey = wf.NodeKey
++			if resp.ThreadName == "" {
++				// A recognisable session title. The node name alone ("Implement")
++				// is meaningless across runs, so pair it with the run's title.
++				resp.ThreadName = strings.TrimSpace(wf.NodeName + " — " + wf.RunTitle)
++			}
++			// A Run need not be attached to an issue, so this may be the only
++			// authority for the workspace. The isolation check below compares it
++			// against the runtime's workspace and cancels the task on a mismatch,
++			// so trusting the stored value cannot cross a tenant boundary.
++			if resp.WorkspaceID == "" {
++				resp.WorkspaceID = wf.WorkspaceID
++			}
++			if len(resp.Repos) == 0 {
++				if ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(resp.WorkspaceID)); err == nil && ws.Repos != nil {
++					var repos []RepoData
++					if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {
++						resp.Repos = repos
++					}
++				}
++			}
++		} else {
++			// The row says it belongs to a Step but its context is not a workflow
++			// brief. Log loudly: the agent is about to run with no instructions,
++			// and the cause is upstream of here (a hand-written row, or a context
++			// overwritten after activation).
++			slog.Error("task claim: workflow task has no readable brief in context",
++				"task_id", uuidToString(task.ID),
++				"workflow_step_instance_id", uuidToString(task.WorkflowStepInstanceID),
++			)
++		}
++	}
++
+ 	// Quick-create task: no issue / chat / autopilot link — workspace and
+ 	// prompt come from the task's context JSONB. Resolve workspace from
+ 	// there so the isolation check below has something to compare.
+ 	hasQuickCreate := false
+-	if task.Context != nil && !task.IssueID.Valid && !task.ChatSessionID.Valid && !task.AutopilotRunID.Valid {
++	if task.Context != nil && !task.WorkflowStepInstanceID.Valid && !task.IssueID.Valid && !task.ChatSessionID.Valid && !task.AutopilotRunID.Valid {
+ 		var qc service.QuickCreateContext
+ 		if json.Unmarshal(task.Context, &qc) == nil && qc.Type == service.QuickCreateContextType {
+ 			hasQuickCreate = true
+@@ -3295,6 +3351,20 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
+ 	// discipline. This final call is the backstop for a task that reached here
+ 	// without any branch claiming it.
+ 	if failure := h.rejectClaimOnWorkspaceMismatch(r.Context(), task, resp.WorkspaceID, runtimeID, runtimeWorkspaceID, hasQuickCreate); failure != nil {
++		// The shared helper logs the branch flags it knows about; workflow Step
++		// tasks are fork-only, so their flag is reported here instead of widening
++		// the helper's signature for all six call sites. A workflow task resolves
++		// its workspace from the Run (which need not have an issue), so knowing
++		// this was a Step task is what distinguishes "the Run carried a foreign
++		// workspace" from "no branch claimed the task at all".
++		if hasWorkflowStep {
++			slog.Error("task claim: workspace isolation failure was a workflow Step task",
++				"task_id", uuidToString(task.ID),
++				"workflow_step_instance_id", uuidToString(task.WorkflowStepInstanceID),
++				"resolved_workspace", resp.WorkspaceID,
++				"runtime_workspace", runtimeWorkspaceID,
++			)
++		}
+ 		return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, failure
+ 	}
+ 
+diff --git a/server/internal/handler/handler.go b/server/internal/handler/handler.go
+index 6edc70029..0f997c174 100644
+--- a/server/internal/handler/handler.go
++++ b/server/internal/handler/handler.go
+@@ -42,6 +42,7 @@ import (
+ 	"github.com/multica-ai/multica/server/internal/storage"
+ 	"github.com/multica-ai/multica/server/internal/util"
+ 	"github.com/multica-ai/multica/server/internal/util/secretbox"
++	"github.com/multica-ai/multica/server/internal/workflow"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ 	"github.com/multica-ai/multica/server/pkg/featureflag"
+ 	"github.com/multica-ai/multica/server/pkg/llm"
+@@ -74,13 +75,13 @@ type Config struct {
+ 	// has no platform-admin concept; operators bootstrap the workspace with
+ 	// the flag off, then flip it on and restart so subsequent users join via
+ 	// invitation only. The public /api/config endpoint mirrors this flag so
+-	// the UI can hide every "Create workspace" affordance — see #3433.
++	// the UI can hide every "Create workspace" affordance â€” see #3433.
+ 	DisableWorkspaceCreation bool
+ 	// VCSIntegrationEnabled gates the self-hosted Git provider integration
+ 	// (Forgejo / Gitea / GitLab) at the deployment level, independent of whether
+ 	// MULTICA_VCS_SECRET_KEY is set. It is the product boundary: the feature is
+ 	// intended for self-hosted Multica only (where Multica and the Git instance
+-	// can share a network), and is left off on the managed cloud — connect,
++	// can share a network), and is left off on the managed cloud â€” connect,
+ 	// rotate, and webhook handlers reject when it is false, and /api/config
+ 	// omits it so the UI hides the whole section rather than showing a
+ 	// "missing key" message a cloud user cannot act on. Populated from
+@@ -89,7 +90,7 @@ type Config struct {
+ 	// PublicURL is the absolute base URL the API is reachable at from the
+ 	// public internet, with no trailing slash (e.g. "https://multica.ai").
+ 	// Used to build webhook_url responses and the fixed Remote MCP OAuth
+-	// callback URI — never to decide request identity, routing, or workspace
++	// callback URI â€” never to decide request identity, routing, or workspace
+ 	// scope. Empty when unset; webhook clients can fall back to their own origin,
+ 	// while OAuth Connect fails closed because providers require an exact URI.
+ 	// Reading the public host from request headers (Host / X-Forwarded-Host)
+@@ -189,6 +190,8 @@ type RuntimeRecoveryNotifier interface {
+ }
+ 
+ type Handler struct {
++	WorkflowEngine         *workflow.Engine
++	WorkflowReconciler     *workflow.Reconciler
+ 	Queries                *db.Queries
+ 	ReadSelector           *dbreader.Selector
+ 	DB                     dbExecutor
+@@ -281,9 +284,9 @@ type Handler struct {
+ 	// cmd/server/router.go after handler.New.
+ 	Composio *composio.Service
+ 	// ChannelSupervisor owns the per-installation supervisor goroutines
+-	// that hold the §4.4 WS lease and drive each channel.Channel
++	// that hold the Â§4.4 WS lease and drive each channel.Channel
+ 	// (MUL-3620 generalized the Feishu-only Hub into this channel-agnostic
+-	// engine). The router constructs it independently of platform secrets — it
++	// engine). The router constructs it independently of platform secrets â€” it
+ 	// drives any channel type, not just Feishu. It remains nil when lease
+ 	// configuration is unsafe or a selected Redis backend fails its startup
+ 	// readiness check; each platform registers its Factory only when configured
+@@ -292,7 +295,7 @@ type Handler struct {
+ 	// context and joins via WaitWithTimeout (bounded, fenced by
+ 	// ShutdownTimeout) during graceful shutdown so the lease renewer yields
+ 	// cleanly when the DB is healthy without blocking process exit if the
+-	// pool is frozen — at worst the next replica waits the full TTL.
++	// pool is frozen â€” at worst the next replica waits the full TTL.
+ 	ChannelSupervisor *engine.Supervisor
+ 	// ChannelRouter is the channel-agnostic inbound pipeline (the shared
+ 	// handler the Supervisor injects into every Channel). main.go calls
+@@ -333,7 +336,7 @@ type Handler struct {
+ 	// WecomBindingTokens mints/redeems the user-binding tokens behind the
+ 	// "link your Multica account" prompt sent to first-time WeCom users
+ 	// (their aibot userid is a "T"-prefixed anonymized id with no relation
+-	// to their real userid or email, so an explicit binding is required —
++	// to their real userid or email, so an explicit binding is required â€”
+ 	// see wecom/binding.go). Nil disables the redeem endpoint (returns 503)
+ 	// and the OutboundReplier's binding-prompt path.
+ 	WecomBindingTokens WecomBindingRedeemer
+@@ -395,7 +398,7 @@ type Handler struct {
+ 	// launches; wired from a domain-separated MULTICA_PLUGIN_SECRET_KEY at boot.
+ 	PluginSurfaceTokens *secretbox.Box
+ 	// PRRefresh drives the GitHub API snapshot pipeline for PR cards (MUL-5265):
+-	// webhook / page-visit / TTL triggers → authenticated GraphQL fetch →
++	// webhook / page-visit / TTL triggers â†’ authenticated GraphQL fetch â†’
+ 	// head-SHA-guarded atomic snapshot write. Always non-nil, but inert (every
+ 	// trigger is a no-op) when GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY are unset,
+ 	// so the feature degrades cleanly on deployments without a private key.
+@@ -446,7 +449,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
+ 	// boot log alone what a misbehaving upstream will cost, instead of inferring
+ 	// it from an env var whose semantics used to be unguessable (MUL-6364).
+ 	// Read off the client, not off cfg, so the line cannot drift from what the
+-	// SDK actually enforces. Counts and an enum only — never the key or the base
++	// SDK actually enforces. Counts and an enum only â€” never the key or the base
+ 	// URL, since a self-hosted gateway URL routinely embeds a token.
+ 	llmRetry := llmClient.RetryBudget()
+ 	slog.Info("llm retry policy",
+@@ -598,11 +601,11 @@ func writeEditConflict(w http.ResponseWriter, resourceType string, resourceID pg
+ // reachable here is expected to feed a UUID that is either (a) a sqlc round-trip
+ // of a DB-sourced value, or (b) a raw request input that has already been
+ // validated upstream. A panic here means an unguarded user-input string slipped
+-// in — that is a real bug we want surfaced loudly (chi's middleware.Recoverer
++// in â€” that is a real bug we want surfaced loudly (chi's middleware.Recoverer
+ // converts it to a 500) instead of silently corrupting data via a zero UUID.
+ //
+ // For unvalidated user input at request boundaries, use parseUUIDOrBadRequest
+-// (writes 400) — never feed raw chi.URLParam / request-body strings into
++// (writes 400) â€” never feed raw chi.URLParam / request-body strings into
+ // parseUUID directly when the call writes to the database.
+ func parseUUID(s string) pgtype.UUID                { return util.MustParseUUID(s) }
+ func uuidToString(u pgtype.UUID) string             { return util.UUIDToString(u) }
+@@ -657,7 +660,7 @@ func ptrToInt4(v *int32) pgtype.Int4 { return util.PtrToInt4(v) }
+ // response and returns ok=false; callers must return immediately.
+ //
+ // Use this anywhere a malformed UUID would otherwise reach a write query
+-// (DELETE / UPDATE) — the silent zero-UUID behavior of the old ParseUUID
++// (DELETE / UPDATE) â€” the silent zero-UUID behavior of the old ParseUUID
+ // caused real silent-data-loss bugs (#1661).
+ func parseUUIDOrBadRequest(w http.ResponseWriter, s, fieldName string) (pgtype.UUID, bool) {
+ 	u, err := util.ParseUUID(s)
+@@ -683,7 +686,7 @@ func parseUUIDSliceOrBadRequest(w http.ResponseWriter, ids []string, fieldName s
+ 
+ // DeclareChannelFileDelivery records that this deployment can put a file the
+ // agent produced into a channelType conversation. Call it at boot, from the
+-// same branch that gives the adapter what it needs to perform the delivery —
++// same branch that gives the adapter what it needs to perform the delivery â€”
+ // the point is that one condition produces both the capability and the claim
+ // it is announced under, so a deployment cannot end up promising a hop it does
+ // not have.
+@@ -711,8 +714,8 @@ func (h *Handler) DeclareChannelFileDelivery(channelType string) {
+ // left hunting for it.
+ //
+ // Web chat (empty channel type) is not answered here. It has no adapter and no
+-// last hop to have — the browser renders the attachment card off the same bind
+-// — and the prompt handles it in its own branch.
++// last hop to have â€” the browser renders the attachment card off the same bind
++// â€” and the prompt handles it in its own branch.
+ func (h *Handler) channelDeliversFiles(channelType string) bool {
+ 	if channelType == "" {
+ 		return false
+@@ -819,7 +822,7 @@ func requestUserID(r *http.Request) string {
+ // First-class signal: X-Actor-Source set to "task_token" means the request
+ // authenticated via an `mat_` task-scoped token. The auth middleware sets
+ // that header (and stripped any client-supplied value first), so it is
+-// authoritative — the bound (agent_id, task_id) cannot be forged or
++// authoritative â€” the bound (agent_id, task_id) cannot be forged or
+ // stripped by the agent process. This is the path MUL-2600 relies on to
+ // reject agent-process traffic on owner-only endpoints.
+ //
+@@ -829,7 +832,7 @@ func requestUserID(r *http.Request) string {
+ //
+ // This fallback is NOT a security boundary and must not be read as one. Both
+ // ids are observable by any workspace member (GET /api/issues/{id}/task-runs
+-// returns the pair), so requiring both proves nothing on its own — the older
++// returns the pair), so requiring both proves nothing on its own â€” the older
+ // comment here claimed it "closes the impersonation path", and it did not.
+ // What closes it is the Auth / DaemonAuth middleware stripping both headers
+ // from every client, leaving the mat_ branch as the only writer (MUL-3428).
+@@ -839,7 +842,7 @@ func requestUserID(r *http.Request) string {
+ // Returns ("agent", agentID) on success, ("member", userID) otherwise.
+ func (h *Handler) resolveActor(r *http.Request, userID, workspaceID string) (actorType, actorID string) {
+ 	if r.Header.Get("X-Actor-Source") == "task_token" {
+-		// Server-set header — the auth middleware stripped whatever the
++		// Server-set header â€” the auth middleware stripped whatever the
+ 		// client sent and re-stamped X-Agent-ID from the token row. Trust
+ 		// it directly without re-querying.
+ 		return "agent", r.Header.Get("X-Agent-ID")
+@@ -892,7 +895,7 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (string, bool) {
+ // resolveWorkspaceID returns the workspace UUID for this request. Delegates
+ // to middleware.ResolveWorkspaceIDFromRequest so middleware-protected routes
+ // and middleware-less routes (e.g. /api/upload-file) share identical
+-// resolution behavior — including slug → UUID translation via the DB.
++// resolution behavior â€” including slug â†’ UUID translation via the DB.
+ //
+ // Returns "" when no workspace identifier was provided or a slug was provided
+ // but doesn't match any workspace.
+@@ -1039,7 +1042,7 @@ func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issue
+ 
+ 	issueUUID, err := util.ParseUUID(issueID)
+ 	if err != nil {
+-		// Not a valid UUID and didn't match identifier format → 404 (consistent
++		// Not a valid UUID and didn't match identifier format â†’ 404 (consistent
+ 		// with previous silent-zero behavior, which would also have produced 404).
+ 		writeError(w, http.StatusNotFound, "issue not found")
+ 		return db.Issue{}, false
+@@ -1065,7 +1068,7 @@ func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issue
+ // The prefix must match the workspace's own issue prefix, the same rule
+ // `lookupIssueByIdentifier` applies to VCS webhooks. Without it every prefix
+ // resolved to the same issue number, so `FOO-134` and `TRS-134` were
+-// interchangeable — which makes the identifier URL `/{ws}/issues/{key}`
++// interchangeable â€” which makes the identifier URL `/{ws}/issues/{key}`
+ // unusable as a canonical link.
+ func (h *Handler) resolveIssueByIdentifier(ctx context.Context, id, workspaceID string) (db.Issue, bool) {
+ 	parts := splitIdentifier(id)
+@@ -1118,7 +1121,7 @@ func splitIdentifier(id string) *identifierParts {
+ 		}
+ 		num = num*10 + int(c-'0')
+ 		// Guard the int32 conversion below: a UUID whose last group happens to
+-		// be all digits ("…-421234567890") reaches here and would otherwise be
++		// be all digits ("â€¦-421234567890") reaches here and would otherwise be
+ 		// truncated into a plausible-looking issue number.
+ 		if num > math.MaxInt32 {
+ 			return nil
+@@ -1134,7 +1137,7 @@ func splitIdentifier(id string) *identifierParts {
+ // the configured value, or one generated from the workspace name when the
+ // stored prefix is empty (e.g. workspaces created before the prefix was
+ // introduced). Split out from getIssuePrefix so callers that already hold the
+-// row — such as the GitHub close-intent scan, which must not re-read it — can
++// row â€” such as the GitHub close-intent scan, which must not re-read it â€” can
+ // reuse the rule.
+ //
+ // The empty-prefix fallback stays on the FROZEN name-based derivation, not the
+diff --git a/server/internal/handler/workflow_run.go b/server/internal/handler/workflow_run.go
+index 4429a333c..41f15dbf6 100644
+--- a/server/internal/handler/workflow_run.go
++++ b/server/internal/handler/workflow_run.go
+@@ -37,11 +37,6 @@ import (
+ // the two progress signals the list needs; the full trace lives on the detail
+ // response because it is unbounded in the number of rework attempts.
+ type WorkflowRunResponse struct {
+-	InputInstanceID       *string `json:"input_instance_id"`
+-	InputInstanceRevision *int64  `json:"input_instance_revision"`
+-	InputInstanceName     *string `json:"input_instance_name"`
+-	InputSource           *string `json:"input_source"`
+-
+ 	ID          string `json:"id"`
+ 	WorkspaceID string `json:"workspace_id"`
+ 	// IssueID is null for a Run started without an Issue. The Run endpoint
+@@ -257,12 +252,7 @@ type runSummary struct {
+ }
+ 
+ func workflowRunToResponse(run db.WorkflowRun, sum runSummary) WorkflowRunResponse {
+-	var revision *int64
+-	if run.InputInstanceRevision.Valid {
+-		revision = &run.InputInstanceRevision.Int64
+-	}
+-
+-	resp := WorkflowRunResponse{InputInstanceID: uuidToPtr(run.InputInstanceID), InputInstanceRevision: revision, InputInstanceName: textToPtr(run.InputInstanceName), InputSource: textToPtr(run.InputSource),
++	resp := WorkflowRunResponse{
+ 		ID:                uuidToString(run.ID),
+ 		WorkspaceID:       uuidToString(run.WorkspaceID),
+ 		IssueID:           uuidToPtr(run.IssueID),
+@@ -451,7 +441,7 @@ func (h *Handler) writeWorkflowEngineError(w http.ResponseWriter, r *http.Reques
+ //
+ // h.WorkflowEngine is assigned after handler.New in cmd/server/router.go, so any
+ // construction path that skips that wiring (tests, a future embedded mode) leaves
+-// it nil. A 503 says "this deployment cannot run workflows" — a panic would take
++// it nil. A 503 says "this deployment cannot run workflows" â€” a panic would take
+ // the request down with a stack trace that says nothing about the cause.
+ func (h *Handler) requireWorkflowEngine(w http.ResponseWriter) (*workflow.Engine, bool) {
+ 	if h.WorkflowEngine == nil {
+@@ -498,10 +488,6 @@ func (h *Handler) loadWorkflowRun(w http.ResponseWriter, r *http.Request) (db.Wo
+ 		writeError(w, http.StatusInternalServerError, "failed to get workflow run")
+ 		return db.WorkflowRun{}, false
+ 	}
+-	if run.ExecutionMode != workflow.ExecutionPublished {
+-		writeError(w, http.StatusNotFound, "workflow run not found")
+-		return db.WorkflowRun{}, false
+-	}
+ 	return run, true
+ }
+ 
+@@ -577,7 +563,7 @@ func (h *Handler) workflowRunSummaries(ctx context.Context, workspaceID pgtype.U
+ // Always the version the Run pinned, never the template's current version: a Run
+ // executes the graph it started with, and reading the current version would show
+ // a reviewer criteria from a graph the Run never ran. Returns nil (not an error)
+-// when the version is missing or unparseable — the trace is still worth serving,
++// when the version is missing or unparseable â€” the trace is still worth serving,
+ // it just loses acceptance criteria and rework targets.
+ func (h *Handler) pinnedWorkflowDefinition(ctx context.Context, run db.WorkflowRun) *workflow.Definition {
+ 	def, err := workflow.ResolveRunDefinition(ctx, h.Queries, run.WorkspaceID, run)
+@@ -792,6 +778,17 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
+ 		writeError(w, http.StatusBadRequest, "invalid request body")
+ 		return
+ 	}
++	var controlFields map[string]json.RawMessage
++	if err := json.Unmarshal(rawBody, &controlFields); err != nil {
++		writeError(w, http.StatusBadRequest, "invalid request body")
++		return
++	}
++	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id"} {
++		if value, exists := controlFields[key]; exists && string(value) != "null" && string(value) != `""` {
++			writeErrorCode(w, http.StatusBadRequest, "unsupported_workflow_configuration", key+" is not supported by this published workflow endpoint")
++			return
++		}
++	}
+ 	title := sanitizeNullBytes(strings.TrimSpace(req.Title))
+ 	description := sanitizeNullBytes(strings.TrimSpace(req.Description))
+ 	if title == "" {
+@@ -967,7 +964,7 @@ func (h *Handler) RunWorkflowTemplate(w http.ResponseWriter, r *http.Request) {
+ // StartRun and the other commands return the Run row as it stood BEFORE the
+ // activation they performed in the same transaction: StartRun marks the row
+ // running and then activates the entry node, and activation can immediately move
+-// the Run again — to waiting_acceptance if the entry node is an acceptance gate,
++// the Run again â€” to waiting_acceptance if the entry node is an acceptance gate,
+ // to blocked if routing finds no eligible agent, even to completed for a
+ // degenerate graph. Returning the engine's value verbatim would report `running`
+ // for a Run that is already blocked, and the client would render a spinner for
+@@ -1096,7 +1093,7 @@ func buildWorkflowRunInput(title, description string, rawBody []byte) ([]byte, e
+ 			// refusing would make a graph unstartable over a value the endpoint has
+ 			// no rule for. The marker is visible so nobody mistakes the clipped value
+ 			// for the whole story.
+-			trimmed = string([]rune(trimmed)[:maxWorkflowRunDeclaredFieldLen]) + "…[truncated]"
++			trimmed = string([]rune(trimmed)[:maxWorkflowRunDeclaredFieldLen]) + "â€¦[truncated]"
+ 		}
+ 		out[key] = trimmed
+ 	}
+@@ -1219,14 +1216,14 @@ func (h *Handler) writeWorkflowRunDetail(w http.ResponseWriter, r *http.Request,
+ // Agent Tasks it started.
+ //
+ // The task cancellation is the point. engine.CancelRun cascades to workflow rows
+-// only — it deliberately does not touch agent_task_queue, because TaskService is
++// only â€” it deliberately does not touch agent_task_queue, because TaskService is
+ // canonical for task state (plan section 7). Without the second half, a cancelled
+ // Run's agent keeps running: burning tokens, writing files, and eventually
+ // reporting a result for a Run that no longer exists.
+ //
+ // Tasks are cancelled AFTER the Run, not before. Cancelling first would let the
+ // terminal-task hook fire against a still-running Run and take it down the
+-// failure-policy path — recording a rework attempt or a failure_reason for what
++// failure-policy path â€” recording a rework attempt or a failure_reason for what
+ // was actually a user cancellation. With this order the Run is already terminal,
+ // its Steps are already cancelled, and the hook's own terminal-status guard makes
+ // each task's cancellation a no-op on workflow state.
+@@ -1249,7 +1246,7 @@ func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	// Read the task ids BEFORE cancelling the Run: CancelWorkflowStepInstancesForRun
+-	// does not clear task_id, so the join still resolves afterwards — but reading
++	// does not clear task_id, so the join still resolves afterwards â€” but reading
+ 	// first also means a Step activated concurrently with this cancel is captured
+ 	// rather than missed.
+ 	taskIDs, err := h.Queries.ListActiveAgentTaskIDsForWorkflowRun(r.Context(), db.ListActiveAgentTaskIDsForWorkflowRunParams{
+diff --git a/server/internal/handler/workflow_run_test.go b/server/internal/handler/workflow_run_test.go
+index 962c894ca..d05d262e4 100644
+--- a/server/internal/handler/workflow_run_test.go
++++ b/server/internal/handler/workflow_run_test.go
+@@ -80,8 +80,6 @@ func cleanupWorkflowRuns(t *testing.T) {
+ 		for _, stmt := range []string{
+ 			`DELETE FROM agent_task_queue WHERE workflow_step_instance_id IN
+ 				(SELECT id FROM workflow_step_instance WHERE workspace_id = $1)`,
+-			`DELETE FROM workflow_callback_delivery WHERE workspace_id = $1`,
+-			`DELETE FROM workflow_callback_destination WHERE workspace_id = $1`,
+ 			`DELETE FROM workflow_event WHERE workspace_id = $1`,
+ 			`DELETE FROM workflow_acceptance WHERE workspace_id = $1`,
+ 			`DELETE FROM workflow_submission WHERE workspace_id = $1`,
+@@ -471,19 +469,10 @@ func TestWorkflowIntakeReturnsStableReceiptAndRejectsConflictingReplay(t *testin
+ 	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
+ 	tpl := seededBugFixTemplate(t)
+ 
+-	var destinationID string
+-	if err := testPool.QueryRow(context.Background(), `
+-		INSERT INTO workflow_callback_destination (
+-			workspace_id, name, url, signing_secret_encrypted, created_by_user_id
+-		) VALUES ($1, $2, 'https://callbacks.example.test/workflows', $3, $4)
+-		RETURNING id`, testWorkspaceID, "intake callback "+time.Now().Format(time.RFC3339Nano), []byte("encrypted-test-secret"), testUserID).Scan(&destinationID); err != nil {
+-		t.Fatalf("create intake callback destination: %v", err)
+-	}
+ 	body := map[string]any{
+ 		"source": "ticketing", "event_id": "ticket-123", "template_key": tpl.Key,
+ 		"title": "External ticket 123", "description": "The same event must always resolve to the same workflow receipt.",
+ 		"source_url": "https://tickets.example.test/123", "payload": map[string]any{"severity": "high"},
+-		"callback_destination_id": destinationID,
+ 	}
+ 	post := func(payload map[string]any) *httptest.ResponseRecorder {
+ 		w := httptest.NewRecorder()
+@@ -532,15 +521,28 @@ func TestWorkflowIntakeReturnsStableReceiptAndRejectsConflictingReplay(t *testin
+ 	if source != "external" || sourceEventID != "ticket-123" {
+ 		t.Fatalf("workflow provenance = %q/%q, want external/ticket-123", source, sourceEventID)
+ 	}
+-	var callbackCount int
+-	if err := testPool.QueryRow(context.Background(), `
+-		SELECT count(*) FROM workflow_callback_delivery
+-		WHERE workflow_run_id = $1 AND event_type = 'run.started'`, receipt.WorkflowRunID).Scan(&callbackCount); err != nil {
+-		t.Fatalf("count intake callbacks: %v", err)
++	var eventCount int
++	if err := testPool.QueryRow(context.Background(), `SELECT count(*) FROM workflow_event WHERE run_id=$1 AND event_type='run.started'`, receipt.WorkflowRunID).Scan(&eventCount); err != nil {
++		t.Fatal(err)
++	}
++	if eventCount != 1 {
++		t.Fatalf("run.started events=%d want one after replay", eventCount)
++	}
++	callbackBody := make(map[string]any, len(body)+1)
++	for key, value := range body {
++		callbackBody[key] = value
+ 	}
+-	if callbackCount != 1 {
+-		t.Fatalf("intake run.started callbacks = %d, want one after replay", callbackCount)
++	callbackBody["event_id"] = "unsupported-callback"
++	callbackBody["callback_destination_id"] = "00000000-0000-0000-0000-000000000001"
++	before := workflowSideEffectCounts(t)
++	rejected := post(callbackBody)
++	if rejected.Code != http.StatusBadRequest {
++		t.Fatalf("callback accepted: %d %s", rejected.Code, rejected.Body.String())
+ 	}
++	if after := workflowSideEffectCounts(t); after != before {
++		t.Fatalf("callback rejection wrote rows: %v -> %v", before, after)
++	}
++
+ }
+ 
+ func TestWorkflowRunIsIdempotent(t *testing.T) {
+@@ -1486,3 +1488,14 @@ func TestWorkflowRunEmitsRunChangedEvent(t *testing.T) {
+ 		t.Fatalf("no workflow run_changed event within timeout")
+ 	}
+ }
++
++func workflowSideEffectCounts(t *testing.T) [4]int {
++	t.Helper()
++	var counts [4]int
++	for i, table := range []string{"workflow_run", "workflow_event", "issue", "agent_task_queue"} {
++		if err := testPool.QueryRow(context.Background(), "SELECT count(*) FROM "+table).Scan(&counts[i]); err != nil {
++			t.Fatal(err)
++		}
++	}
++	return counts
++}
+diff --git a/server/internal/service/agent_invoke.go b/server/internal/service/agent_invoke.go
+new file mode 100644
+index 000000000..c9aa967f4
+--- /dev/null
++++ b/server/internal/service/agent_invoke.go
+@@ -0,0 +1,159 @@
++package service
++
++import (
++	"context"
++
++	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/util"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++)
++
++// The agent invocation-permission rule (MUL-3963), extracted so there is exactly
++// ONE implementation of it.
++//
++// It previously lived only as handler.canInvokeAgent, a *Handler method. The
++// workflow router runs in package service and cannot call a handler method, and
++// the alternative - re-deriving "who may trigger this agent" against the same
++// tables - would create a second copy of the most security-sensitive predicate
++// in the codebase. Two copies of an authorization rule do not stay equal: one
++// gets a fix, the other keeps the hole, and the divergence only surfaces when a
++// user triggers the same agent through two different entry points. So the rule
++// moved here and handler.canInvokeAgent now delegates.
++//
++// This is a MOVE, not a reinterpretation. The semantics below are the ones
++// canInvokeAgent enforced, unchanged:
++//
++//   - The agent OWNER may always invoke their own agent.
++//   - permission_mode != "public_to" (i.e. private, or any unknown mode) is
++//     deny-by-default: NO workspace-admin bypass and NO agent-to-agent bypass.
++//     An admin must not be able to spend someone else's Composio/OAuth
++//     connections just because they administer the workspace.
++//   - permission_mode == "public_to" consults the agent_invocation_target
++//     allow-list: a `workspace` target admits any workspace member, a `member`
++//     target admits only that user, and `team` targets are reserved and inert.
++//   - Agent and system principals are workspace-internal and a `workspace`
++//     target admits them even with no resolved human. That exception is scoped
++//     tightly to the workspace target: member/team targets still require a
++//     matching human, so an unattributed trigger fails closed against a
++//     specific-people grant and cannot smuggle itself onto it.
++//   - A2A is judged by the top-of-chain human ORIGINATOR, never the immediate
++//     agent actor, so agents cannot chain into a channel that bypasses an
++//     owner's allow-list.
++//   - Target-list lookup errors deny non-owners. Membership lookup errors only
++//     clear membership; exact member targets and internal workspace actors retain
++//     the established exceptions. Tenant/readiness checks belong to callers.
++
++// InvokeActor identifies who is asking to trigger an agent.
++//
++// ActorID is the immediate principal; OriginatorUserID is the top-of-chain human
++// the action is attributed to. For a member actor they are the same person. For
++// an agent or system actor only OriginatorUserID is trusted - an empty value
++// means no human could be attributed, which fails closed everywhere except the
++// workspace-target exception above.
++type InvokeActor struct {
++	// ActorType is "member", "agent", or "system".
++	ActorType string
++	// ActorID is the member user id, or the agent id for an agent actor.
++	ActorID string
++	// OriginatorUserID is the resolved top-of-chain human, or "" when none.
++	OriginatorUserID string
++	// WorkspaceID scopes the workspace-membership check.
++	WorkspaceID string
++}
++
++// MemberInvokeActor builds the actor for a plain human-initiated invocation,
++// where the member is their own originator. Used by the workflow router, whose
++// invoking principal is the Run's accountable human.
++func MemberInvokeActor(userID, workspaceID string) InvokeActor {
++	return InvokeActor{
++		ActorType:        "member",
++		ActorID:          userID,
++		OriginatorUserID: userID,
++		WorkspaceID:      workspaceID,
++	}
++}
++
++// SystemInvokeActor builds the actor for an approved source with no attributable
++// human in the chain. It is NOT a bypass: it fails closed for private agents
++// and for member/team-scoped allow-lists, and only satisfies a `public_to
++// workspace` target. Autopilot must still resolve its triggering member and
++// reject failed resolution before starting a run.
++func SystemInvokeActor(workspaceID string) InvokeActor {
++	return InvokeActor{ActorType: "system", WorkspaceID: workspaceID}
++}
++
++// AgentInvokePermitted reports whether actor may trigger a run for agent.
++//
++// q is taken as a parameter (rather than read off a service struct) so the
++// caller's transaction-scoped *db.Queries is used when there is one: the
++// workflow router runs inside the Step-activation transaction, and reading
++// permission on a different connection could see an allow-list the surrounding
++// transaction has not observed.
++func AgentInvokePermitted(ctx context.Context, q *db.Queries, agent db.Agent, actor InvokeActor) bool {
++	effectiveUser := actor.ActorID
++	if actor.ActorType != "member" {
++		// agent / system: never trust the immediate principal, only the resolved
++		// human originator at the top of the chain.
++		effectiveUser = actor.OriginatorUserID
++	}
++
++	if effectiveUser != "" && util.UUIDToString(agent.OwnerID) == effectiveUser {
++		return true
++	}
++
++	if agent.PermissionMode != "public_to" {
++		return false
++	}
++
++	targets, err := q.ListAgentInvocationTargets(ctx, agent.ID)
++	if err != nil {
++		return false
++	}
++
++	workspaceBroad := actor.ActorType == "agent" || actor.ActorType == "system"
++	isWorkspaceMember := false
++	if effectiveUser != "" {
++		userUUID, uerr := util.ParseUUID(effectiveUser)
++		wsUUID, werr := util.ParseUUID(actor.WorkspaceID)
++		if uerr == nil && werr == nil {
++			if _, err := q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
++				UserID:      userUUID,
++				WorkspaceID: wsUUID,
++			}); err == nil {
++				isWorkspaceMember = true
++			}
++		}
++	}
++
++	for _, t := range targets {
++		switch t.TargetType {
++		case "workspace":
++			if isWorkspaceMember || workspaceBroad {
++				return true
++			}
++		case "member":
++			// Requires a resolved human. An agent/system trigger with no
++			// originator never matches here - fail closed.
++			if effectiveUser != "" && util.UUIDToString(t.TargetID) == effectiveUser {
++				return true
++			}
++		case "team":
++			// Reserved: team membership does not exist in V1, so team targets
++			// admit nobody (also fail-closed for system/agent).
++		}
++	}
++	return false
++}
++
++// invokeActorForRun resolves the invoking principal for a workflow Run.
++//
++// A Run with an accountable human is judged as that member. Only an approved
++// source with no attributable human may be judged as system. Autopilot entry
++// points must resolve the clicking/triggering member and reject failed resolution.
++func invokeActorForRun(workspaceID, accountableUserID pgtype.UUID) InvokeActor {
++	ws := util.UUIDToString(workspaceID)
++	if accountableUserID.Valid {
++		return MemberInvokeActor(util.UUIDToString(accountableUserID), ws)
++	}
++	return SystemInvokeActor(ws)
++}
+diff --git a/server/internal/service/agent_invoke_test.go b/server/internal/service/agent_invoke_test.go
+new file mode 100644
+index 000000000..d2a40b652
+--- /dev/null
++++ b/server/internal/service/agent_invoke_test.go
+@@ -0,0 +1,152 @@
++package service
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"github.com/jackc/pgx/v5"
++	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/jackc/pgx/v5/pgxpool"
++	"github.com/multica-ai/multica/server/internal/testutil"
++	"github.com/multica-ai/multica/server/internal/util"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++	"strings"
++	"testing"
++	"time"
++)
++
++type invokeFaultDB struct {
++	*pgxpool.Pool
++	memberFailure, targetsFailure bool
++}
++type invokeFaultRow struct{}
++
++func (invokeFaultRow) Scan(...any) error { return errors.New("injected membership read failure") }
++func (d invokeFaultDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
++	if d.memberFailure && strings.Contains(sql, "GetMemberByUserAndWorkspace") {
++		return invokeFaultRow{}
++	}
++	return d.Pool.QueryRow(ctx, sql, args...)
++}
++func (d invokeFaultDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
++	if d.targetsFailure && strings.Contains(sql, "ListAgentInvocationTargets") {
++		return nil, errors.New("injected target read failure")
++	}
++	return d.Pool.Query(ctx, sql, args...)
++}
++
++func TestAgentInvokePermissionMatrix(t *testing.T) {
++	ctx := context.Background()
++	pool := sharedTestPool(t)
++	fx := testutil.New(pool, "", "")
++	suffix := fmt.Sprint(time.Now().UnixNano())
++	owner := fx.User(t, "Owner", "owner-"+suffix+"@example.invalid")
++	member := fx.User(t, "Member", "member-"+suffix+"@example.invalid")
++	stranger := fx.User(t, "Stranger", "stranger-"+suffix+"@example.invalid")
++	ws := fx.Workspace(t, "Invoke matrix", "invoke-"+suffix)
++	fx.WorkspaceID = ws
++	fx.UserID = owner
++	fx.Member(t, ws, owner, "owner")
++	fx.Member(t, ws, member, "admin")
++	agentID := fx.Agent(t, "Matrix agent", "", testutil.Cols{"permission_mode": "public_to"})
++	q := db.New(pool)
++	agent, err := q.GetAgent(ctx, util.MustParseUUID(agentID))
++	if err != nil {
++		t.Fatal(err)
++	}
++	fx.Cleanup(t, "DELETE FROM agent_invocation_target WHERE agent_id=$1", agentID)
++	actor := func(kind, id, origin string) InvokeActor {
++		return InvokeActor{ActorType: kind, ActorID: id, OriginatorUserID: origin, WorkspaceID: ws}
++	}
++	cases := []struct {
++		name, mode, target, targetID string
++		who                          InvokeActor
++		memberErr, targetErr, want   bool
++	}{
++		{"owner private", "private", "", "", actor("member", owner, ""), false, false, true},
++		{"owner unknown", "unknown", "", "", actor("member", owner, ""), false, false, true},
++		{"owner ignores lookup failures", "public_to", "", "", actor("member", owner, ""), true, true, true},
++		{"admin private denied", "private", "", "", actor("member", member, ""), false, false, false},
++		{"admin unknown denied", "unknown", "", "", actor("member", member, ""), false, false, false},
++		{"workspace member", "public_to", "workspace", ws, actor("member", member, ""), false, false, true},
++		{"workspace stranger", "public_to", "workspace", ws, actor("member", stranger, ""), false, false, false},
++		{"workspace malformed", "public_to", "workspace", ws, actor("member", "invalid", ""), false, false, false},
++		{"workspace membership error", "public_to", "workspace", ws, actor("member", member, ""), true, false, false},
++		{"exact member", "public_to", "member", member, actor("member", member, ""), false, false, true},
++		{"exact member lookup error exception", "public_to", "member", member, actor("member", member, ""), true, false, true},
++		{"member mismatch", "public_to", "member", owner, actor("member", member, ""), false, false, false},
++		{"team inert", "public_to", "team", member, actor("member", member, ""), false, false, false},
++		{"empty targets", "public_to", "", "", actor("member", member, ""), false, false, false},
++		{"targets error", "public_to", "workspace", ws, actor("member", member, ""), false, true, false},
++		{"member ignores originator", "private", "", "", actor("member", member, owner), false, false, false},
++		{"agent owner originator", "private", "", "", actor("agent", stranger, owner), false, false, true},
++		{"agent actor owner insufficient", "private", "", "", actor("agent", owner, member), false, false, false},
++		{"agent member originator", "public_to", "member", member, actor("agent", stranger, member), false, false, true},
++		{"system originator owner", "private", "", "", actor("system", "", owner), false, false, true},
++		{"system workspace exception", "public_to", "workspace", ws, actor("system", "", ""), true, false, true},
++		{"agent workspace exception", "public_to", "workspace", ws, actor("agent", stranger, ""), true, false, true},
++		{"invalid actor no workspace exception", "public_to", "workspace", ws, actor("invalid", "", ""), false, false, false},
++		{"system private", "private", "", "", actor("system", "", ""), false, false, false},
++		{"system member only", "public_to", "member", member, actor("system", "", ""), false, false, false},
++		{"system team only", "public_to", "team", member, actor("system", "", ""), false, false, false},
++	}
++	for _, c := range cases {
++		t.Run(c.name, func(t *testing.T) {
++			fx.Exec(t, "DELETE FROM agent_invocation_target WHERE agent_id=$1", agentID)
++			if c.target != "" {
++				fx.Exec(t, "INSERT INTO agent_invocation_target(agent_id,target_type,target_id) VALUES($1,$2,$3)", agentID, c.target, c.targetID)
++			}
++			a := agent
++			a.PermissionMode = c.mode
++			queries := db.New(invokeFaultDB{Pool: pool, memberFailure: c.memberErr, targetsFailure: c.targetErr})
++			if got := AgentInvokePermitted(ctx, queries, a, c.who); got != c.want {
++				t.Fatalf("allowed=%v want=%v", got, c.want)
++			}
++			// This is the unchanged independent Autopilot member predicate, not delegation.
++			if c.who.ActorType == "member" && !c.memberErr && !c.targetErr && c.who.ActorID != "invalid" {
++				svc := &AutopilotService{Queries: q}
++				if got := svc.canMemberInvokeAgent(ctx, a, util.MustParseUUID(c.who.ActorID), util.MustParseUUID(ws)); got != c.want {
++					t.Fatalf("autopilot member parity=%v want=%v", got, c.want)
++				}
++			}
++		})
++	}
++	memberActor := invokeActorForRun(util.MustParseUUID(ws), util.MustParseUUID(member))
++	if memberActor != MemberInvokeActor(member, ws) {
++		t.Fatal("accountable mapping changed")
++	}
++	if invokeActorForRun(util.MustParseUUID(ws), pgtype.UUID{}) != SystemInvokeActor(ws) {
++		t.Fatal("unattributed mapping changed")
++	}
++}
++
++func TestAgentInvokeTransactionReads(t *testing.T) {
++	ctx := context.Background()
++	env := newWorkflowRouterEnv(t)
++	id := env.createAgent(t, agentSpec{name: "Transactional permission", owner: env.otherUserID})
++	agent, err := env.q.GetAgent(ctx, id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	actor := MemberInvokeActor(util.UUIDToString(env.userID), util.UUIDToString(env.workspaceID))
++	tx, err := env.pool.Begin(ctx)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer tx.Rollback(ctx)
++	if _, err = tx.Exec(ctx, "DELETE FROM agent_invocation_target WHERE agent_id=$1", id); err != nil {
++		t.Fatal(err)
++	}
++	if AgentInvokePermitted(ctx, env.q.WithTx(tx), agent, actor) {
++		t.Fatal("transaction ignored revocation")
++	}
++	if !AgentInvokePermitted(ctx, env.q, agent, actor) {
++		t.Fatal("pool unexpectedly saw uncommitted revoke")
++	}
++	if err = tx.Rollback(ctx); err != nil {
++		t.Fatal(err)
++	}
++	if !AgentInvokePermitted(ctx, env.q, agent, actor) {
++		t.Fatal("rollback did not restore allow-list")
++	}
++}
+diff --git a/server/internal/service/autopilot.go b/server/internal/service/autopilot.go
+index f34e32a51..10fdf6eb5 100644
+--- a/server/internal/service/autopilot.go
++++ b/server/internal/service/autopilot.go
+@@ -2,6 +2,7 @@ package service
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+@@ -23,6 +24,7 @@ import (
+ 	"github.com/multica-ai/multica/server/internal/issuestatus"
+ 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
+ 	"github.com/multica-ai/multica/server/internal/util"
++	"github.com/multica-ai/multica/server/internal/workflow"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ 	"github.com/multica-ai/multica/server/pkg/dbid"
+ 	"github.com/multica-ai/multica/server/pkg/protocol"
+@@ -34,12 +36,13 @@ type TxStarter interface {
+ }
+ 
+ type AutopilotService struct {
+-	Queries      *db.Queries
+-	TxStarter    TxStarter
+-	Bus          *events.Bus
+-	TaskSvc      *TaskService
+-	Entitlements entitlement.Provider
+-	QuotaMetrics AutopilotQuotaMetrics
++	WorkflowEngine *workflow.Engine
++	Queries        *db.Queries
++	TxStarter      TxStarter
++	Bus            *events.Bus
++	TaskSvc        *TaskService
++	Entitlements   entitlement.Provider
++	QuotaMetrics   AutopilotQuotaMetrics
+ }
+ 
+ // DefaultAutopilotTriggerTimezone is the timezone used to render Autopilot
+@@ -63,10 +66,12 @@ func NewAutopilotService(q *db.Queries, tx TxStarter, bus *events.Bus, taskSvc *
+ // rule (recording the editing member + timestamp), the summary just carries the
+ // autopilot row's core config.
+ type autopilotRuleConfigSummary struct {
+-	AssigneeType  string `json:"assignee_type"`
+-	AssigneeID    string `json:"assignee_id"`
+-	Status        string `json:"status"`
+-	ExecutionMode string `json:"execution_mode"`
++	WorkflowTemplateID        string `json:"workflow_template_id,omitempty"`
++	WorkflowTemplateVersionID string `json:"workflow_template_version_id,omitempty"`
++	AssigneeType              string `json:"assignee_type"`
++	AssigneeID                string `json:"assignee_id"`
++	Status                    string `json:"status"`
++	ExecutionMode             string `json:"execution_mode"`
+ }
+ 
+ // RecordAutopilotRuleVersion appends one rule-version snapshot for a substantive
+@@ -78,6 +83,7 @@ type autopilotRuleConfigSummary struct {
+ // auto-pause monitor).
+ func RecordAutopilotRuleVersion(ctx context.Context, q *db.Queries, ap db.Autopilot, publishedByType string, publishedByID pgtype.UUID) error {
+ 	summary, err := json.Marshal(autopilotRuleConfigSummary{
++		WorkflowTemplateID: util.UUIDToString(ap.WorkflowTemplateID), WorkflowTemplateVersionID: util.UUIDToString(ap.WorkflowTemplateVersionID),
+ 		AssigneeType:  ap.AssigneeType,
+ 		AssigneeID:    util.UUIDToString(ap.AssigneeID),
+ 		Status:        ap.Status,
+@@ -227,7 +233,7 @@ func (s *AutopilotService) AdmitAutopilotWebhookDelivery(
+ 	}
+ 
+ 	initialStatus := "issue_created"
+-	if autopilot.ExecutionMode == "run_only" {
++	if autopilot.ExecutionMode == "run_only" || autopilot.WorkflowTemplateID.Valid {
+ 		initialStatus = "running"
+ 	}
+ 	run, _, err := s.createAutopilotRunWithQuota(ctx, autopilot.WorkspaceID, "webhook", "webhook:"+util.UUIDToString(deliveryID), db.CreateAutopilotRunParams{
+@@ -543,7 +549,7 @@ func (s *AutopilotService) dispatchAutopilot(
+ 
+ 	// Determine initial status based on execution mode.
+ 	initialStatus := "issue_created"
+-	if autopilot.ExecutionMode == "run_only" {
++	if autopilot.ExecutionMode == "run_only" || autopilot.WorkflowTemplateID.Valid {
+ 		initialStatus = "running"
+ 	}
+ 
+@@ -585,6 +591,16 @@ func (s *AutopilotService) dispatchAutopilotRun(
+ 	run *db.AutopilotRun,
+ 	actorUserID pgtype.UUID,
+ ) (*db.AutopilotRun, dispatch.ReasonCode, error) {
++	if autopilot.WorkflowTemplateID.Valid {
++		if err := s.dispatchWorkflow(ctx, autopilot, run, actorUserID); err != nil {
++			s.failRun(ctx, run.ID, err.Error())
++			s.captureAutopilotRunFailed(autopilot, *run, source, err.Error())
++			return run, dispatchFailReasonCode(err), fmt.Errorf("dispatch workflow: %w", err)
++		}
++		s.Queries.UpdateAutopilotLastRunAt(ctx, autopilot.ID)
++		s.Bus.Publish(events.Event{Type: protocol.EventAutopilotRunStart, WorkspaceID: util.UUIDToString(autopilot.WorkspaceID), ActorType: "system", Payload: map[string]any{"run_id": util.UUIDToString(run.ID), "autopilot_id": util.UUIDToString(autopilot.ID), "source": source, "status": run.Status}})
++		return run, "", nil
++	}
+ 	switch autopilot.ExecutionMode {
+ 	case "create_issue":
+ 		triggerTimezone := s.resolveAutopilotTriggerTimezone(ctx, triggerID)
+@@ -630,6 +646,98 @@ func (s *AutopilotService) dispatchAutopilotRun(
+ 	return run, "", nil
+ }
+ 
++func (s *AutopilotService) dispatchWorkflow(ctx context.Context, ap db.Autopilot, run *db.AutopilotRun, actorUserID pgtype.UUID) error {
++	if s.WorkflowEngine == nil {
++		return fmt.Errorf("workflow engine is unavailable")
++	}
++	accountable := actorUserID
++	if !accountable.Valid {
++		attr := triggerOwnerAttribution(ctx, s.Queries, run.TriggerID, ap.WorkspaceID, ap.ID, attribution.EvidenceAutopilotRun, run.ID)
++		accountable = attr.AccountableUserID
++	}
++	if !accountable.Valid {
++		return &errDispatchSkipped{reason: formatAdmissionReason(ap, "workspace fail-closed: no accountable human for workflow run"), code: dispatch.ReasonAttributionBlocked}
++	}
++	input := map[string]any{"title": ap.Title, "description": ap.Description.String}
++	if len(run.TriggerPayload) > 0 {
++		var payload map[string]any
++		if json.Unmarshal(run.TriggerPayload, &payload) == nil {
++			if eventPayload, ok := payload["eventPayload"].(map[string]any); ok {
++				for key, value := range eventPayload {
++					input[key] = value
++				}
++			}
++			for key, value := range payload {
++				input[key] = value
++			}
++		}
++	}
++	raw, err := json.Marshal(input)
++	if err != nil {
++		return err
++	}
++	template, err := s.Queries.GetWorkflowTemplate(ctx, db.GetWorkflowTemplateParams{ID: ap.WorkflowTemplateID, WorkspaceID: ap.WorkspaceID})
++	if err != nil {
++		return fmt.Errorf("load bound workflow template: %w", err)
++	}
++	if supplied, ok := input["template_key"].(string); ok && supplied != "" && !strings.EqualFold(strings.TrimSpace(supplied), template.Key) {
++		return fmt.Errorf("webhook template_key %q does not match bound workflow template %q", supplied, template.Key)
++	}
++	subscribers := []workflow.RunIssueSubscriber{{UserType: "member", UserID: accountable, Reason: "autopilot"}}
++	templateSubscribers, err := s.Queries.ListAutopilotSubscribers(ctx, ap.ID)
++	if err != nil {
++		return fmt.Errorf("list workflow autopilot subscribers: %w", err)
++	}
++	seenSubscribers := map[string]bool{"member:" + util.UUIDToString(accountable): true}
++	for _, sub := range templateSubscribers {
++		key := sub.UserType + ":" + util.UUIDToString(sub.UserID)
++		if seenSubscribers[key] {
++			continue
++		}
++		seenSubscribers[key] = true
++		subscribers = append(subscribers, workflow.RunIssueSubscriber{UserType: sub.UserType, UserID: sub.UserID, Reason: "autopilot"})
++	}
++	started, err := s.WorkflowEngine.StartRun(ctx, workflow.StartRunInput{
++		WorkspaceID:       ap.WorkspaceID,
++		TemplateID:        ap.WorkflowTemplateID,
++		TemplateVersionID: ap.WorkflowTemplateVersionID,
++		Source:            "autopilot",
++		SourceEventID:     util.UUIDToString(run.ID),
++		IdempotencyKey:    "autopilot:" + util.UUIDToString(run.ID),
++		RequestHash:       fmt.Sprintf("%x", sha256.Sum256(raw)),
++		AccountableUserID: accountable,
++		AutopilotRunID:    run.ID,
++		Issue: &workflow.RunIssueInput{
++			Title:       ap.Title,
++			Description: ap.Description.String,
++			CreatorType: "member",
++			CreatorID:   accountable,
++			ProjectID:   ap.ProjectID,
++			OriginType:  pgtype.Text{String: "autopilot", Valid: true},
++			OriginID:    ap.ID,
++			Subscribers: subscribers,
++		},
++		Input:     raw,
++		ActorType: "system",
++	})
++	if err != nil {
++		return err
++	}
++	updated, err := s.Queries.GetAutopilotRun(ctx, run.ID)
++	if err != nil {
++		return fmt.Errorf("reload linked autopilot workflow run: %w", err)
++	}
++	if updated.WorkflowRunID != started.Run.ID || updated.IssueID != started.Run.IssueID {
++		return fmt.Errorf("autopilot workflow linkage was not committed atomically")
++	}
++	*run = updated
++	if !started.AlreadyExisted && started.Issue != nil {
++		prefix := s.getIssuePrefix(ap.WorkspaceID)
++		s.Bus.Publish(events.Event{Type: protocol.EventIssueCreated, WorkspaceID: util.UUIDToString(ap.WorkspaceID), ActorType: "member", ActorID: util.UUIDToString(accountable), Payload: map[string]any{"issue": IssueToMap(*started.Issue, prefix)}})
++	}
++	return nil
++}
++
+ // dispatchFailReasonCode types a dispatch error that fell through to failRun.
+ // It inspects the error with typed checks (never substring matching): a
+ // fail-closed attribution refusal is attribution_blocked; everything else is an
+@@ -1293,6 +1401,9 @@ func (s *AutopilotService) failRun(ctx context.Context, runID pgtype.UUID, reaso
+ //     agent assignee being missing is now a real condition the gate must
+ //     handle (previously cascade-deleted).
+ func (s *AutopilotService) shouldSkipDispatch(ctx context.Context, ap db.Autopilot, actorUserID, triggerID pgtype.UUID) (string, dispatch.ReasonCode, bool) {
++	if ap.WorkflowTemplateID.Valid {
++		return "", "", false
++	}
+ 	if !ap.AssigneeID.Valid {
+ 		return "autopilot has no assignee", dispatch.ReasonTargetUnavailable, true
+ 	}
+diff --git a/server/internal/service/task.go b/server/internal/service/task.go
+index bd94ddf53..9b46ae403 100644
+--- a/server/internal/service/task.go
++++ b/server/internal/service/task.go
+@@ -84,6 +84,18 @@ type TaskService struct {
+ 	// shedding everything.
+ 	quickActionsInFlight sync.Map
+ 	quickActionsRunning  atomic.Int64
++	// WorkflowTerminal advances a workflow Run when one of its Agent Tasks
++	// reaches a terminal state. Optional: nil (every deployment before the
++	// workflow engine is wired, and every test that does not care) turns the
++	// hook into a no-op and TaskService behaves exactly as before. Wired in
++	// router.go to the *workflow.Engine, which satisfies the interface
++	// structurally so package service does not import internal/workflow here.
++	//
++	// TaskService remains canonical for Task terminal state; this only lets the
++	// workflow layer learn about it. Without the hook a finished workflow task
++	// never advances its Run - the Step sits queued forever and the Run stalls
++	// with no error anywhere, which is the worst failure shape available.
++	WorkflowTerminal WorkflowTaskTerminalObserver
+ 
+ 	analyticsContextMu    sync.Mutex
+ 	analyticsContextCache map[string]analytics.TaskContext
+@@ -120,6 +132,63 @@ type TaskWakeupNotifier interface {
+ 	NotifyTaskAvailable(runtimeID, taskID string)
+ }
+ 
++// WorkflowTaskTerminalObserver is the seam through which a terminal Agent Task
++// advances the workflow Run that created it.
++//
++// The interface is declared HERE, in package service, and the method set is
++// chosen to match *workflow.Engine.OnAgentTaskTerminal structurally. That is what
++// keeps the dependency one-directional: package service already imports package
++// workflow (builtin_workflows.go), and the engine creating tasks means the engine
++// cannot import service, so the two must meet at an interface owned by whichever
++// side does not need the other's types. Only a UUID and strings cross the seam.
++//
++// There is deliberately no workspace parameter. The engine resolves the
++// authoritative workspace from the Step row it looks up by task id, so a
++// workspace passed from here would be either redundant or, if it disagreed,
++// wrong - and TaskService's terminal paths are keyed on a task id and have no
++// workspace to hand, so supplying one would mean an extra query per completion
++// for a value the callee discards.
++//
++// Contract:
++//   - Called AFTER the terminal transaction commits, next to broadcastTaskEvent.
++//     Calling it inside would let the workflow layer observe a task state a
++//     rollback then erased.
++//   - A NON-workflow task must be a no-op. notifyWorkflowTaskTerminal short-
++//     circuits on workflow_step_instance_id being NULL before doing any work, so
++//     every legacy issue / chat / autopilot / quick-create task pays one boolean
++//     check and nothing else.
++//   - An error is logged, never propagated: the Task is already terminal and
++//     canonical. Failing the caller would report a task that genuinely finished
++//     as failed, which is a worse outcome than a Run that stalls visibly.
++type WorkflowTaskTerminalObserver interface {
++	OnAgentTaskTerminal(ctx context.Context, taskID pgtype.UUID, taskStatus, result, failureReason, errorDetail string) error
++}
++
++// notifyWorkflowTaskTerminal invokes the workflow hook for a task that just
++// reached a terminal state. Nil-guarded so a deployment without the engine wired
++// behaves exactly as before, and error-swallowing for the reason given on
++// WorkflowTaskTerminalObserver.
++func (s *TaskService) notifyWorkflowTaskTerminal(ctx context.Context, task db.AgentTaskQueue, taskStatus, result, failureReason, errorDetail string) {
++	if s.WorkflowTerminal == nil {
++		return
++	}
++	// The fence that keeps a non-workflow task a true no-op. Checked here, on a
++	// column the caller already has in hand, rather than inside the engine: every
++	// task completion in the system reaches this line, so it must not cost a
++	// query to learn that a task has nothing to do with workflows.
++	if !task.WorkflowStepInstanceID.Valid {
++		return
++	}
++	if err := s.WorkflowTerminal.OnAgentTaskTerminal(ctx, task.ID,
++		taskStatus, result, failureReason, errorDetail); err != nil {
++		slog.Error("workflow: advancing run after terminal task failed",
++			"task_id", util.UUIDToString(task.ID),
++			"workflow_step_instance_id", util.UUIDToString(task.WorkflowStepInstanceID),
++			"task_status", taskStatus,
++			"error", err)
++	}
++}
++
+ // triggerSummaryMaxLen caps the snapshot length so the row stays cheap to
+ // transmit (it ends up in every task list response). 200 is enough for a
+ // recognisable preview of a one-paragraph comment.
+@@ -2966,6 +3035,12 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
+ 	s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
+ 	s.NotifyTaskFinished(task)
+ 
++	// Advance the workflow Run this task belonged to, if any. A cancel is
++	// terminal and never retried, so it always reaches the engine, which maps it
++	// to the `cancelled` reason rather than a failure - a Step whose task a human
++	// stopped is not a Step whose work failed.
++	s.notifyWorkflowTaskTerminal(ctx, task, "cancelled", "", "", "")
++
+ 	return &CancelTaskResult{
+ 		Task:                 task,
+ 		CancelledChatMessage: cancelledChatMessage,
+@@ -4459,9 +4534,60 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
+ 	// Broadcast
+ 	s.broadcastTaskEvent(ctx, protocol.EventTaskCompleted, task)
+ 
++	// Advance the workflow Run this task belonged to, if any. After commit and
++	// after the broadcast, so the workflow layer never observes state a rollback
++	// would have erased and the UI has already seen the task finish. A no-op for
++	// every non-workflow task.
++	s.notifyWorkflowTaskTerminal(ctx, task, "completed", workflowAgentOutput(result), "", "")
++
+ 	return &task, nil
+ }
+ 
++// workflowAgentOutput extracts the agent's final message from a task result blob
++// for the workflow engine.
++//
++// The `result` column is a protocol.TaskCompletedPayload envelope, not the agent's
++// text. Handing the raw envelope to the engine would be a subtle and total
++// failure: json.Marshal escapes `<` as `<`, so the submission block's
++// `<<<MULTICA_SUBMISSION>>>` delimiters would be unfindable inside it,
++// ExtractDelimitedSubmission would report "no block", and EVERY step of EVERY run
++// would block with submission_contract_invalid while the agent had in fact
++// submitted correctly. That is the same class of bug this whole change set exists
++// to fix, so it is unwrapped here rather than left to the engine, which has no
++// business knowing the task-queue's storage format.
++//
++// The agent's text is returned exactly as json.Unmarshal produced it. It is
++// deliberately NOT run through util.UnescapeBackslashEscapes: the decoder has
++// already turned every JSON escape into the real character, so unescaping a
++// second time corrupts any legitimate backslash the agent wrote. A summary
++// mentioning a Windows path (C:\Users\...), a regex, or containing a real
++// newline would come back out as invalid JSON, and the step would block with
++// submission_contract_invalid on a perfectly good submission — the exact failure
++// this unwrapping exists to prevent.
++//
++// That unescape belongs to the RAW-STDOUT paths (quickCreateFailureDetail and
++// the comment fallback), which read text that never passed through a JSON
++// decoder. If some runtime is ever found to double-escape its envelope, handle
++// it by detecting "no extractable block" and THEN retrying with unescaping —
++// never unconditionally, or the fix costs more submissions than it saves.
++//
++// Returns the raw blob as a last resort when the envelope does not parse: the
++// engine's contract validation will reject it and record the raw text as evidence,
++// which shows a human what actually arrived instead of silently reporting nothing.
++func workflowAgentOutput(result []byte) string {
++	if len(result) == 0 {
++		return ""
++	}
++	var payload protocol.TaskCompletedPayload
++	if err := json.Unmarshal(result, &payload); err != nil {
++		return string(result)
++	}
++	if payload.Output == "" {
++		return ""
++	}
++	return payload.Output
++}
++
+ // chatNoResponseFallback is the non-empty English body stored on a no_response
+ // assistant row. New clients render a localized "no text reply this turn"
+ // message keyed on message_kind='no_response'; older clients that ignore
+@@ -5056,6 +5182,24 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg,
+ 	// because its child reports the eventual terminal outcome.
+ 	s.broadcastTaskFailedEvent(ctx, task, errMsg, failureReason, retried != nil)
+ 
++	// Advance the workflow Run this task belonged to, if any.
++	//
++	// Skipped when an auto-retry is pending, for the same reason the quick-create
++	// failure notice is: the failure is not yet final. The retry child inherits
++	// nothing about the workflow Step (CreateRetryTask does not copy
++	// workflow_step_instance_id), so the parent stays the Step's bound task and
++	// its terminal outcome is the one that must reach the engine - reporting a
++	// transient daemon hiccup as a Step failure would burn a workflow attempt and
++	// could trip the node's rework budget over infrastructure flakiness. If the
++	// retry also fails with no further retry, THAT call advances the Run. A retry
++	// chain that ends without ever reaching here (process death mid-chain) is what
++	// the ListWorkflowTasksAwaitingStepProgress repair query exists for; the worker
++	// that drives it is not wired yet, so such a Run stalls visibly as a queued
++	// Step rather than silently reporting the wrong outcome.
++	if retried == nil {
++		s.notifyWorkflowTaskTerminal(ctx, task, "failed", "", failureReason, errMsg)
++	}
++
+ 	return &task, nil
+ }
+ 
+diff --git a/server/internal/service/workflow_router_permission_test.go b/server/internal/service/workflow_router_permission_test.go
+new file mode 100644
+index 000000000..a6f3800be
+--- /dev/null
++++ b/server/internal/service/workflow_router_permission_test.go
+@@ -0,0 +1,65 @@
++package service
++
++import (
++	"context"
++	"github.com/jackc/pgx/v5"
++	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/util"
++	"github.com/multica-ai/multica/server/internal/workflow"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++	"testing"
++)
++
++func TestWorkflowRouterTransactionalRevocationAllStrategies(t *testing.T) {
++	env := newWorkflowRouterEnv(t)
++	ctx := context.Background()
++	id := env.createAgent(t, agentSpec{name: "Revocable", owner: env.otherUserID, labels: []string{"transactional"}})
++	requests := []workflow.RouteRequest{
++		{Node: &workflow.Node{Key: "explicit", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingExplicit, AgentID: util.UUIDToString(id)}}},
++		{Node: capabilityNode("capability", "transactional")},
++		{Node: &workflow.Node{Key: "previous", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingPreviousStep, FromNode: "before"}}, PriorAgentByNode: map[string]pgtype.UUID{"before": id}},
++		{Node: &workflow.Node{Key: "fallback", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingCapability, Capability: "missing", FallbackAgentID: util.UUIDToString(id)}}},
++	}
++	var countBefore int
++	if err := env.pool.QueryRow(ctx, "SELECT count(*) FROM agent_task_queue WHERE agent_id=$1", id).Scan(&countBefore); err != nil {
++		t.Fatal(err)
++	}
++	tx, err := env.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer tx.Rollback(ctx)
++	if _, err = tx.Exec(ctx, "DELETE FROM agent_invocation_target WHERE agent_id=$1", id); err != nil {
++		t.Fatal(err)
++	}
++	for _, req := range requests {
++		t.Run(req.Node.Key, func(t *testing.T) {
++			req.WorkspaceID = env.workspaceID
++			req.AccountableUserID = env.userID
++			req.Run = db.WorkflowRun{WorkspaceID: env.workspaceID, AccountableUserID: env.userID}
++			if _, err := env.router.Route(ctx, env.q.WithTx(tx), req); err == nil {
++				t.Fatal("transactional revoke bypassed")
++			}
++			if _, err := env.router.Route(ctx, env.q, req); err != nil {
++				t.Fatalf("pool should see original grant: %v", err)
++			}
++		})
++	}
++	if err = tx.Commit(ctx); err != nil {
++		t.Fatal(err)
++	}
++	for _, req := range requests {
++		req.WorkspaceID = env.workspaceID
++		req.AccountableUserID = env.userID
++		if _, err := env.router.Route(ctx, env.q, req); err == nil {
++			t.Fatalf("%s reused revoked permission on next route", req.Node.Key)
++		}
++	}
++	var countAfter int
++	if err := env.pool.QueryRow(ctx, "SELECT count(*) FROM agent_task_queue WHERE agent_id=$1", id).Scan(&countAfter); err != nil {
++		t.Fatal(err)
++	}
++	if countBefore != countAfter {
++		t.Fatal("routing refusal enqueued work")
++	}
++}
+diff --git a/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql b/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
+index f44c3415c..6cb7e7556 100644
+--- a/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_acceptance ADD CONSTRAINT workflow_acceptance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_acceptance_id;
+-COMMENT ON CONSTRAINT workflow_acceptance_pkey ON workflow_acceptance IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_acceptance_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_acceptance ADD CONSTRAINT workflow_acceptance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_acceptance_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_acceptance_pkey ON workflow_acceptance IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_event_pkey.up.sql b/server/migrations/255_tes85_workflow_event_pkey.up.sql
+index 9e40b52ef..fa704ab89 100644
+--- a/server/migrations/255_tes85_workflow_event_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_event_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_event ADD CONSTRAINT workflow_event_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_event_id;
+-COMMENT ON CONSTRAINT workflow_event_pkey ON workflow_event IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_event_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_event ADD CONSTRAINT workflow_event_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_event_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_event_pkey ON workflow_event IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_run_pkey.up.sql b/server/migrations/255_tes85_workflow_run_pkey.up.sql
+index b44e0c983..e9cdedbc1 100644
+--- a/server/migrations/255_tes85_workflow_run_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_run_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_run ADD CONSTRAINT workflow_run_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_run_id;
+-COMMENT ON CONSTRAINT workflow_run_pkey ON workflow_run IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_run_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_run ADD CONSTRAINT workflow_run_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_run_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_run_pkey ON workflow_run IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql b/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
+index 99e4d3155..3e6c9b73a 100644
+--- a/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_step_instance ADD CONSTRAINT workflow_step_instance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_step_instance_id;
+-COMMENT ON CONSTRAINT workflow_step_instance_pkey ON workflow_step_instance IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_step_instance_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_step_instance ADD CONSTRAINT workflow_step_instance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_step_instance_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_step_instance_pkey ON workflow_step_instance IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_submission_pkey.up.sql b/server/migrations/255_tes85_workflow_submission_pkey.up.sql
+index 16546a0ad..1f77ddb50 100644
+--- a/server/migrations/255_tes85_workflow_submission_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_submission_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_submission ADD CONSTRAINT workflow_submission_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_submission_id;
+-COMMENT ON CONSTRAINT workflow_submission_pkey ON workflow_submission IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_submission_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_submission ADD CONSTRAINT workflow_submission_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_submission_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_submission_pkey ON workflow_submission IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_template_pkey.up.sql b/server/migrations/255_tes85_workflow_template_pkey.up.sql
+index 46638daf2..facdd3513 100644
+--- a/server/migrations/255_tes85_workflow_template_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_template_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_template ADD CONSTRAINT workflow_template_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_id;
+-COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_template_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_template ADD CONSTRAINT workflow_template_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_template_version_pkey.up.sql b/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
+index 73901c340..a5d48cac9 100644
+--- a/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_template_version ADD CONSTRAINT workflow_template_version_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_version_id;
+-COMMENT ON CONSTRAINT workflow_template_version_pkey ON workflow_template_version IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_template_version_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_template_version ADD CONSTRAINT workflow_template_version_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_version_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_template_version_pkey ON workflow_template_version IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/pkg/agent/agent.go b/server/pkg/agent/agent.go
+index 4dd1a11fe..d3bc12c7e 100644
+--- a/server/pkg/agent/agent.go
++++ b/server/pkg/agent/agent.go
+@@ -24,12 +24,14 @@ type Backend interface {
+ 
+ // ExecOptions configures a single execution.
+ type ExecOptions struct {
+-	Cwd   string
+-	Model string
++	// OutputSchema constrains the final structured reply when supported.
++	OutputSchema json.RawMessage
++	Cwd          string
++	Model        string
+ 	// SystemPrompt carries the Multica runtime brief for the few providers
+ 	// that cannot pick it up from disk. The daemon leaves it empty for every
+ 	// other provider (see daemon.providerNeedsInlineSystemPrompt), because the
+-	// brief is already delivered as a per-task context file in the workdir —
++	// brief is already delivered as a per-task context file in the workdir â€”
+ 	// CLAUDE.md, AGENTS.md, CODEBUDDY.md or QWEN.md depending on the runtime.
+ 	//
+ 	// A backend must therefore NOT assume this is populated, and adding a new
+@@ -40,7 +42,7 @@ type ExecOptions struct {
+ 	Timeout                   time.Duration
+ 	SemanticInactivityTimeout time.Duration
+ 	// FirstTurnNoProgressTimeout optionally overrides the Codex first-turn
+-	// no-progress ceiling — the window a turn may stay completely silent after
++	// no-progress ceiling â€” the window a turn may stay completely silent after
+ 	// the app-server reports turn/started before the watchdog fails it. Zero
+ 	// keeps the provider default and the existing behaviour where
+ 	// SemanticInactivityTimeout can only shrink that ceiling; a positive value
+@@ -73,26 +75,26 @@ type ExecOptions struct {
+ 	ResumeSessionID        string // if non-empty, resume a previous agent session
+ 	// ResumeExpected records that this task intended to continue a prior
+ 	// conversation, independent of ResumeSessionID (which a fallback retry may
+-	// clear). When it is true but the backend ends up on a fresh thread — the
+-	// live resume RPC was rejected, or a transport failure forced a fresh retry —
++	// clear). When it is true but the backend ends up on a fresh thread â€” the
++	// live resume RPC was rejected, or a transport failure forced a fresh retry â€”
+ 	// the backend surfaces a continuity notice instead of silently
+ 	// restarting. Currently honoured by the codex backend (MUL-4424).
+ 	ResumeExpected bool
+ 	// ResumeContinuityNotice is the text to prepend to the first turn when
+ 	// ResumeExpected holds but the backend lands on a fresh thread anyway. The
+-	// caller owns the wording because only it knows what the surface lost — an
++	// caller owns the wording because only it knows what the surface lost â€” an
+ 	// issue's comments and a Slack channel's history survive and can be re-read,
+-	// a web chat's and a Feishu channel's cannot — and that difference decides
++	// a web chat's and a Feishu channel's cannot â€” and that difference decides
+ 	// whether the agent should tell the user anything at all (MUL-5722).
+ 	//
+ 	// Empty means say nothing, and the caller MUST leave it empty when its own
+ 	// prompt already carries the notice. That is what keeps a turn from paying
+ 	// for the same paragraph twice: the daemon injects it whenever it already
+ 	// knows the resume is gone, and the backend covers only the case the daemon
+-	// cannot see — a live resume RPC rejected mid-run.
++	// cannot see â€” a live resume RPC rejected mid-run.
+ 	ResumeContinuityNotice string
+ 	// ExtraArgs is honoured only by backends that opt in by reading it; the
+-	// rest ignore it. Deliberately not enumerated here — the previous list
++	// rest ignore it. Deliberately not enumerated here â€” the previous list
+ 	// went stale as backends were added, which is how MULTICA_QWENPAW_ARGS
+ 	// shipped plumbed but dropped. Grep for ExtraArgs to see today's set.
+ 	ExtraArgs        []string        // daemon-wide default CLI arguments appended before CustomArgs
+@@ -102,7 +104,7 @@ type ExecOptions struct {
+ 	// ThinkingLevel is the runtime-native reasoning/effort value (e.g.
+ 	// Claude's "low|medium|high|xhigh|max", Codex's "none|minimal|low|
+ 	// medium|high|xhigh", OpenCode's model variant names). Empty means
+-	// "use the runtime/model default" —
++	// "use the runtime/model default" â€”
+ 	// every backend that consumes this skips its --effort / reasoning_effort
+ 	// injection so the upstream CLI's own default applies. Currently honoured
+ 	// by the claude, codex, opencode, codebuddy, dsh, and grok (ACP
+@@ -116,12 +118,12 @@ type ExecOptions struct {
+ 	// Other providers ignore this field.
+ 	ServiceTier string
+ 	// OpenclawMode chooses between local (embedded) and gateway routing for
+-	// the openclaw backend. "" or "local" keeps the historical behaviour —
+-	// the daemon spawns `openclaw agent --local …` and the agent loop runs
++	// the openclaw backend. "" or "local" keeps the historical behaviour â€”
++	// the daemon spawns `openclaw agent --local â€¦` and the agent loop runs
+ 	// in-process on the daemon host. "gateway" instructs the daemon to drop
+ 	// the --local flag and let openclaw route the turn through a Gateway (the
+ 	// user's globally-configured one, or an endpoint pinned in the per-task
+-	// config wrapper that the daemon writes from execenv.OpenclawGatewayPin —
++	// config wrapper that the daemon writes from execenv.OpenclawGatewayPin â€”
+ 	// see server/internal/daemon/execenv/openclaw_config.go). Other backends
+ 	// ignore this field, mirroring ThinkingLevel's renderer-side fall-through
+ 	// pattern. See issue #3260.
+@@ -178,7 +180,7 @@ type Session struct {
+ 	// Messages streams events as the agent works. The channel is closed
+ 	// when the agent finishes (before Result is sent).
+ 	Messages <-chan Message
+-	// Result receives exactly one value — the final outcome — then closes.
++	// Result receives exactly one value â€” the final outcome â€” then closes.
+ 	Result <-chan Result
+ }
+ 
+@@ -215,13 +217,13 @@ type TokenUsage struct {
+ 	CacheReadTokens  int64
+ 	CacheWriteTokens int64
+ 	// CostUSDTicks is the provider's own statement of what this usage cost,
+-	// in ticks of 1e-10 USD. Zero means "not reported" — only a few agents
++	// in ticks of 1e-10 USD. Zero means "not reported" â€” only a few agents
+ 	// return it (xAI Grok Build does, via `_meta.usage.costUsdTicks`).
+ 	//
+ 	// It matters because a token-times-rate estimate cannot reproduce
+ 	// request-level pricing rules. xAI bills a request at 2x once its prompt
+ 	// reaches 200K tokens, and a usage record aggregates every model call in
+-	// a turn — so the stored token counts cannot say which tier any single
++	// a turn â€” so the stored token counts cannot say which tier any single
+ 	// request hit. The provider's own figure already has that priced in.
+ 	CostUSDTicks int64
+ }
+@@ -240,7 +242,7 @@ type Result struct {
+ 	SessionID  string
+ 	Usage      map[string]TokenUsage // keyed by model name
+ 	// ResumeRejected is positive evidence that this run's requested resume
+-	// was permanently refused — the transcript is gone, the session belongs to
++	// was permanently refused â€” the transcript is gone, the session belongs to
+ 	// another provider account, OR the session still exists but its history
+ 	// can no longer be replayed to the provider (e.g. GH #5975: a stored
+ 	// image now exceeds the provider's max dimensions, so every resumed
+@@ -248,12 +250,12 @@ type Result struct {
+ 	// that the resume CANNOT continue and only starting over can cure it, so
+ 	// it is what the daemon's fresh-session fallback looks for first. Note the
+ 	// last case keeps a non-empty SessionID (the id is real, only its history
+-	// is unusable) — the daemon gates on this boolean, not an empty id.
++	// is unusable) â€” the daemon gates on this boolean, not an empty id.
+ 	//
+ 	// false is NOT evidence of the opposite. For a backend listed in
+ 	// ResumeRejectionUndetectable it means "could not tell"; for every other
+ 	// backend it means "checked, and this was not a rejection". The daemon
+-	// needs the provider name to tell those apart — see
++	// needs the provider name to tell those apart â€” see
+ 	// shouldRetryWithFreshSession in internal/daemon.
+ 	//
+ 	// Backends must NOT set it for failures a new session cannot cure:
+@@ -262,7 +264,7 @@ type Result struct {
+ 	// truncated conversation (see retryableReasons in internal/service/task.go).
+ 	//
+ 	// The auth exclusion above stands even for the one auth error a fresh
+-	// session DOES cure — a resumed session whose persisted provider identity
++	// session DOES cure â€” a resumed session whose persisted provider identity
+ 	// can no longer resolve its credentials (GH #6777). An adapter cannot tell
+ 	// that apart from a genuinely bad credential by looking at the error, so
+ 	// the judgement is made once, provider-agnostically, in
+@@ -311,11 +313,11 @@ type Config struct {
+ 	// fills it from the protocol family; NewRuntime preserves the concrete
+ 	// built-in runtime identity instead (for example omp rather than pi).
+ 	provider string
+-	// LaunchPrefix is the argv prefix that belongs to ExecutablePath itself —
++	// LaunchPrefix is the argv prefix that belongs to ExecutablePath itself â€”
+ 	// a custom runtime profile's fixed_args. It is spliced in directly after
+ 	// the executable, ahead of every argument a backend builds, because a
+ 	// wrapper's subcommand has to be consumed before the wrapped CLI's own
+-	// flags mean anything (`ccms start q36` then `-p …`, GH #7046).
++	// flags mean anything (`ccms start q36` then `-p â€¦`, GH #7046).
+ 	//
+ 	// Unlike ExtraArgs this is not opt-in: New filters it once and the
+ 	// Command boundary applies it to every process the package spawns, task
+@@ -391,8 +393,8 @@ func IsSupportedType(agentType string) bool {
+ // conversation-id reader returns "" whenever the CLI exits before dispatching.
+ //
+ // Membership is deliberately opt-in. A backend absent from this map is treated
+-// as capable, so a new backend fails closed — it reports no rejection and gets
+-// no fallback — rather than silently inheriting a guess-based retry. Remove an
++// as capable, so a new backend fails closed â€” it reports no rejection and gets
++// no fallback â€” rather than silently inheriting a guess-based retry. Remove an
+ // entry as soon as its backend learns to report rejections.
+ var resumeRejectionUndetectable = map[string]bool{
+ 	"antigravity": true,
+@@ -491,7 +493,7 @@ func DetectVersion(ctx context.Context, cmd Command) (string, error) {
+ 
+ // launchHeaders maps each supported agent type to the user-visible skeleton
+ // that the daemon spawns before any custom_args are appended. This is
+-// intentionally minimal — only the command + subcommand (or a short mode
++// intentionally minimal â€” only the command + subcommand (or a short mode
+ // label when there is no subcommand). Internal flags, transport values, and
+ // environment variables are deliberately omitted so the string is a hint
+ // about *what* users are extending, not a dump of the full command line.
+diff --git a/server/pkg/agent/codex.go b/server/pkg/agent/codex.go
+index 9239085a8..c556131b0 100644
+--- a/server/pkg/agent/codex.go
++++ b/server/pkg/agent/codex.go
+@@ -1568,6 +1568,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
+ 		// shared `codexReasoningInjection` fixture in codex_test.go (see
+ 		// MUL-2339 — Trump's constraint that the three injection points
+ 		// must not drift independently).
++		applyCodexOutputSchema(turnParams, opts.OutputSchema)
+ 		applyCodexReasoningEffort(turnParams, opts.ThinkingLevel)
+ 		applyCodexServiceTier(turnParams, opts.ServiceTier)
+ 		waitingForTurn := true
+@@ -4022,3 +4023,10 @@ func nilIfEmpty(s string) any {
+ 	}
+ 	return s
+ }
++
++// The turn/start protocol accepts the schema object, not a quoted string.
++func applyCodexOutputSchema(params map[string]any, schema json.RawMessage) {
++	if len(schema) > 0 {
++		params["outputSchema"] = schema
++	}
++}

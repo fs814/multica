@@ -1,0 +1,13 @@
+{
+  "path": "server/internal/handler/workflow_intake.go",
+  "in_162": false,
+  "source": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+  "source_blob": "37351402a42343ec770f673ea7566c5741f24fc5",
+  "state": "NOT APPLIED; route registration under workspace membership also required",
+  "additional_lifecycle_dependency": {
+    "path": "server/internal/handler/issue.go",
+    "in_162": false,
+    "source_blob": "ef26b4ab3008d722167376c56958b1843d950ccd",
+    "reason": "Included TestWorkflowOwnedIssueStatusRequiresRunCancellation expects guard absent from the candidate. Static dependency; handler tests currently fail earlier at intake compilation. Proposed hooks only, no issue list/filter/Issue Pool changes. Not applied or tested."
+  }
+}

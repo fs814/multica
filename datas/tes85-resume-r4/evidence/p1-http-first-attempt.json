@@ -1,0 +1,15 @@
+{
+  "p1-http": {
+    "health": {
+      "status": "ok",
+      "pid": 8360,
+      "commit": "122a8fd72",
+      "started_at": "2026-09-16T06:37:36Z"
+    },
+    "pid": 8360,
+    "stopped": true
+  },
+  "cleaned_databases": [
+    "tes85_p0_p1_http_0916"
+  ]
+}
