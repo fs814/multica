@@ -66,10 +66,21 @@ export async function ensureLocalDaemon({
   const commandEnv = { ...env, MULTICA_SERVER_URL: server };
   const invoke = (file, args) => run(file, args, { cwd: root, env: commandEnv });
   const loginHint = () => `Sign in first: "${cli}" --server-url ${server} login --profile ${profile}. Then rerun: node scripts/ensure-local-daemon.mjs`;
+  let sourceVersion;
+  const checkoutVersion = async () => {
+    if (sourceVersion !== undefined) return sourceVersion;
+    try {
+      const result = await invoke("git", ["describe", "--tags", "--always", "--dirty"]);
+      const revision = result.stdout?.trim();
+      sourceVersion = result.code === 0 && revision ? `local-${revision}` : "local-unknown";
+    } catch { sourceVersion = "local-unknown"; }
+    return sourceVersion;
+  };
   const build = async () => {
     mkdir(dirname(built), { recursive: true });
     log("==> Building local daemon with project Memory support...");
-    const result = await invoke("go", ["-C", "server", "build", "-p", "2", "-o", built, "./cmd/multica"]);
+    const version = await checkoutVersion();
+    const result = await invoke("go", ["-C", "server", "build", "-p", "2", "-ldflags", `-X main.version=${version}`, "-o", built, "./cmd/multica"]);
     if (result.code !== 0) throw new Error(`Daemon build failed: ${result.stderr}`);
     cli = built;
     builtThisRun = true;
@@ -93,6 +104,14 @@ export async function ensureLocalDaemon({
   };
   if (!cli) await build();
   let state = await status();
+  if (state.status === "running" && state.cli_version) {
+    const expected = await checkoutVersion();
+    if (expected !== "local-unknown" && state.cli_version !== expected) {
+      log(`==> WARNING: running daemon ${state.cli_version} differs from checkout ${expected}. ` +
+        `Active tasks: ${state.active_task_count ?? "unknown"}. It was not restarted. ` +
+        `After active runs finish, stop profile ${profile} and rerun this helper to rebuild from local source.`);
+    }
+  }
   if (state.status === "stopped") {
     // Rebuild only while stopped; an active Windows binary cannot be replaced.
     if (!builtThisRun) await build();
