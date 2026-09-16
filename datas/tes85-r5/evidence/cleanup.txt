@@ -1,0 +1,1 @@
+Confirmed current_database()=tes85_r5_tests before cleanup. Exact run-owned database dropped after foreground tests completed. No daemon/server service was launched for r5. Existing PostgreSQL container left running.

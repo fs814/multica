@@ -1,0 +1,118 @@
+{
+  "workflow-fixed-final.jsonl": {
+    "counts": {
+      "github.com/multica-ai/multica/server/internal/workflow | pass": 111
+    },
+    "failed_top_level": [],
+    "skipped_top_level": []
+  },
+  "focused-isolated-final.jsonl": {
+    "counts": {
+      "github.com/multica-ai/multica/server/internal/service | pass": 34,
+      "github.com/multica-ai/multica/server/cmd/server | pass": 1,
+      "github.com/multica-ai/multica/server/internal/handler | pass": 63
+    },
+    "failed_top_level": [],
+    "skipped_top_level": []
+  },
+  "handler-full-final.jsonl": {
+    "counts": {
+      "github.com/multica-ai/multica/server/internal/handler | pass": 2167,
+      "github.com/multica-ai/multica/server/internal/handler | fail": 3,
+      "github.com/multica-ai/multica/server/internal/handler | skip": 47
+    },
+    "failed_top_level": [
+      "TestStableIDSuffixMatchesDaemon",
+      "TestParseSkillArchive_RejectsUnsafeSkillMdPath",
+      "TestWorkspaceDeletionManifestCoversPublicSchema"
+    ],
+    "skipped_top_level": [
+      "TestRequireDaemonWorkspaceAccess_CacheHit",
+      "TestRequireDaemonWorkspaceAccess_CacheMissBackfills",
+      "TestMembershipCache_InvalidatedOnDeleteMember",
+      "TestMembershipCache_InvalidatedOnUpdateMember",
+      "TestMembershipCache_InvalidatedOnLeaveWorkspace",
+      "TestMembershipCache_InvalidatedOnDeleteWorkspace",
+      "TestRedisLivenessStore_TouchAndIsAlive",
+      "TestRedisLivenessStore_TTLExpiry",
+      "TestRedisLivenessStore_Forget",
+      "TestRedisLivenessStore_BatchEmptyInput",
+      "TestRedisLocalSkillListStore_CreateGetComplete",
+      "TestRedisLocalSkillListStore_CreateWithoutMultiPermission",
+      "TestRedisLocalSkillListStore_PopPendingAcrossInstances",
+      "TestRedisLocalSkillListStore_PopPendingConcurrent",
+      "TestRedisLocalSkillListStore_PendingTimeout",
+      "TestRedisLocalSkillImportStore_PreservesCreatorID",
+      "TestRedisLocalSkillImportStore_CreateWithoutMultiPermission",
+      "TestRedisLocalSkillImportStore_CompletePreservesFiles",
+      "TestRedisLocalSkillImportStore_PreservesConflict",
+      "TestRedisLocalSkillImportStore_PopPendingAcrossInstances",
+      "TestRedisLocalSkillListStore_PerRuntimeIsolation",
+      "TestRedisLocalSkillListStore_PopPendingAtomicClaim",
+      "TestRedisLocalSkillImportStore_PopPendingBatch",
+      "TestRedisModelCatalogCache_RoundTrip",
+      "TestRedisModelCatalogCache_SkipsUncacheableResults",
+      "TestRedisModelCatalogCache_InvalidateAndExpiry",
+      "TestRedisModelCatalogCache_DropsUndecodableSnapshot",
+      "TestRedisModelListStore_CreateGetComplete",
+      "TestRedisModelListStore_CreateWithoutMultiPermission",
+      "TestRedisModelListStore_PopPendingAcrossInstances",
+      "TestRedisModelListStore_PopPendingConcurrent",
+      "TestRedisModelListStore_PendingTimeout",
+      "TestRedisModelListStore_RunningTimeout",
+      "TestRedisModelListStore_HasPending",
+      "TestRedisUpdateStore_CreateGetComplete",
+      "TestRedisUpdateStore_CreateWithoutMultiPermission",
+      "TestRedisUpdateStore_PopPendingAcrossInstances",
+      "TestRedisUpdateStore_ReportAndPollAcrossInstances",
+      "TestRedisUpdateStore_FailAcrossInstances",
+      "TestRedisUpdateStore_RejectsConcurrentActive",
+      "TestRedisUpdateStore_RunningTimeoutClearsActive",
+      "TestRedisUpdateStore_PopPendingConcurrent",
+      "TestFetchFromSkillsSh_AnthropicPptxIntegration",
+      "TestRedisWebhookRateLimiter_RejectsAboveLimit",
+      "TestRedisWebhookIPRateLimiter_HasSeparateBudgetFromTokenLimiter",
+      "TestRedisSlidingWindowRateLimiter_SeparatesInvitationNamespaces",
+      "TestRedisSlidingWindowRateLimiter_PreservesWebhookFailOpenAndExposesErrors"
+    ]
+  },
+  "race-focused.jsonl": {
+    "counts": {},
+    "failed_top_level": [],
+    "skipped_top_level": []
+  },
+  "focused-confirmed.jsonl": {
+    "counts": {
+      "github.com/multica-ai/multica/server/internal/service | pass": 34,
+      "github.com/multica-ai/multica/server/cmd/server | pass": 1,
+      "github.com/multica-ai/multica/server/internal/handler | fail": 23,
+      "github.com/multica-ai/multica/server/internal/handler | pass": 40
+    },
+    "failed_top_level": [
+      "TestBatchUpdateIssues_AutopilotRunAssign",
+      "TestBatchUpdateNoMutationReturnsZero",
+      "TestBatchUpdateValidUpdatesPersistAndCount",
+      "TestBatchUpdateStageOnly",
+      "TestBatchChildDoneCrossStage_OneComment",
+      "TestBatchChildDoneCrossStage_Cancelled",
+      "TestBatchChildDoneClosesLowerStageOnly",
+      "TestBatchUpdateIssueCancelStatusDoesNotCancelActiveTasks",
+      "TestBatchUpdateIssuePreservesMarkedChannelMedia",
+      "TestBatchChildDonePreservesRepresentativeAndParentOrder",
+      "TestBatchChildDoneUnknownStatusIsolation",
+      "TestBatchChildDoneCatalogFailureIsolation",
+      "TestBatchUpdateRefusesIssuesInTriage",
+      "TestBatchUpdateIssuesInvalidStatusReturns400",
+      "TestR5IssueCancellationRejectedRequestsAreAtomic",
+      "TestR5IssueBatchCancellationIsAtomicAndNoopIsConsistent",
+      "TestR5CancelledRunRecoversTaskServiceFailureAfterRestart",
+      "TestR5IntakeExcludedControlsAndIdentity",
+      "TestR5CustomCancelledCategoryAndMissingServices",
+      "TestR5CancellationIncludesTaskActivatedWhileWaitingForIssueLock",
+      "TestR5CompletionWinningBeforeCancellationPreservesTerminalState",
+      "TestR5SkippedWorkflowTargetPreventsPartialBatch",
+      "TestWorkflowOwnedIssueStatusRequiresRunCancellation"
+    ],
+    "skipped_top_level": []
+  }
+}

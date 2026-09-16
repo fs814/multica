@@ -1,0 +1,9 @@
+# Unapplied dependency proposals
+
+These files are review inputs, not part of the fixed candidate. They have not been applied or tested. No schema/migration or workspace deletion production file was changed in r5.
+
+1. Numeric migration prefix collisions are inherited from P1 (including P0 254/255 families), and now detected by the required full suite. The rename-only patch maps all workflow migrations in dependency-preserving existing filename order to 479 onward, following this fixed upstream's current max 478. This is a FRESH ISOLATED DATABASE proposal ONLY. Never rename migration history on an existing installation: a migration-ledger compatibility/upgrade plan and P0 independent review are prerequisites. Rebase requires new number allocation. Index statement bodies remain unchanged. No excluded callback/debug/instance migrations are added.
+2. Workspace deletion schema coverage rejects seven workflow tables. The teardown patch gives the concrete proposed query, call site, and ownership classification; sqlc output is intentionally not generated/applied. It does NOT by itself close concurrent new template/run writes. Approval must include the workspace write fence for template creation, StartRun and activation against deletion; test the existing task-owner/issue lock graph before implementation. Merely adding manifest entries would conceal an orphaning defect. Teardown with workflow fixtures plus concurrent start/publish/activation tests are required.
+3. CLI task-boundary and Windows platform failures are not silently patched. The missing permitted CLI/server/daemon integration harness requires an authorized operator/runtime, not removal of task identity or substitution of human credentials.
+
+Review decision requested: approve a separate migration-ledger integration + workspace teardown/fence scope, or leave these as P1 assembly blockers. Do not apply either patch to production.

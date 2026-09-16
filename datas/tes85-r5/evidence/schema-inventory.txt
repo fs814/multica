@@ -1,0 +1,7 @@
+workflow_acceptance
+workflow_event
+workflow_run
+workflow_step_instance
+workflow_submission
+workflow_template
+workflow_template_version
