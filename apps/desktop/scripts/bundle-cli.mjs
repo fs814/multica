@@ -18,6 +18,7 @@ import { constants } from "node:fs";
 import { execFileSync, execSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { shouldKeepBundledCli, replaceBundledCli } from "./bundle-cli-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
@@ -90,7 +91,7 @@ function git(...args) {
 
 function hasGo() {
   try {
-    execSync("go version", { stdio: "pipe" });
+    execFileSync("go", ["version"], { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -106,7 +107,8 @@ async function exists(p) {
   }
 }
 
-if (hasGo()) {
+const goAvailable = hasGo();
+if (goAvailable) {
   const version =
     git("describe", "--tags", "--match", "v[0-9]*", "--always", "--dirty") ||
     "dev";
@@ -147,38 +149,23 @@ if (hasGo()) {
   );
 }
 
+// Without a build, an old server/bin binary must never replace a newer (and
+// potentially running) desktop daemon. Preserve the existing bundle exactly.
+if (shouldKeepBundledCli(goAvailable, await exists(destBinary))) {
+  console.warn(`[bundle-cli] preserving existing ${destBinary}; Go is required to refresh it from this checkout.`);
+  process.exit(0);
+}
+
 if (!(await exists(srcBinary))) {
   console.warn(
     `[bundle-cli] ${srcBinary} not present — Desktop will fall back to ` +
       `auto-installing the latest release at runtime.`,
   );
-  await rm(destDir, { recursive: true, force: true });
   process.exit(0);
 }
 
-try {
-  await rm(destDir, { recursive: true, force: true });
-} catch (error) {
-  const destinationLocked =
-    process.platform === "win32" &&
-    error instanceof Error &&
-    "code" in error &&
-    ["EACCES", "EBUSY", "EPERM"].includes(error.code);
-  if (!allowLockedDestination || !destinationLocked) throw error;
-
-  // A running development daemon holds multica.exe open on Windows, where an
-  // executable cannot be replaced in place. Compilation builds do not package
-  // resources, so keep the currently running binary and let electron-vite
-  // validate the app bundles. Release/package paths remain strict and still
-  // fail here rather than silently shipping a stale CLI.
-  console.warn(
-    `[bundle-cli] ${destBinary} is in use; keeping it for this compilation-only build. ` +
-      "Stop the running Desktop daemon before packaging or refreshing the bundled CLI.",
-  );
-  process.exit(0);
-}
 await mkdir(destDir, { recursive: true });
-await copyFile(srcBinary, destBinary);
+if (!(await replaceBundledCli(srcBinary, destBinary, { allowLockedDestination }))) process.exit(0);
 await chmod(destBinary, 0o755);
 
 // macOS: ad-hoc sign so Gatekeeper doesn't complain when the parent app

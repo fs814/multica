@@ -23,11 +23,9 @@ var providerHTTP5xxRe = regexp.MustCompile(`(^|[^0-9])5[0-9][0-9]([^0-9]|$)`)
 // e.g. "402913 tokens", "15290ms", "exit status 4030" — misclassifying process
 // or unknown failures as provider billing / rate-limit errors. That pollutes
 // failure observability: a genuine process crash gets filed under a provider
-// bucket, masking the real cause on failure dashboards. (A misfire here still
-// can't cause a spurious retry: the auth / quota / capacity buckets these
-// regexes guard are all non-retryable. The only agent_error.* reason on
-// internal/service/task.go's retryableReasons allowlist is provider_network
-// — MUL-4910 — and these regexes never route into it.) The 5xx bucket was
+// bucket, masking the real cause on failure dashboards. Capacity failures
+// are retryable with a bounded cooldown, making the digit boundary necessary
+// to avoid resending work on unrelated errors. The 5xx bucket was
 // already anchored for exactly this reason (MUL-1949); these codes were not.
 var (
 	httpAuthCodeRe     = regexp.MustCompile(`(^|[^0-9])(401|403)([^0-9]|$)`)
@@ -79,6 +77,14 @@ func Classify(rawError string) Reason {
 	lower := strings.ToLower(trimmed)
 
 	switch {
+	// Probe failures are local configuration errors, not provider failures.
+	case strings.HasPrefix(lower, "codex sandbox preflight failed:"):
+		return ReasonAgentProcessFailure
+
+	// Codex emits this without a status code. Match it before selected model.
+	case strings.Contains(lower, "selected model is at capacity"):
+		return ReasonAgentProviderCapacityOrRateLimit
+
 	// A concurrent-request rejection can contain both "access token" and HTTP
 	// 403. Its specific semantic witness must beat the broader context and auth
 	// rules below; this classification does not itself make the reason retryable.
@@ -494,6 +500,11 @@ var legacyConcurrentRequestLimitReasons = map[string]bool{
 // can be deleted once no daemon old enough to produce its wire shape is still
 // reporting.
 func NormalizeDaemonReason(reason, rawError string) Reason {
+	if (reason == string(ReasonAgentModelNotFoundOrUnavailable) ||
+		reason == string(ReasonAgentUnknown) || reason == "agent_error") &&
+		strings.Contains(strings.ToLower(rawError), "selected model is at capacity") {
+		return ReasonAgentProviderCapacityOrRateLimit
+	}
 	if legacyConcurrentRequestLimitReasons[reason] &&
 		strings.Contains(strings.ToLower(rawError), concurrentRequestLimitWitness) {
 		return ReasonAgentProviderCapacityOrRateLimit
