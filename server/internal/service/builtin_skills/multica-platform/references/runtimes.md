@@ -107,6 +107,18 @@ equivalent OS boundary are required for that stronger isolation.
 
 ## Debugging an agent that did not run
 
+Windows Codex runs a no-op `command/exec` sandbox probe before its model turn.
+A `codex sandbox preflight failed` error is a local process failure, not a
+provider outage, and is not auto-retried. Error 1385 requires repairing Windows
+sandbox logon rights. An agent-scoped `-c windows.sandbox=unelevated` override
+requires explicit user approval; never silently lower isolation or edit all
+agents. A running daemon is not proof that its task commands can execute.
+
+For local development, `node scripts/ensure-local-daemon.mjs` builds a stopped
+daemon from the checkout and warns when a running daemon has a different version.
+Do not stop active work merely to clear that warning. Check runtime heartbeat,
+run status and actual tool results; `completed` alone is not goal completion.
+
 Check in this order:
 
 1. Was a task supposed to be created? Inspect issue/comment/autopilot context.

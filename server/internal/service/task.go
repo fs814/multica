@@ -5215,7 +5215,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 // etc.) are intentionally excluded — those are real problems that the user
 // should see, not infrastructure flakiness.
 //
-// The one agent_error.* exception is provider_network: a mid-stream provider
+// One agent_error.* exception is provider_network: a mid-stream provider
 // disconnect (e.g. Claude Code's "API Error: Connection closed mid-response")
 // is transient infrastructure flakiness, not an agent decision. Unattended
 // issue runs otherwise terminate on it, while interactive chat only survives
@@ -5227,13 +5227,16 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 // never started, so there is nothing to be idempotent about, and every bundle
 // that did download is already cached on disk — a retry resumes from there
 // instead of re-fetching the whole set (MUL-5370).
+// Provider capacity/rate limits also retry, but only with a 30/60s cooldown
+// and at most three attempts. Model, auth, billing and sandbox errors do not.
 var retryableReasons = map[string]bool{
-	string(taskfailure.ReasonRuntimeOffline):         true,
-	string(taskfailure.ReasonRuntimeRecovery):        true,
-	string(taskfailure.ReasonTimeout):                true,
-	"codex_semantic_inactivity":                      true,
-	string(taskfailure.ReasonAgentProviderNetwork):   true,
-	string(taskfailure.ReasonSkillBundleUnavailable): true,
+	string(taskfailure.ReasonAgentProviderCapacityOrRateLimit): true,
+	string(taskfailure.ReasonRuntimeOffline):                   true,
+	string(taskfailure.ReasonRuntimeRecovery):                  true,
+	string(taskfailure.ReasonTimeout):                          true,
+	"codex_semantic_inactivity":                                true,
+	string(taskfailure.ReasonAgentProviderNetwork):             true,
+	string(taskfailure.ReasonSkillBundleUnavailable):           true,
 }
 
 // runtime_offline retries start deferred, not queued: their positive fire_at
@@ -5246,18 +5249,19 @@ var retryableReasons = map[string]bool{
 // Transient provider stream cuts (provider_network) get a bespoke three-tier
 // schedule (MUL-4910): first run + immediate retry + one retry deferred ~5s.
 // A blip that survives the immediate retry gets a short cooldown before the
-// final attempt instead of firing back-to-back. Every other retryable reason
-// keeps the task's generic max_attempts ceiling and retries immediately.
+// final attempt instead of firing back-to-back. Capacity failures use the
+// task's budget capped at three, with a 30/60s cooldown. Other reasons keep
+// the task's generic max_attempts ceiling and retry immediately.
 const (
+	providerCapacityMaxAttempts   = 3
 	runtimeOfflineRetryDeferral   = time.Second
 	providerNetworkMaxAttempts    = 3
 	providerNetworkFinalRetryWait = 5 * time.Second
 )
 
 // retryAttemptCeiling reports how many attempts the auto-retry path allows for
-// a failure reason. It only ever WIDENS the task's generic max_attempts, and
-// only for reasons with a bespoke schedule; everything else keeps the column's
-// value (default 2 = first run + one retry).
+// a failure reason. Network failures widen the budget to three, while capacity
+// failures cap it at three. Other reasons keep the column's value (default 2).
 //
 // max_attempts <= 1 explicitly disables auto-retry (055_task_lease_and_retry.up
 // .sql: "1 disables retry"), so it is never overridden — a disabled task must
@@ -5269,6 +5273,10 @@ func retryAttemptCeiling(reason string, taskMaxAttempts int32) int32 {
 	if taskMaxAttempts <= 1 {
 		return taskMaxAttempts
 	}
+	// Capacity retries have a hard bound even if a caller requested more.
+	if reason == string(taskfailure.ReasonAgentProviderCapacityOrRateLimit) {
+		return min(taskMaxAttempts, providerCapacityMaxAttempts)
+	}
 	if reason == string(taskfailure.ReasonAgentProviderNetwork) && taskMaxAttempts < providerNetworkMaxAttempts {
 		return providerNetworkMaxAttempts
 	}
@@ -5278,10 +5286,18 @@ func retryAttemptCeiling(reason string, taskMaxAttempts int32) int32 {
 // retryDelayForAttempt reports how long to defer the NEXT attempt after a
 // failure at failedAttempt. runtime_offline always gets a positive fire_at so
 // it waits for the health-gated promotion path. provider_network's final
-// attempt is deferred ~5s; every other retry remains immediate (zero delay →
+// attempt is deferred ~5s; capacity uses 30/60s; other retries are immediate (zero delay →
 // the child is created 'queued', claimable at once). Callers pass the returned
 // delay to CreateRetryTask via fire_at.
 func retryDelayForAttempt(reason string, failedAttempt int32) time.Duration {
+	if reason == string(taskfailure.ReasonAgentProviderCapacityOrRateLimit) {
+		// Never immediately hammer an overloaded provider. Keep the existing
+		// attempt budget (including max_attempts=1) and cap the cooldown.
+		if failedAttempt >= 2 {
+			return 60 * time.Second
+		}
+		return 30 * time.Second
+	}
 	if reason == string(taskfailure.ReasonRuntimeOffline) {
 		return runtimeOfflineRetryDeferral
 	}

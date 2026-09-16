@@ -271,6 +271,28 @@ func TestNormalizeDaemonReasonUpgradesConcurrentRequestLimit(t *testing.T) {
 	}
 }
 
+func TestSelectedModelCapacity(t *testing.T) {
+	const raw = "Selected model is at capacity. Please try a different model."
+	if got := Classify(raw); got != ReasonAgentProviderCapacityOrRateLimit {
+		t.Fatalf("capacity classified as %s", got)
+	}
+	for _, reason := range []string{string(ReasonAgentModelNotFoundOrUnavailable), string(ReasonAgentUnknown), "agent_error"} {
+		if got := NormalizeDaemonReason(reason, raw); got != ReasonAgentProviderCapacityOrRateLimit {
+			t.Errorf("legacy reason %s normalized to %s", reason, got)
+		}
+	}
+	const unavailable = "the selected model is no longer supported"
+	if got := Classify(unavailable); got != ReasonAgentModelNotFoundOrUnavailable {
+		t.Errorf("unsupported model classified as %s", got)
+	}
+	if got := NormalizeDaemonReason(string(ReasonAgentModelNotFoundOrUnavailable), unavailable); got != ReasonAgentModelNotFoundOrUnavailable {
+		t.Errorf("unrelated model failure changed to %s", got)
+	}
+	if got := Classify("codex sandbox preflight failed: Windows logon error 1385; repair sandbox setup"); got != ReasonAgentProcessFailure {
+		t.Errorf("local sandbox failure classified as %s", got)
+	}
+}
+
 // TestClassify5xxRegex pins the boundary behavior of the 5xx HTTP
 // status detector. The SQL classifier uses an anchored regex
 // `(^|[^0-9])5[0-9][0-9]([^0-9]|$)`; this Go classifier mirrors it via
