@@ -1,0 +1,13 @@
+{
+  "all_rows_and_ledger_preserved_after_old_app_startup_and_fixed_repeat_down": false,
+  "changed_tables": {
+    "task_usage_hourly_rollup_state": {
+      "before": "1:404c6f7eb24553c022ce184cc2d7ddb3",
+      "after": "1:0a2c25d791196acb4efe62e6c3b46ceb"
+    },
+    "sys_cron_executions": {
+      "before": "0:d41d8cd98f00b204e9800998ecf8427e",
+      "after": "1:d4b94b6bb5e900b5cd352d4c1c52693a"
+    }
+  }
+}
