@@ -1,0 +1,17 @@
+{
+  "database": "tes85_p0_r7_tests_20260916123426",
+  "exit": 0,
+  "tests": {
+    "github.com/multica-ai/multica/server/cmd/migrate": {
+      "pass": 10,
+      "fail": 0,
+      "skip": 0
+    },
+    "github.com/multica-ai/multica/server/internal/migrations": {
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    }
+  },
+  "dropped": true
+}

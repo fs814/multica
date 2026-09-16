@@ -1,0 +1,21 @@
+{
+  "baseline": "fa698dcfc5f143a5c5c372944dbafb2b2ae2577b",
+  "candidate": "38aad73c26fbb2064d32ff4a9631f3e96d474faf",
+  "apply_allowed": false,
+  "changed_files": [
+    "server/internal/migrations/migrations_freeze_test.go",
+    "server/internal/migrations/migrations_lint_test.go"
+  ],
+  "trees": {
+    "server/migrations": {
+      "r6": "44eff2b1cb922eb66e95ae825e97abd6a416b42c",
+      "r7": "44eff2b1cb922eb66e95ae825e97abd6a416b42c",
+      "identical": true
+    },
+    "server/cmd/migrate": {
+      "r6": "fbdd1e7d97f7e1a8b37e3ec0b66379db530d2d85",
+      "r7": "fbdd1e7d97f7e1a8b37e3ec0b66379db530d2d85",
+      "identical": true
+    }
+  }
+}

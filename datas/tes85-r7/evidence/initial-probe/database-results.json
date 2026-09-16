@@ -1,0 +1,32 @@
+{
+  "apply_allowed": false,
+  "baseline": "fa698dcfc5f143a5c5c372944dbafb2b2ae2577b",
+  "candidate": "38aad73c26fbb2064d32ff4a9631f3e96d474faf",
+  "server_identity": [
+    [
+      "postgres",
+      "17.10 (Debian 17.10-1.pgdg12+1)",
+      "7667197984617005089"
+    ]
+  ],
+  "r6_binary_sha256": "e6dbc4953e57b3f9e914c1eb52651477a005f35c34995ab2271f32891989b05e",
+  "partial-r6-up": {
+    "exit": 0
+  },
+  "partial-r7-up": {
+    "exit": 0
+  },
+  "partial-ledger": {
+    "database": "tes85_r7_partial_20260916123247",
+    "count": 545,
+    "frozen_groups": 25,
+    "frozen_stems_recorded": 63
+  },
+  "failure": "",
+  "cleanup": [
+    {
+      "database": "tes85_r7_partial_20260916123247",
+      "dropped": true
+    }
+  ]
+}
