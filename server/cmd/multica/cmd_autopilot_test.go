@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,9 @@ func newAutopilotCreateTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "create"}
 	cmd.Flags().String("title", "", "")
 	cmd.Flags().String("description", "", "")
+	cmd.Flags().Bool("description-stdin", false, "")
+	cmd.Flags().String("description-file", "", "")
+	cmd.Flags().Bool("allow-external-file", false, "")
 	cmd.Flags().String("agent", "", "")
 	cmd.Flags().String("mode", "", "")
 	cmd.Flags().String("project", "", "")
@@ -31,6 +35,9 @@ func newAutopilotUpdateTestCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().String("title", "", "")
 	cmd.Flags().String("description", "", "")
+	cmd.Flags().Bool("description-stdin", false, "")
+	cmd.Flags().String("description-file", "", "")
+	cmd.Flags().Bool("allow-external-file", false, "")
 	cmd.Flags().String("agent", "", "")
 	cmd.Flags().String("project", "", "")
 	cmd.Flags().String("status", "", "")
@@ -446,6 +453,49 @@ func TestRunAutopilotCreateSendsProjectID(t *testing.T) {
 	}
 }
 
+func TestRunAutopilotCreateReadsUTF8DescriptionFile(t *testing.T) {
+	const agentID = "11111111-1111-1111-1111-111111111111"
+	want := "# Goal\n生成产品文档\n\nKeep literal \\n text"
+
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("runbook.md", []byte(want+"\n"), 0o600); err != nil {
+		t.Fatalf("write runbook: %v", err)
+	}
+
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/autopilots" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":    "autopilot-1",
+			"title": "Documentation pipeline",
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_TOKEN", "test-token")
+
+	cmd := newAutopilotCreateTestCmd()
+	_ = cmd.Flags().Set("title", "Documentation pipeline")
+	_ = cmd.Flags().Set("agent", agentID)
+	_ = cmd.Flags().Set("mode", "create_issue")
+	_ = cmd.Flags().Set("description-file", "runbook.md")
+
+	if err := runAutopilotCreate(cmd, nil); err != nil {
+		t.Fatalf("runAutopilotCreate: %v", err)
+	}
+	if got := body["description"]; got != want {
+		t.Fatalf("description = %#v, want exact UTF-8 file contents %q", got, want)
+	}
+}
+
 func TestRunAutopilotCreateSendsSubscribers(t *testing.T) {
 	const (
 		agentID = "11111111-1111-1111-1111-111111111111"
@@ -491,6 +541,77 @@ func TestRunAutopilotCreateSendsSubscribers(t *testing.T) {
 		t.Fatalf("runAutopilotCreate: %v", err)
 	}
 	assertAutopilotSubscriberBody(t, body, userID)
+}
+
+func TestRunAutopilotUpdateReadsUTF8DescriptionFile(t *testing.T) {
+	const autopilotID = "33333333-3333-3333-3333-333333333333"
+	want := "# Gates\n1. CLI 校验\n2. 人工评审"
+
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("runbook.md", []byte(want+"\n"), 0o600); err != nil {
+		t.Fatalf("write runbook: %v", err)
+	}
+
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/autopilots/"+autopilotID {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":          autopilotID,
+			"title":       "Documentation pipeline",
+			"description": body["description"],
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_TOKEN", "test-token")
+
+	cmd := newAutopilotUpdateTestCmd()
+	_ = cmd.Flags().Set("description-file", "runbook.md")
+
+	if err := runAutopilotUpdate(cmd, []string{autopilotID}); err != nil {
+		t.Fatalf("runAutopilotUpdate: %v", err)
+	}
+	if got := body["description"]; got != want {
+		t.Fatalf("description = %#v, want exact UTF-8 file contents %q", got, want)
+	}
+}
+
+func TestRunAutopilotDescriptionSourcesAreMutuallyExclusive(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		cmd *cobra.Command
+		run func(*cobra.Command) error
+	}{
+		"create": {
+			cmd: newAutopilotCreateTestCmd(),
+			run: func(cmd *cobra.Command) error {
+				return runAutopilotCreate(cmd, nil)
+			},
+		},
+		"update": {
+			cmd: newAutopilotUpdateTestCmd(),
+			run: func(cmd *cobra.Command) error {
+				return runAutopilotUpdate(cmd, []string{"33333333-3333-3333-3333-333333333333"})
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_ = testCase.cmd.Flags().Set("description", "inline")
+			_ = testCase.cmd.Flags().Set("description-file", "runbook.md")
+
+			err := testCase.run(testCase.cmd)
+			if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+				t.Fatalf("error = %v, want mutually exclusive description sources", err)
+			}
+		})
+	}
 }
 
 func TestRunAutopilotUpdateSendsProjectIDChanges(t *testing.T) {

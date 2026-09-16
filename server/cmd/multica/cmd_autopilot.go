@@ -128,7 +128,10 @@ func init() {
 
 	// create
 	autopilotCreateCmd.Flags().String("title", "", "Autopilot title (required)")
-	autopilotCreateCmd.Flags().String("description", "", "Autopilot description (used as the run prompt)")
+	autopilotCreateCmd.Flags().String("description", "", "Autopilot description (used as the run prompt). Mutually exclusive with --description-stdin and --description-file.")
+	autopilotCreateCmd.Flags().Bool("description-stdin", false, "Read the autopilot description from stdin. Mutually exclusive with --description and --description-file.")
+	autopilotCreateCmd.Flags().String("description-file", "", "Read the autopilot description from a UTF-8 file (preserves multi-line content verbatim; use this on Windows when stdin piping mangles non-ASCII bytes). The path must be inside the current working directory unless --allow-external-file is set.")
+	autopilotCreateCmd.Flags().Bool("allow-external-file", false, "Allow --description-file to read a path outside the current working directory. Off by default so a stale temp file from another run/environment cannot be picked up.")
 	autopilotCreateCmd.Flags().String("agent", "", "Assignee agent (name or ID) — required")
 	autopilotCreateCmd.Flags().String("mode", "", "Execution mode: create_issue or run_only (required)")
 	autopilotCreateCmd.Flags().String("project", "", "Project ID (optional)")
@@ -138,7 +141,10 @@ func init() {
 
 	// update
 	autopilotUpdateCmd.Flags().String("title", "", "New title")
-	autopilotUpdateCmd.Flags().String("description", "", "New description")
+	autopilotUpdateCmd.Flags().String("description", "", "New description. Mutually exclusive with --description-stdin and --description-file.")
+	autopilotUpdateCmd.Flags().Bool("description-stdin", false, "Read the new description from stdin. Mutually exclusive with --description and --description-file.")
+	autopilotUpdateCmd.Flags().String("description-file", "", "Read the new description from a UTF-8 file (preserves multi-line content verbatim; use this on Windows when stdin piping mangles non-ASCII bytes). The path must be inside the current working directory unless --allow-external-file is set.")
+	autopilotUpdateCmd.Flags().Bool("allow-external-file", false, "Allow --description-file to read a path outside the current working directory. Off by default so a stale temp file from another run/environment cannot be picked up.")
 	autopilotUpdateCmd.Flags().String("agent", "", "New assignee agent (name or ID)")
 	autopilotUpdateCmd.Flags().String("project", "", "New project ID (use empty string to clear)")
 	autopilotUpdateCmd.Flags().String("status", "", "New status (active, paused)")
@@ -377,6 +383,11 @@ func webhookTokenHint(token string) string {
 }
 
 func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
+	description, hasDescription, err := resolveTextFlag(cmd, "description")
+	if err != nil {
+		return err
+	}
+
 	client, err := newAPIClient(cmd)
 	if err != nil {
 		return err
@@ -414,8 +425,8 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 		"assignee_id":    agentID,
 		"execution_mode": mode,
 	}
-	if v, _ := cmd.Flags().GetString("description"); v != "" {
-		body["description"] = v
+	if hasDescription {
+		body["description"] = description
 	}
 	if v, _ := cmd.Flags().GetString("project"); v != "" {
 		projectRef, err := resolveProjectID(ctx, client, v)
@@ -449,6 +460,18 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 }
 
 func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
+	descriptionChanged := cmd.Flags().Changed("description") ||
+		cmd.Flags().Changed("description-stdin") ||
+		cmd.Flags().Changed("description-file")
+	var description string
+	if descriptionChanged {
+		var err error
+		description, _, err = resolveTextFlag(cmd, "description")
+		if err != nil {
+			return err
+		}
+	}
+
 	client, err := newAPIClient(cmd)
 	if err != nil {
 		return err
@@ -467,9 +490,8 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("title")
 		body["title"] = v
 	}
-	if cmd.Flags().Changed("description") {
-		v, _ := cmd.Flags().GetString("description")
-		body["description"] = v
+	if descriptionChanged {
+		body["description"] = description
 	}
 	if cmd.Flags().Changed("agent") {
 		v, _ := cmd.Flags().GetString("agent")
@@ -523,7 +545,7 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(body) == 0 {
-		return fmt.Errorf("no fields to update; use flags like --title, --description, --agent, --status, --mode, etc.")
+		return fmt.Errorf("no fields to update; use flags like --title, --description/--description-stdin/--description-file, --agent, --status, --mode, etc.")
 	}
 
 	var result map[string]any

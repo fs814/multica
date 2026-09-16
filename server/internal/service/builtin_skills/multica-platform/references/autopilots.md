@@ -102,3 +102,5 @@ trigger.
 These mutate durable state or start work: `create`, `update`, `delete`, trigger
 add/update/delete/rotate, `trigger`, and webhook calls to
 `/api/webhooks/autopilots/{token}`.
+
+`create` and `update` accept exactly one of `--description`, `--description-stdin`, or `--description-file`. Prefer `--description-file ./runbook.md` for multiline or non-ASCII runbooks on Windows. Files must be inside the working directory unless `--allow-external-file` is explicitly authorized. The implementation uses `resolveTextFlag` and `ensureFileFlagWithinWorkdir` in the CLI.
