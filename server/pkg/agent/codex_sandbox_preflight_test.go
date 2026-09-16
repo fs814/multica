@@ -20,7 +20,8 @@ func TestCodexSandboxPreflight(t *testing.T) {
 		{"RPC failure", "windows", "", errors.New("secret-value"), "could not run"},
 		{"nonzero", "windows", `{"exitCode":1,"stderr":"secret-value"}`, nil, "exited with code 1"},
 		{"missing code", "windows", `{}`, nil, "no valid exit code"},
-		{"invalid JSON", "windows", `null`, nil, "no valid exit code"},
+		{"null response", "windows", `null`, nil, "no valid exit code"},
+		{"invalid JSON", "windows", "{", nil, "no valid exit code"},
 		{"Linux skips", "linux", "", nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
