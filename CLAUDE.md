@@ -11,6 +11,17 @@ The source of truth for code naming, i18n glossary, and Chinese product voice is
 
 Read it before editing translations in `packages/views/locales/`, naming routes/packages/files/DB columns/types, or writing Chinese UI/docs copy.
 
+## Project Memory
+
+Use [the project memory selector](datas/memory/README.md) for the current workspace
+and project. The private task context selects runtime memory; a shared working
+directory does not. Repository rules here remain authoritative; check live
+platform records before relying on task status.
+
+Final deliverables belong under `datas/`; temporary work, logs, builds and
+unpublished candidates belong under ignored `.multica/`. Project memory is
+published under `datas/memory/`; read and save it through the Memory API.
+
 ## Project Shape
 
 Multica is an AI-native task management platform for small teams, with agents as first-class assignees that can own issues, comment, and change status.

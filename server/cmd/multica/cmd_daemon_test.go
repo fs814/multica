@@ -994,3 +994,15 @@ func clearDaemonTaskEnv(t *testing.T) {
 		t.Setenv(key, "")
 	}
 }
+
+func TestBuildDaemonStartArgsForwardsNoTaskClaims(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.Flags().Bool("no-task-claims", false, "")
+	if err := cmd.Flags().Set("no-task-claims", "true"); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(buildDaemonStartArgs(cmd), " ")
+	if !strings.Contains(got, "--no-task-claims") {
+		t.Fatalf("mode lost on child/restart: %s", got)
+	}
+}

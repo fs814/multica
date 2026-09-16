@@ -318,6 +318,9 @@ func (d *Daemon) ClaimTasksWSFirst(ctx context.Context, daemonID string, runtime
 }
 
 func (d *Daemon) claimTasksWSFirst(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
+	if d.cfg.NoTaskClaims {
+		return claimTasksResult{}, nil
+	}
 	// Un-upgraded server without the batch route: a prior poll already learned
 	// this (via a 404), so go straight to the legacy per-runtime claim and skip
 	// the WS + batch attempts each cycle.

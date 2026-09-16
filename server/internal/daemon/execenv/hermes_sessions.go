@@ -75,6 +75,9 @@ func HermesSessionStorePath(daemonProfile, agentID, sourceHome string, task Task
 		return ""
 	}
 	conversation := hermesConversationSegment(task)
+	if segment := projectSessionSegment(task); segment != "" {
+		conversation = filepath.Join(segment, conversation)
+	}
 	if conversation == "" {
 		return ""
 	}
@@ -422,17 +425,17 @@ func PruneHermesSessionStores(daemonProfile string, retention time.Duration, now
 				continue
 			}
 			profileStoreDir := filepath.Join(agentDir, p.Name())
-			conversations, err := os.ReadDir(profileStoreDir)
+			conversations, err := sessionStoreDirectories(profileStoreDir)
 			if err != nil {
 				keptProfiles++
 				continue
 			}
 			kept := 0
 			for _, conv := range conversations {
-				if !conv.IsDir() {
+				if !conv.info.IsDir() {
 					continue
 				}
-				storeDir := filepath.Join(profileStoreDir, conv.Name())
+				storeDir := conv.path
 				// Same "newest mtime is last activity, plus total size" walk the
 				// memory store prunes on; SQLite bumps the database's mtime on
 				// every commit, so an advancing conversation keeps its shard fresh.
@@ -462,6 +465,7 @@ func PruneHermesSessionStores(daemonProfile string, retention time.Duration, now
 				removed++
 				bytesFreed += size
 			}
+			removeEmptyProjectSessionNamespaces(profileStoreDir)
 			// Drop the profile dir once its last conversation is gone, then the
 			// agent dir once its last profile is, so the tree does not leave
 			// empty shells behind. os.Remove only succeeds on an empty

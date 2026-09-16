@@ -153,3 +153,21 @@ is task-local checkout state.
 Project create/update/delete/status and project resource add/update/remove
 mutate durable workspace state and affect future tasks. Ask before changing
 `local_directory` unless the user explicitly requested that exact local path.
+
+## Persistent project memory
+
+With matching server and daemon/CLI versions, memory is keyed by workspace and project UUID.
+Use `multica project memory resolve <project> --output json` before writing.
+`list` and `read --path <relative-name>` fetch through the owner daemon.
+`write --path <name> --content-file <file> --source <reference>`, `delete`, and
+`import --content-file <json-file-map>` require both `--expected-revision` and
+`--expected-binding-revision`. Import replaces the complete file set atomically.
+Do not retry a conflicting write without reading and merging.
+
+`init --owner-runtime <runtime>` can establish a human-selected owner.
+Human-only `migrate --destination <absolute-source-root>` keeps that owner;
+omitting destination selects managed storage. Both require revision flags and source.
+An offline owner is unavailable; do not invent a local replacement binding.
+Task environment context is a private snapshot; shared resources.json never grants memory access.
+
+Source-backed published memory lives under `datas/memory/projects/<workspace>/<project>/versions/<generation>/`. The server selects the generation. A read verifies and promotes that selected snapshot from ignored `.multica/project-memory-candidates/`, exporting reviewable entries under `files/`. Use Memory write/import followed by readback before committing; do not edit snapshots or change their digest directly. Final deliverables belong in `datas/`; intermediate artifacts belong in `.multica/`.

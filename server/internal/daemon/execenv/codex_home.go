@@ -415,6 +415,9 @@ func codexSessionStoreKey(profile string, task TaskContextForEnv) string {
 	if agent == "" {
 		agent = "_"
 	}
+	if segment := projectSessionSegment(task); segment != "" {
+		storeID = filepath.Join(segment, storeID)
+	}
 	return filepath.Join(codexSessionStoreNamespace(profile), agent, storeID)
 }
 
@@ -473,16 +476,16 @@ func PruneCodexSessionStores(profile string, retention time.Duration, now time.T
 			continue
 		}
 		agentDir := filepath.Join(root, a.Name())
-		issues, err := os.ReadDir(agentDir)
+		issues, err := sessionStoreDirectories(agentDir)
 		if err != nil {
 			continue
 		}
 		kept := 0
 		for _, is := range issues {
-			if !is.IsDir() {
+			if !is.info.IsDir() {
 				continue
 			}
-			storeDir := filepath.Join(agentDir, is.Name())
+			storeDir := is.path
 			newest, size := dirStat(storeDir)
 			if newest.IsZero() || now.Sub(newest) <= retention {
 				kept++
@@ -512,6 +515,7 @@ func PruneCodexSessionStores(profile string, retention time.Duration, now time.T
 			removed++
 			bytesFreed += size
 		}
+		removeEmptyProjectSessionNamespaces(agentDir)
 		// Remove the agent dir once its last issue store is gone, so the tree
 		// does not leave empty <agent>/ shells behind.
 		if kept == 0 {

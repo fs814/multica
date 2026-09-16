@@ -1,3 +1,4 @@
+import { memoryBindingSchema, memoryWorkSchema, memoryReceiptSchema, parseMemory, type MemoryOperation } from "../projects/memory-schemas";
 import {WorkflowDebugCapabilitiesSchema, WorkflowDebugSettingsSchema, WorkflowDebugRunSchema, WorkflowDebugDefinitionSchema, WorkflowDebugListSchema, workflowDebugPolicyWire, type WorkflowDebugPolicy, type StartWorkflowDebugRequest} from "../workflows/debug-schemas";
 import type { PublishWorkflowTemplateRequest } from "../workflows/schemas";
 import type { z } from "zod";
@@ -3628,6 +3629,20 @@ export class ApiClient {
   async getAttachmentBlob(id: string): Promise<Blob> {
     const res = await this.fetchRaw(`/api/attachments/${id}/download`);
     return res.blob();
+  }
+
+  // Workspace headers are frozen at invocation, including delayed receipt reads.
+  async resolveProjectMemory(wsId: string, projectId: string, signal?: AbortSignal) {
+    const raw = await this.fetch<unknown>(`/api/projects/${encodeURIComponent(projectId)}/memory`, { headers: { "X-Workspace-ID": wsId, "X-Workspace-Slug": "" }, signal });
+    return parseMemory(raw, memoryBindingSchema, "project memory resolve");
+  }
+  async submitProjectMemory(wsId: string, projectId: string, operation: MemoryOperation, signal?: AbortSignal) {
+    const raw = await this.fetch<unknown>(`/api/projects/${encodeURIComponent(projectId)}/memory/operations`, { method: "POST", headers: { "X-Workspace-ID": wsId, "X-Workspace-Slug": "" }, body: JSON.stringify(operation), signal });
+    return parseMemory(raw, memoryWorkSchema, "project memory submit");
+  }
+  async getProjectMemoryReceipt(wsId: string, projectId: string, requestId: string, signal?: AbortSignal) {
+    const raw = await this.fetch<unknown>(`/api/projects/${encodeURIComponent(projectId)}/memory/operations/${encodeURIComponent(requestId)}`, { headers: { "X-Workspace-ID": wsId, "X-Workspace-Slug": "" }, signal });
+    return parseMemory(raw, memoryReceiptSchema, "project memory receipt");
   }
 
   // Projects

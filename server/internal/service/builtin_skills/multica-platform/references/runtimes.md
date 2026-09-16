@@ -136,3 +136,16 @@ Workspace repos and project resources are not the same thing:
 Do not add a project resource just because `repo checkout` failed. First
 determine whether the user asked for durable project context or just a task
 checkout.
+
+## Starting without business task claims
+
+An independent human operator can start or restart a daemon with
+`--no-task-claims` to keep runtime registration, heartbeat and project memory
+init/import/readback while disabling every business claim transport, including
+WebSocket, HTTP batch/legacy and debug. Local health and `daemon status --output json`
+report `no_task_claims: true`. The flag is startup-only and is forwarded to
+background/replacement children; explicitly pass it on each operator restart.
+Omitting it preserves normal task claiming. This is not a writer freeze: memory
+and other control-plane activity remain enabled. For an isolated maintenance
+launch also use `--foreground --no-auto-update --no-auto-reload`. Do not stop or
+restart a daemon from a task it is currently hosting.

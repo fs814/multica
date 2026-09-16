@@ -18,8 +18,9 @@ import (
 
 // HealthResponse is returned by the daemon's local health endpoint.
 type HealthResponse struct {
-	Status string `json:"status"`
-	PID    int    `json:"pid"`
+	NoTaskClaims bool   `json:"no_task_claims"`
+	Status       string `json:"status"`
+	PID          int    `json:"pid"`
 	// OS is the daemon's runtime.GOOS. The desktop app compares it against its
 	// own host OS to detect a daemon it cannot manage — e.g. a Windows desktop
 	// reaching a Linux daemon inside WSL2 over localhost forwarding. The
@@ -324,6 +325,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 		}
 
 		resp := HealthResponse{
+			NoTaskClaims:          d.cfg.NoTaskClaims,
 			Status:                status,
 			PID:                   os.Getpid(),
 			OS:                    runtime.GOOS,

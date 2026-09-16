@@ -3470,6 +3470,23 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		}
 	}
 
+	if resp.ProjectID != "" && !requestHasClientCapability(r, "project-memory-v1") {
+		var configured bool
+		err := h.DB.QueryRow(r.Context(), "SELECT EXISTS(SELECT 1 FROM project_memory_binding WHERE workspace_id=$1 AND project_id=$2)", runtimeWorkspaceID, resp.ProjectID).Scan(&configured)
+		if err != nil || configured {
+			_, _ = h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), *task)
+			return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{outcome: "error_project_memory_capability", status: http.StatusConflict, message: "project memory requires a matching daemon with project-memory-v1"}
+		}
+	}
+	if requestHasClientCapability(r, "project-memory-v1") {
+		if err := h.attachProjectMemory(r, task, runtime, &resp); err != nil {
+			// Never strand a claimed task when memory initialization or validation fails.
+			if _, cancelErr := h.TaskService.CancelTaskWithReason(r.Context(), task.ID, "Project memory context could not be prepared: "+err.Error(), "project_memory_error"); cancelErr != nil {
+				_, _ = h.TaskService.RequeueTaskAfterClaimFailure(r.Context(), *task)
+			}
+			return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, &claimBuildFailure{outcome: "error_project_memory", status: http.StatusConflict, message: err.Error()}
+		}
+	}
 	return resp, deliveredCommentIDs, agentSkillCount, builtinSkillCount, nil
 }
 

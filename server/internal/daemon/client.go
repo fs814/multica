@@ -94,6 +94,7 @@ func isRuntimeNotFoundError(err error) bool {
 
 // Client handles HTTP communication with the Multica server daemon API.
 type Client struct {
+	noTaskClaims     bool // immutable after daemon construction
 	debugMu          sync.Mutex
 	debugRoot        string
 	debugIncarnation string
@@ -216,6 +217,7 @@ func daemonCommonCapabilities() []string {
 		protocol.DaemonCapabilityAgentSkillV1,
 		protocol.DaemonCapabilityRemoteMCPV1,
 		protocol.DaemonCapabilityLocalWorktreeV1,
+		"project-memory-v1",
 		protocol.DaemonCapabilitySourceContextQuickCreateV1,
 		protocol.DaemonCapabilityRPCV1,
 		protocol.DaemonCapabilityPlatformSkillV1,
@@ -233,6 +235,9 @@ func (c *Client) Token() string {
 }
 
 func (c *Client) ClaimTask(ctx context.Context, runtimeID string) (*Task, error) {
+	if c.noTaskClaims {
+		return nil, nil
+	}
 	var resp struct {
 		Task *Task `json:"task"`
 	}
@@ -305,6 +310,9 @@ func (c *Client) ClaimTasks(ctx context.Context, daemonID string, runtimeIDs []s
 }
 
 func (c *Client) claimTasksWithHints(ctx context.Context, daemonID string, runtimeIDs []string, maxTasks int) (claimTasksResult, error) {
+	if c.noTaskClaims {
+		return claimTasksResult{}, nil
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, batchClaimRequestTimeout)
 	defer cancel()
 	var resp claimTasksResult

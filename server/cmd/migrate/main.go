@@ -139,6 +139,25 @@ var pgBigmOperatorClass = extensionOperatorClass{
 // they are still pending: a fresh self-hosted install, which is exactly where an
 // interrupted build would otherwise leave a permanently unusable index.
 var concurrentIndexCleanups = map[string]string{
+	"502_workflow_debug_snapshot_id":          "idx_workflow_debug_snapshot_id",
+	"503_workflow_debug_quota_workspace":      "idx_workflow_debug_quota_workspace",
+	"504_workflow_debug_policy_workspace":     "idx_workflow_debug_policy_workspace",
+	"505_workflow_debug_execution_id":         "idx_workflow_debug_execution_id",
+	"506_workflow_debug_execution_generation": "idx_workflow_debug_execution_generation",
+	"507_workflow_debug_execution_run":        "idx_workflow_debug_execution_run",
+	"508_workflow_debug_stop_id":              "idx_workflow_debug_stop_id",
+	"509_workflow_debug_stop_claim":           "idx_workflow_debug_stop_claim",
+	"510_workflow_debug_cleanup_id":           "idx_workflow_debug_cleanup_id",
+	"511_workflow_debug_cleanup_object":       "idx_workflow_debug_cleanup_object",
+	"512_workflow_debug_run_quota":            "idx_workflow_debug_run_quota",
+	"513_workflow_debug_run_deadline":         "idx_workflow_debug_run_deadline",
+	"514_workflow_debug_run_cleanup":          "idx_workflow_debug_run_cleanup",
+	"516_workflow_debug_upload_id":            "idx_workflow_debug_upload_id",
+
+	"518_project_memory_binding_key":                            "project_memory_binding_key",
+	"519_project_memory_scope_key":                              "project_memory_scope_key",
+	"520_project_memory_task_key":                               "project_memory_task_key",
+	"521_project_memory_request_key":                            "project_memory_request_key",
 	"035_task_queue_issue_id_index":                             "idx_agent_task_queue_issue_id",
 	"067_task_queue_claim_candidate_index":                      "idx_agent_task_queue_claim_candidates",
 	"074_task_usage_updated_at_index":                           "idx_task_usage_updated_at",
@@ -503,6 +522,25 @@ func refuseChannelChatRouteHistoryRollbackWith(ctx context.Context, query rowQue
 }
 
 var upMigrationConditions = map[string]migrationCondition{
+	"502_workflow_debug_snapshot_id":          createConcurrentIndexUnlessExact("idx_workflow_debug_snapshot_id", "workflow_execution_snapshot", true, "(id)"),
+	"503_workflow_debug_quota_workspace":      createConcurrentIndexUnlessExact("idx_workflow_debug_quota_workspace", "workflow_debug_quota", true, "(workspace_id)"),
+	"504_workflow_debug_policy_workspace":     createConcurrentIndexUnlessExact("idx_workflow_debug_policy_workspace", "workflow_debug_policy", true, "(workspace_id)"),
+	"505_workflow_debug_execution_id":         createConcurrentIndexUnlessExact("idx_workflow_debug_execution_id", "workflow_debug_task_execution", true, "(id)"),
+	"506_workflow_debug_execution_generation": createConcurrentIndexUnlessExact("idx_workflow_debug_execution_generation", "workflow_debug_task_execution", true, "(task_id, claim_generation)"),
+	"507_workflow_debug_execution_run":        createConcurrentIndexUnlessExact("idx_workflow_debug_execution_run", "workflow_debug_task_execution", false, "(workspace_id, run_id)"),
+	"508_workflow_debug_stop_id":              createConcurrentIndexUnlessExact("idx_workflow_debug_stop_id", "workflow_debug_stop_request", true, "(id)"),
+	"509_workflow_debug_stop_claim":           createConcurrentIndexUnlessExact("idx_workflow_debug_stop_claim", "workflow_debug_stop_request", true, "(run_id, task_id, claim_id)"),
+	"510_workflow_debug_cleanup_id":           createConcurrentIndexUnlessExact("idx_workflow_debug_cleanup_id", "workflow_debug_cleanup_object", true, "(id)"),
+	"511_workflow_debug_cleanup_object":       createConcurrentIndexUnlessExact("idx_workflow_debug_cleanup_object", "workflow_debug_cleanup_object", true, "(run_id, object_kind, object_id)"),
+	"512_workflow_debug_run_quota":            createConcurrentIndexUnlessExact("idx_workflow_debug_run_quota", "workflow_run", false, "(workspace_id, accountable_user_id, created_at) WHERE (execution_mode = 'draft_test'::text)"),
+	"513_workflow_debug_run_deadline":         createConcurrentIndexUnlessExact("idx_workflow_debug_run_deadline", "workflow_run", false, "(debug_deadline_at) WHERE ((execution_mode = 'draft_test'::text) AND (status = ANY (ARRAY['pending'::text, 'running'::text, 'blocked'::text, 'waiting_acceptance'::text])))"),
+	"514_workflow_debug_run_cleanup":          createConcurrentIndexUnlessExact("idx_workflow_debug_run_cleanup", "workflow_run", false, "(debug_purge_after) WHERE ((execution_mode = 'draft_test'::text) AND (purge_completed_at IS NULL))"),
+	"516_workflow_debug_upload_id":            createConcurrentIndexUnlessExact("idx_workflow_debug_upload_id", "workflow_debug_upload", true, "(id)"),
+
+	"518_project_memory_binding_key": createProjectMemoryIndexUnlessExact("project_memory_binding_key", "project_memory_binding", "workspace_id, project_id"),
+	"519_project_memory_scope_key":   createProjectMemoryIndexUnlessExact("project_memory_scope_key", "project_memory_scope", "workspace_id, scope_kind, scope_id"),
+	"520_project_memory_task_key":    createProjectMemoryIndexUnlessExact("project_memory_task_key", "project_memory_task", "task_id"),
+	"521_project_memory_request_key": createProjectMemoryIndexUnlessExact("project_memory_request_key", "project_memory_request", "id"),
 	// Current search no longer consumes an issue-description GIN. Fresh installs
 	// should not build the historical fallback only to retire it at migration 464.
 	"139_issue_description_trgm_index": skipMigration("issue description search indexes are retired by migration 464"),

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/multica-ai/multica/server/internal/projectmemory"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -128,9 +129,11 @@ type PrepareParams struct {
 
 // TaskContextForEnv is the subset of task context used for writing context files.
 type TaskContextForEnv struct {
-	IssueID          string
-	TriggerCommentID string // comment that triggered this task (empty for on_assign)
-	TriggerThreadID  string // root comment ID for the triggering thread; falls back to TriggerCommentID when empty
+	ProjectMemory         *projectmemory.Context
+	ProjectMemorySnapshot *projectmemory.Snapshot
+	IssueID               string
+	TriggerCommentID      string // comment that triggered this task (empty for on_assign)
+	TriggerThreadID       string // root comment ID for the triggering thread; falls back to TriggerCommentID when empty
 	// CommentReplyTargets is set for a comment run that coalesced comments
 	// spanning MORE THAN ONE root thread (MUL-4348). When it has >=2 entries the
 	// workflow's reply step fans out — one reply per thread — instead of the
@@ -410,6 +413,9 @@ func readablePathSegment(label, fallback, id string) string {
 // The workdir starts empty (no repo checkouts). The agent checks out repos
 // on demand via `multica repo checkout <url>`.
 func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
+	if err := checkProjectMemoryProvider(params.Provider, params.Task); err != nil {
+		return nil, err
+	}
 	if params.WorkspacesRoot == "" {
 		return nil, fmt.Errorf("execenv: workspaces root is required")
 	}
@@ -661,7 +667,7 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// (service.LoadAgentSkillBundles), so a claimed task's AgentSkills is never
 	// empty and the skill-less branch is effectively unreachable in production.
 	// Emptying an agent's own skill list is NOT a way to opt out of the overlay.
-	if params.Provider == "hermes" && len(params.Task.AgentSkills) > 0 {
+	if params.Provider == "hermes" && (len(params.Task.AgentSkills) > 0 || params.Task.ProjectMemory != nil) {
 		hermesHome := filepath.Join(envRoot, "hermes-home")
 		sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
 		if err != nil {
@@ -739,6 +745,9 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	}
 
 	logger.Info("execenv: prepared env", "root", envRoot, "repos_available", len(params.Task.Repos))
+	if err := writePrivateProjectMemory(envRoot, params.Task); err != nil {
+		return nil, err
+	}
 	prepareSucceeded = true
 	lockClaimed = false // ownership of any lock passes to the Environment
 	return env, nil
@@ -807,6 +816,9 @@ type ReuseParams struct {
 // Returns nil if the workdir does not exist or required provider setup fails
 // (caller should fall back to Prepare).
 func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
+	if params.Task.ProjectMemory != nil {
+		return nil
+	} // Scoped reuse needs a verified provider transcript adapter.
 	if _, err := os.Stat(params.WorkDir); err != nil {
 		return nil
 	}

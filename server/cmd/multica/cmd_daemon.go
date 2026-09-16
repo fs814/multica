@@ -105,6 +105,7 @@ func init() {
 	f.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	f.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
 	f.Int("max-concurrent-tasks", 0, "Maximum concurrent runs (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
+	f.Bool("no-task-claims", false, "Disable all business task claims; keep registration, heartbeat, and project memory")
 	f.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
 	f.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
 	f.Bool("no-auto-reload", false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
@@ -128,6 +129,7 @@ func init() {
 	rf.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
 	rf.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
 	rf.Int("max-concurrent-tasks", 0, "Maximum concurrent runs (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
+	rf.Bool("no-task-claims", false, "Disable all business task claims; keep registration, heartbeat, and project memory")
 	rf.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
 	rf.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
 	rf.Bool("no-auto-reload", false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
@@ -892,6 +894,9 @@ func buildDaemonStartArgs(cmd *cobra.Command) []string {
 	if n, _ := cmd.Flags().GetInt("max-concurrent-tasks"); n > 0 {
 		args = append(args, "--max-concurrent-tasks", strconv.Itoa(n))
 	}
+	if b, _ := cmd.Flags().GetBool("no-task-claims"); b {
+		args = append(args, "--no-task-claims")
+	}
 	if b, _ := cmd.Flags().GetBool("no-auto-update"); b {
 		args = append(args, "--no-auto-update")
 	}
@@ -1066,6 +1071,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 		overrides.AutoUpdateCheckInterval = autoUpdateOverride
 	}
 
+	overrides.NoTaskClaims, _ = cmd.Flags().GetBool("no-task-claims")
 	cfg, err := daemon.LoadConfig(overrides)
 	if err != nil {
 		return err

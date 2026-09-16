@@ -164,20 +164,23 @@ func taskScopedAuthToken(task Task) (string, error) {
 
 func taskMulticaEnvironment(task Task, agentName, token, configRoot, workspacesRoot, serverURL string, healthPort, slot int, tempDir string) map[string]string {
 	return map[string]string{
-		"MULTICA_TOKEN":                 token,
-		cli.TaskConfigRootEnv:           configRoot,
-		TaskWorkspacesRootEnv:           workspacesRoot,
-		"MULTICA_SERVER_URL":            serverURL,
-		"MULTICA_DAEMON_PORT":           strconv.Itoa(healthPort),
-		"MULTICA_WORKSPACE_ID":          task.WorkspaceID,
-		"MULTICA_AGENT_NAME":            agentName,
-		"MULTICA_AGENT_ID":              task.AgentID,
-		"MULTICA_TASK_ID":               task.ID,
-		"MULTICA_WORKFLOW_EXECUTION_ID": task.WorkflowExecutionID,
-		"MULTICA_TASK_SLOT":             strconv.Itoa(slot),
-		"TMPDIR":                        tempDir,
-		"TMP":                           tempDir,
-		"TEMP":                          tempDir,
+		"MULTICA_TOKEN":                   token,
+		cli.TaskConfigRootEnv:             configRoot,
+		TaskWorkspacesRootEnv:             workspacesRoot,
+		"MULTICA_SERVER_URL":              serverURL,
+		"MULTICA_DAEMON_PORT":             strconv.Itoa(healthPort),
+		"MULTICA_WORKSPACE_ID":            task.WorkspaceID,
+		"MULTICA_AGENT_NAME":              agentName,
+		"MULTICA_AGENT_ID":                task.AgentID,
+		"MULTICA_TASK_ID":                 task.ID,
+		"MULTICA_PROJECT_ID":              task.ProjectID,
+		"MULTICA_PROJECT_MEMORY_CONTEXT":  filepath.Join(filepath.Dir(configRoot), "project-memory", "context.json"),
+		"MULTICA_PROJECT_MEMORY_SNAPSHOT": filepath.Join(filepath.Dir(configRoot), "project-memory", "snapshot.json"),
+		"MULTICA_WORKFLOW_EXECUTION_ID":   task.WorkflowExecutionID,
+		"MULTICA_TASK_SLOT":               strconv.Itoa(slot),
+		"TMPDIR":                          tempDir,
+		"TMP":                             tempDir,
+		"TEMP":                            tempDir,
 	}
 }
 
@@ -641,6 +644,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	cacheRoot := filepath.Join(cfg.WorkspacesRoot, ".repos")
 	skillCacheRoot := filepath.Join(cfg.WorkspacesRoot, ".skill-cache", "v1")
 	client := NewClient(cfg.ServerBaseURL)
+	client.noTaskClaims = cfg.NoTaskClaims
 	client.configureDebugDelivery(cfg.WorkspacesRoot)
 	// Tag every daemon HTTP request with the daemon's CLI version so the
 	// server can split logs/metrics by client version (parallel to the CLI).
@@ -4180,6 +4184,7 @@ func (d *Daemon) runRuntimeHeartbeat(ctx context.Context, rid string) {
 // runHeartbeatTick returns true when the HTTP heartbeat hit a transient
 // failure that should count toward stale idle-connection cleanup.
 func (d *Daemon) runHeartbeatTick(ctx context.Context, rid string) bool {
+	d.processProjectMemoryWork(ctx, rid)
 	// Skip HTTP heartbeat for runtimes that successfully acked a recent
 	// WebSocket heartbeat. The WS path keeps last_seen_at fresh and delivers
 	// actions, so the HTTP write would be a duplicate DB update. If the WS
@@ -5021,6 +5026,11 @@ func (d *Daemon) restartTargetBinary() (string, error) {
 // per-request timeout (WS) / the client's timeout (HTTP fallback), and the
 // server-side batch claim is index-backed + short.
 func (d *Daemon) pollLoop(ctx context.Context, taskWakeups <-chan taskWakeup) error {
+	if d.cfg.NoTaskClaims {
+		d.logger.Info("business task claims disabled; heartbeat and project memory remain available")
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	deliveryCtx, deliveryCancel := context.WithCancel(ctx)
 	deliveryDone := make(chan struct{})
 	go func() {
@@ -7484,14 +7494,20 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Prepare isolated execution environment.
 	// Repos are passed as metadata only — the agent checks them out on demand
 	// via `multica repo checkout <url>`.
+	memorySnapshot, memoryErr := d.loadProjectMemory(ctx, task)
+	if memoryErr != nil {
+		return TaskResult{}, memoryErr
+	}
 	taskCtx := execenv.TaskContextForEnv{
-		IssueID:             task.IssueID,
-		TriggerCommentID:    task.TriggerCommentID,
-		TriggerThreadID:     task.TriggerThreadID,
-		CommentReplyTargets: commentReplyThreads(task),
-		NewCommentCount:     task.NewCommentCount,
-		NewCommentsSince:    task.NewCommentsSince,
-		PriorSessionResumed: task.PriorSessionID != "",
+		ProjectMemory:         task.ProjectMemory,
+		ProjectMemorySnapshot: memorySnapshot,
+		IssueID:               task.IssueID,
+		TriggerCommentID:      task.TriggerCommentID,
+		TriggerThreadID:       task.TriggerThreadID,
+		CommentReplyTargets:   commentReplyThreads(task),
+		NewCommentCount:       task.NewCommentCount,
+		NewCommentsSince:      task.NewCommentsSince,
+		PriorSessionResumed:   task.PriorSessionID != "",
 		// MUL-5305: the server sets this when a more recent Codex session was
 		// withheld (rollout missing) and PriorSessionID is an older fallback (or
 		// absent). Seed the brief's continuity disclosure from it; the local
@@ -7745,8 +7761,15 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// the resolved source home so switching an agent's profile switches its
 		// memory line, matching Hermes' own "a profile is an isolated instance"
 		// model. Guarded from the GC for the whole task, as the Codex store below.
-		if store := execenv.HermesMemoryStorePath(d.cfg.Profile, task.AgentID, res.SourceHome); store != "" {
+		if store := execenv.ProjectMemoryStorePath(d.cfg.Profile, task.AgentID, res.SourceHome, taskCtx); store != "" {
 			hermesMemoryStore = store
+			if task.ProjectMemory != nil {
+				release, err := execenv.LockProjectNativeMemory(ctx, store)
+				if err != nil {
+					return TaskResult{}, fmt.Errorf("lock project native memory: %w", err)
+				}
+				defer release()
+			}
 			d.markActiveStore(store)
 			defer d.unmarkActiveStore(store)
 		}

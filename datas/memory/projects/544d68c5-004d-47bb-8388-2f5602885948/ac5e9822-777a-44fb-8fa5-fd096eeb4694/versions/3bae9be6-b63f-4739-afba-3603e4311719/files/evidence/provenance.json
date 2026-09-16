@@ -1,0 +1,22 @@
+{
+  "pm_comment_id": "01a0a305-2c10-76f4-9cf7-0b00f6ecabd2",
+  "pm_comment_revision": 1,
+  "pm_attachment_id": "01a0a305-2bf7-7456-869a-d2d5e6159d55",
+  "pm_package_sha256": "039e4c75a02d5b1c43ec0d772a68989631b287fc6a503fc7728a4b45b5a137a7",
+  "files": [
+    {
+      "path": "current-run-changes.json",
+      "sha256": "7208362ce1f0a3add53838832369403daec09ed8d142ddf87bdb5504c2a13b7a"
+    },
+    {
+      "path": "source-comment-metadata.json",
+      "sha256": "30a53e1de04251f3794decbb6234e8f96ecf5202bed4c30c66399cfb2f2e401f"
+    },
+    {
+      "path": "source-run-metadata.json",
+      "sha256": "be7fab2c1d6a17de1e1f6e6c3b7065ae1f8a7ad420bc80a23b30feeeb43c8d89"
+    }
+  ],
+  "scope": "Exact metadata files copied from authenticated PM attachment after manifest verification; no comment bodies or credentials.",
+  "history_limit": "Original 75 moves lack independent mutation logs and historical per-row revision/time. Two new correction logs do not fill that gap."
+}

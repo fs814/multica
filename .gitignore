@@ -54,7 +54,9 @@ apps/web/test-results/
 # context (agent workspace)
 .context
 .agent_context/
+# Intermediate artifacts, candidate builds and unpublished memory generations
 .multica/
+/NUL
 
 # local settings
 .claude/

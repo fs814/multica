@@ -316,6 +316,9 @@ func (c *Client) ReplayDebugDeliveries(ctx context.Context) error {
 	return first
 }
 func (c *Client) claimDebugTask(ctx context.Context, runtimeID string) (*Task, error) {
+	if c.noTaskClaims {
+		return nil, nil
+	}
 	if c.debugRoot == "" {
 		return nil, nil
 	}

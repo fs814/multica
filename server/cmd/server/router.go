@@ -1500,6 +1500,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// a secret never sits in a task record.
 		r.Get("/tasks/{id}/plugin-mcp/{contributionId}/credential", h.ResolvePluginMCPCredential)
 
+		r.Get("/runtimes/{runtimeId}/memory/next", h.NextProjectMemoryWork)
+		r.Post("/runtimes/{runtimeId}/memory/{requestId}/result", h.CompleteProjectMemoryWork)
 		r.Post("/runtimes/{runtimeId}/tasks/claim", h.ClaimTaskByRuntime)
 		// Canonical machine-level batch claim (MUL-4257). `/claim` is a
 		// transitional alias; the daemon coordinator targets the canonical
@@ -2029,6 +2031,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetProject)
 					r.Put("/", h.UpdateProject)
 					r.Delete("/", h.DeleteProject)
+					r.Get("/memory", h.ResolveProjectMemory)
+					r.Post("/memory/operations", h.SubmitProjectMemory)
+					r.Get("/memory/operations/{requestId}", h.GetProjectMemoryOperation)
 					r.Get("/resources", h.ListProjectResources)
 					r.Post("/resources", h.CreateProjectResource)
 					r.Put("/resources/{resourceId}", h.UpdateProjectResource)

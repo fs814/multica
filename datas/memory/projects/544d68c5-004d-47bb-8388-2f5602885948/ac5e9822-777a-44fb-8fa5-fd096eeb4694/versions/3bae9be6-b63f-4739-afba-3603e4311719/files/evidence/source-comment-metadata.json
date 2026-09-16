@@ -1,0 +1,298 @@
+[
+  {
+    "issue_identifier": "TES-100",
+    "comment_id": "01a0a02a-1ce8-7268-8639-707f315885cb",
+    "revision": 1,
+    "created_at": "2026-09-14T06:45:09-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.5006161-07:00",
+    "collected_at": "2026-09-14T19:58:39.5811467-07:00"
+  },
+  {
+    "issue_identifier": "TES-101",
+    "comment_id": "01a0a1bd-40c7-7552-b005-55efe7ef7515",
+    "revision": 1,
+    "created_at": "2026-09-14T14:05:29-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.5811965-07:00",
+    "collected_at": "2026-09-14T19:58:39.6653240-07:00"
+  },
+  {
+    "issue_identifier": "TES-102",
+    "comment_id": "01a0a2e1-4be2-7bc0-a120-69fe5376876f",
+    "revision": 1,
+    "created_at": "2026-09-14T19:24:29-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.6653749-07:00",
+    "collected_at": "2026-09-14T19:58:39.7478312-07:00"
+  },
+  {
+    "issue_identifier": "TES-17",
+    "comment_id": "1ca5a801-59df-4b71-8a18-de118bd7318d",
+    "revision": 1,
+    "created_at": "2026-08-11T00:35:01-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.5310837-07:00",
+    "collected_at": "2026-09-14T19:58:36.6369736-07:00"
+  },
+  {
+    "issue_identifier": "TES-21",
+    "comment_id": "4f0a371d-9e1c-480a-8e45-f3a1f52410fe",
+    "revision": 1,
+    "created_at": "2026-08-14T05:32:23-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.6394171-07:00",
+    "collected_at": "2026-09-14T19:58:36.7287575-07:00"
+  },
+  {
+    "issue_identifier": "TES-29",
+    "comment_id": "9e4e80ce-500f-4a4e-ac33-7879a8ae47fe",
+    "revision": 1,
+    "created_at": "2026-08-18T06:37:25-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.7288783-07:00",
+    "collected_at": "2026-09-14T19:58:36.8163267-07:00"
+  },
+  {
+    "issue_identifier": "TES-30",
+    "comment_id": "343192ff-ef28-4e40-8b85-4cb9a725e00a",
+    "revision": 1,
+    "created_at": "2026-08-18T20:52:49-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.8164123-07:00",
+    "collected_at": "2026-09-14T19:58:36.9052199-07:00"
+  },
+  {
+    "issue_identifier": "TES-55",
+    "comment_id": "c2cc069a-aa83-40a6-9ac6-4bf0fd7518fa",
+    "revision": 1,
+    "created_at": "2026-08-24T14:07:51-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.9052978-07:00",
+    "collected_at": "2026-09-14T19:58:36.9904715-07:00"
+  },
+  {
+    "issue_identifier": "TES-57",
+    "comment_id": "ce4cb7ae-ec91-4639-adc9-800a357810e5",
+    "revision": 1,
+    "created_at": "2026-09-01T06:37:34-07:00",
+    "collected_started_at": "2026-09-14T19:58:36.9905246-07:00",
+    "collected_at": "2026-09-14T19:58:37.0903564-07:00"
+  },
+  {
+    "issue_identifier": "TES-58",
+    "comment_id": "c7720664-966c-41cb-9ed5-92befe3785e5",
+    "revision": 1,
+    "created_at": "2026-09-01T08:22:04-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.0904460-07:00",
+    "collected_at": "2026-09-14T19:58:37.1734754-07:00"
+  },
+  {
+    "issue_identifier": "TES-59",
+    "comment_id": "633e0601-98b5-4e8a-a75a-6114d4d0905f",
+    "revision": 1,
+    "created_at": "2026-09-01T08:03:56-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.1735382-07:00",
+    "collected_at": "2026-09-14T19:58:37.2743459-07:00"
+  },
+  {
+    "issue_identifier": "TES-60",
+    "comment_id": "657f4607-9a72-4d79-aa4e-9292d97d2ea0",
+    "revision": 1,
+    "created_at": "2026-09-01T07:30:03-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.2744065-07:00",
+    "collected_at": "2026-09-14T19:58:37.3596280-07:00"
+  },
+  {
+    "issue_identifier": "TES-61",
+    "comment_id": "8ba01adf-d878-43cb-b49c-48e2d418753d",
+    "revision": 1,
+    "created_at": "2026-09-01T08:27:04-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.3596909-07:00",
+    "collected_at": "2026-09-14T19:58:37.4457277-07:00"
+  },
+  {
+    "issue_identifier": "TES-62",
+    "comment_id": "3e692651-bdf8-46f4-b716-7a85b445fb64",
+    "revision": 1,
+    "created_at": "2026-09-01T07:21:15-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.4457938-07:00",
+    "collected_at": "2026-09-14T19:58:37.5295209-07:00"
+  },
+  {
+    "issue_identifier": "TES-63",
+    "comment_id": "29ad240a-a43d-48fd-9a13-0bd0c100afbc",
+    "revision": 1,
+    "created_at": "2026-09-02T00:54:27-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.5295805-07:00",
+    "collected_at": "2026-09-14T19:58:37.6324992-07:00"
+  },
+  {
+    "issue_identifier": "TES-64",
+    "comment_id": "0cbe6d93-6b7e-4f5d-a525-ab46a7907143",
+    "revision": 1,
+    "created_at": "2026-09-02T00:49:30-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.6325602-07:00",
+    "collected_at": "2026-09-14T19:58:37.7155969-07:00"
+  },
+  {
+    "issue_identifier": "TES-65",
+    "comment_id": "e36bcfb0-4bb9-49e3-9df0-073301e74786",
+    "revision": 1,
+    "created_at": "2026-09-02T01:38:53-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.7156580-07:00",
+    "collected_at": "2026-09-14T19:58:37.8033990-07:00"
+  },
+  {
+    "issue_identifier": "TES-66",
+    "comment_id": "a9b499e2-a87c-43f4-83ff-d2eb69828859",
+    "revision": 1,
+    "created_at": "2026-09-02T03:35:54-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.8034638-07:00",
+    "collected_at": "2026-09-14T19:58:37.8925619-07:00"
+  },
+  {
+    "issue_identifier": "TES-67",
+    "comment_id": "d62fc5c4-c091-43f5-ba62-4836c414310f",
+    "revision": 1,
+    "created_at": "2026-09-02T20:56:12-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.8926236-07:00",
+    "collected_at": "2026-09-14T19:58:37.9812973-07:00"
+  },
+  {
+    "issue_identifier": "TES-68",
+    "comment_id": "67999d13-cb34-4435-ba49-d8811e09392a",
+    "revision": 1,
+    "created_at": "2026-09-02T21:18:24-07:00",
+    "collected_started_at": "2026-09-14T19:58:37.9813584-07:00",
+    "collected_at": "2026-09-14T19:58:38.0645780-07:00"
+  },
+  {
+    "issue_identifier": "TES-69",
+    "comment_id": "8d7bd325-ed67-4e9c-932c-5ef2efe79db9",
+    "revision": 1,
+    "created_at": "2026-09-02T22:16:48-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.0646377-07:00",
+    "collected_at": "2026-09-14T19:58:38.1498422-07:00"
+  },
+  {
+    "issue_identifier": "TES-71",
+    "comment_id": "b254645f-7d74-4ad4-916d-7da85f879040",
+    "revision": 1,
+    "created_at": "2026-09-03T06:04:43-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.1498956-07:00",
+    "collected_at": "2026-09-14T19:58:38.2331732-07:00"
+  },
+  {
+    "issue_identifier": "TES-74",
+    "comment_id": "a6f7fb44-104f-489c-9036-2cf6d0c4c170",
+    "revision": 1,
+    "created_at": "2026-09-03T07:29:53-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.2332442-07:00",
+    "collected_at": "2026-09-14T19:58:38.3166427-07:00"
+  },
+  {
+    "issue_identifier": "TES-75",
+    "comment_id": "0e1c03d4-7aa5-40ca-b21b-8239e445168c",
+    "revision": 1,
+    "created_at": "2026-09-08T23:27:01-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.3166972-07:00",
+    "collected_at": "2026-09-14T19:58:38.4001470-07:00"
+  },
+  {
+    "issue_identifier": "TES-76",
+    "comment_id": "636fc789-95da-4efa-af61-e40239026f1d",
+    "revision": 1,
+    "created_at": "2026-09-09T03:58:51-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.4002030-07:00",
+    "collected_at": "2026-09-14T19:58:38.4839830-07:00"
+  },
+  {
+    "issue_identifier": "TES-77",
+    "comment_id": "2a1e7a1a-3217-4dae-806e-9cb13261201d",
+    "revision": 1,
+    "created_at": "2026-09-08T23:43:39-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.4840478-07:00",
+    "collected_at": "2026-09-14T19:58:38.5649587-07:00"
+  },
+  {
+    "issue_identifier": "TES-78",
+    "comment_id": "568c2e45-187e-4bc3-b7a5-3ba89174b6a5",
+    "revision": 1,
+    "created_at": "2026-09-09T03:58:51-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.5650132-07:00",
+    "collected_at": "2026-09-14T19:58:38.6547225-07:00"
+  },
+  {
+    "issue_identifier": "TES-90",
+    "comment_id": "01a09ffd-e9dc-7ad4-bffb-a2555c473a14",
+    "revision": 1,
+    "created_at": "2026-09-14T05:56:52-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.6547824-07:00",
+    "collected_at": "2026-09-14T19:58:38.7391075-07:00"
+  },
+  {
+    "issue_identifier": "TES-91",
+    "comment_id": "01a0a000-3ae6-73df-971b-051f2432fa48",
+    "revision": 1,
+    "created_at": "2026-09-14T05:59:24-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.7391598-07:00",
+    "collected_at": "2026-09-14T19:58:38.8228480-07:00"
+  },
+  {
+    "issue_identifier": "TES-92",
+    "comment_id": "01a0a006-b98b-7e55-97b5-bba0660307dd",
+    "revision": 1,
+    "created_at": "2026-09-14T06:06:30-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.8229361-07:00",
+    "collected_at": "2026-09-14T19:58:38.9073137-07:00"
+  },
+  {
+    "issue_identifier": "TES-93",
+    "comment_id": "01a0a00c-8456-7176-b903-82f73995b255",
+    "revision": 1,
+    "created_at": "2026-09-14T06:12:50-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.9073712-07:00",
+    "collected_at": "2026-09-14T19:58:38.9900057-07:00"
+  },
+  {
+    "issue_identifier": "TES-94",
+    "comment_id": "01a0a00e-5ee8-74ff-b350-cac61afe4dbb",
+    "revision": 1,
+    "created_at": "2026-09-14T06:14:51-07:00",
+    "collected_started_at": "2026-09-14T19:58:38.9900594-07:00",
+    "collected_at": "2026-09-14T19:58:39.0731221-07:00"
+  },
+  {
+    "issue_identifier": "TES-95",
+    "comment_id": "01a0a019-a566-7b81-ba85-2c89c812dc95",
+    "revision": 1,
+    "created_at": "2026-09-14T06:27:10-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.0731774-07:00",
+    "collected_at": "2026-09-14T19:58:39.1626781-07:00"
+  },
+  {
+    "issue_identifier": "TES-96",
+    "comment_id": "01a0a01b-b64f-74b8-9c95-0eda6661a4b5",
+    "revision": 1,
+    "created_at": "2026-09-14T06:29:25-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.1627282-07:00",
+    "collected_at": "2026-09-14T19:58:39.2451589-07:00"
+  },
+  {
+    "issue_identifier": "TES-97",
+    "comment_id": "01a0a01d-edc7-7cc7-8c5e-0bd0fd71ab85",
+    "revision": 1,
+    "created_at": "2026-09-14T06:31:51-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.2452110-07:00",
+    "collected_at": "2026-09-14T19:58:39.3305656-07:00"
+  },
+  {
+    "issue_identifier": "TES-98",
+    "comment_id": "01a0a028-2aec-707b-957e-6f83bba62b40",
+    "revision": 1,
+    "created_at": "2026-09-14T06:43:02-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.3306391-07:00",
+    "collected_at": "2026-09-14T19:58:39.4169690-07:00"
+  },
+  {
+    "issue_identifier": "TES-99",
+    "comment_id": "01a0a029-9587-7e05-ad8a-785f7d415323",
+    "revision": 1,
+    "created_at": "2026-09-14T06:44:34-07:00",
+    "collected_started_at": "2026-09-14T19:58:39.4170139-07:00",
+    "collected_at": "2026-09-14T19:58:39.5005751-07:00"
+  }
+]
