@@ -8,3 +8,4 @@
 - All other local and origin feature branches were already ancestors. A local branch bundle was retained under `.multica/` before cleanup. Official upstream branches are outside this repository's branch cleanup.
 - Validation: project memory storage and promotion tests; targeted Go Memory/Autopilot/IssuePool tests; 22 core Memory tests on Node 22; 11 Memory view tests; live API read/write against the final storage.
 - Existing maintenance no-task-claims mode remains enabled; branch/data consolidation does not change task execution policy.
+- Final restart acceptance: detached owner reads revision 5 from final storage; all 26 committed snapshot/export files match local bytes and all 12 live entries match the selected digest.
