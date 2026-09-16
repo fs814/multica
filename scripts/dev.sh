@@ -65,4 +65,11 @@ echo ""
 trap 'kill 0' EXIT
 (cd server && go run ./cmd/server) &
 pnpm dev:web &
+# The owner daemon services project Memory as well as agent tasks. Reuse the
+# Desktop profile and any running owner; login remains an explicit user action.
+if [ "${MULTICA_DEV_DAEMON:-1}" = "1" ]; then
+  if ! node scripts/ensure-local-daemon.mjs; then
+    echo "==> API/web remain available; follow the daemon login/start instructions above."
+  fi
+fi
 wait

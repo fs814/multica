@@ -157,7 +157,7 @@ mutate durable workspace state and affect future tasks. Ask before changing
 ## Persistent project memory
 
 With matching server and daemon/CLI versions, memory is keyed by workspace and project UUID.
-Use `multica project memory resolve <project> --output json` before writing.
+Use `multica project memory resolve <project>` before writing (it returns JSON).
 `list` and `read --path <relative-name>` fetch through the owner daemon.
 `write --path <name> --content-file <file> --source <reference>`, `delete`, and
 `import --content-file <json-file-map>` require both `--expected-revision` and
@@ -171,3 +171,5 @@ An offline owner is unavailable; do not invent a local replacement binding.
 Task environment context is a private snapshot; shared resources.json never grants memory access.
 
 Source-backed published memory lives under `datas/memory/projects/<workspace>/<project>/versions/<generation>/`. The server selects the generation. A read verifies and promotes that selected snapshot from ignored `.multica/project-memory-candidates/`, exporting reviewable entries under `files/`. Use Memory write/import followed by readback before committing; do not edit snapshots or change their digest directly. Final deliverables belong in `datas/`; intermediate artifacts belong in `.multica/`.
+
+Local `make dev` and Settings run_multica launchers start/reuse the per-port Desktop daemon after API readiness. Memory uses that daemon; it is not a separate service. A missing login is reported without rebinding project ownership. See `datas/memory/README.md` for startup and maintenance options.
