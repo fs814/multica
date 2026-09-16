@@ -1,0 +1,9 @@
+{
+  "issue_id": "ac7600fb-8ea7-45f4-9054-1b4bb8f810c1",
+  "run_id": "853db026-e489-46b4-92d0-2c2c8fe052ca",
+  "status": "completed",
+  "workflow_step_id": "d5541dcb-580e-49ee-aa79-72589fa6b530",
+  "source_revision": "not_exposed_by_cli",
+  "collected_at": "2026-09-14T20:02:59.4702384-07:00",
+  "scope": "Only supports lifecycle/run-only classification; not full acceptance"
+}

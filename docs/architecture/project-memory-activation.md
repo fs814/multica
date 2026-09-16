@@ -33,3 +33,7 @@ This is a proposed operator procedure, not a record of production activation. Th
 ## Evidence required before activation
 
 Independent source review, accepted persistence scope, exact provider smoke versions, backup/restore rehearsal, installed binary hashes, migration log, import receipt plus readback hashes, and restart/owner-unavailable checks. These production steps have not been executed by the implementation agent.
+
+## Moving an existing source namespace to datas
+
+Pause the bound owner with its identity verified and preserve its database binding and selected snapshot. Copy the selected `docs/memory/projects/<workspace>/<project>/versions/<generation>/snapshot.json` byte-for-byte to the same namespace under `datas/memory/projects/`; validate its digest against the live binding. Export its logical entries under the generation's `files/` for review. Install a matching owner/CLI, archive the old directory under `.multica/`, and verify API readback with the old path absent. Do not change the binding revision or digest to hide a storage mismatch. Test one reviewed write and readback to exercise candidate promotion, then restart and read back again. Retain old namespaces for recovery until the new layout is verified.

@@ -58,7 +58,7 @@ Owner processing runs with daemon heartbeats and task initialization. A request 
 
 Apply migrations 517–522, install matching server and daemon/CLI binaries, then initialize and import the reviewed bundle. Do not restart an active production daemon merely to test this feature. Once a binding exists, the server refuses claims from daemons missing the capability. An upgraded daemon refuses project tasks without the server-provided context. Projects used only by legacy daemons are not automatically activated; mixed-version rollout is not accepted as project-isolated operation.
 
-The accepted local knowledge base is preserved in the project's namespaced accepted/ export, with byte-original evidence archived and SHA-256 provenance. Its import bundle is prepared, not published to the installed server. Historical missing evidence and unresolved classifications are preserved rather than inferred.
+Import accepted knowledge through the API and verify the selected snapshot before committing it. Keep handoff bundles, provenance working copies and retired namespaces under ignored `.multica/`; commit the published snapshot and readable exports under `datas/memory/`. Historical missing evidence and unresolved classifications remain explicit.
 
 ## Validation
 
@@ -76,4 +76,4 @@ A process interruption does not publish an incomplete generation: files close/sy
 
 POSIX directory sync is implemented and errors prevent a successful candidate result; the Linux fixture exercises it. This is not a power-cut or storage-device certification. Windows lacks a portable directory fsync contract here, so sudden OS crash/power loss is outside the current guarantee, even if PostgreSQL retained its pointer. Independent acceptance must explicitly accept this narrower Windows scope, or require additional platform storage work before activation. Use coordinated database/owner-disk backups for recovery. Cross-owner transfer remains unsupported.
 
-See [activation and rollback](project-memory-activation.md) for the proposed rollout gate. No installed service or real binding has been changed by these tests.
+See [activation and rollback](project-memory-activation.md) for rollout and existing-storage migration.

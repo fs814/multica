@@ -1,0 +1,60 @@
+[
+  {
+    "identifier": "TES-93",
+    "command": "multica issue update ac7600fb-8ea7-45f4-9054-1b4bb8f810c1 --project ac5e9822-777a-44fb-8fa5-fd096eeb4694 --no-start --output json",
+    "before_collected_at": "2026-09-14T19:54:23.1446884-07:00",
+    "before": {
+      "id": "ac7600fb-8ea7-45f4-9054-1b4bb8f810c1",
+      "project_id": null,
+      "status": "done",
+      "status_category": "done",
+      "assignee_type": null,
+      "assignee_id": null,
+      "parent_issue_id": null,
+      "revision": 4,
+      "updated_at": "2026-09-14T06:12:50-07:00"
+    },
+    "mutation_exit_code": 0,
+    "after_collected_at": "2026-09-14T19:54:23.5270594-07:00",
+    "after": {
+      "id": "ac7600fb-8ea7-45f4-9054-1b4bb8f810c1",
+      "project_id": "ac5e9822-777a-44fb-8fa5-fd096eeb4694",
+      "status": "done",
+      "status_category": "done",
+      "assignee_type": null,
+      "assignee_id": null,
+      "parent_issue_id": null,
+      "revision": 5,
+      "updated_at": "2026-09-14T19:54:23-07:00"
+    }
+  },
+  {
+    "identifier": "TES-77",
+    "command": "multica issue update 5f514b39-96ed-4dbf-a3cc-1f2b634e114f --project ac5e9822-777a-44fb-8fa5-fd096eeb4694 --no-start --output json",
+    "before_collected_at": "2026-09-14T19:54:23.5326019-07:00",
+    "before": {
+      "id": "5f514b39-96ed-4dbf-a3cc-1f2b634e114f",
+      "project_id": null,
+      "status": "done",
+      "status_category": "done",
+      "assignee_type": "agent",
+      "assignee_id": "9efadb98-2e7d-4844-b1ea-77a22ba647ff",
+      "parent_issue_id": null,
+      "revision": 1,
+      "updated_at": "2026-09-09T03:59:46-07:00"
+    },
+    "mutation_exit_code": 0,
+    "after_collected_at": "2026-09-14T19:54:23.8068959-07:00",
+    "after": {
+      "id": "5f514b39-96ed-4dbf-a3cc-1f2b634e114f",
+      "project_id": "ac5e9822-777a-44fb-8fa5-fd096eeb4694",
+      "status": "done",
+      "status_category": "done",
+      "assignee_type": "agent",
+      "assignee_id": "9efadb98-2e7d-4844-b1ea-77a22ba647ff",
+      "parent_issue_id": null,
+      "revision": 2,
+      "updated_at": "2026-09-14T19:54:23-07:00"
+    }
+  }
+]
