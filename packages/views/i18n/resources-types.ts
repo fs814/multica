@@ -23,6 +23,7 @@ import type skills from "../locales/en/skills.json";
 import type chat from "../locales/en/chat.json";
 import type modals from "../locales/en/modals.json";
 import type runtimes from "../locales/en/runtimes.json";
+import type clis from "../locales/en/clis.json";
 import type layout from "../locales/en/layout.json";
 import type usage from "../locales/en/usage.json";
 import type squads from "../locales/en/squads.json";
@@ -65,6 +66,7 @@ declare global {
     chat: typeof chat;
     modals: typeof modals;
     runtimes: typeof runtimes;
+    clis: typeof clis;
     layout: typeof layout;
     usage: typeof usage;
     squads: typeof squads;

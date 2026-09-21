@@ -653,6 +653,8 @@ type (
 	PendingModelList        = protocol.DaemonHeartbeatPendingModelList
 	PendingLocalSkills      = protocol.DaemonHeartbeatPendingLocalSkills
 	PendingLocalSkillImport = protocol.DaemonHeartbeatPendingLocalSkillImport
+	PendingCLIList          = protocol.DaemonHeartbeatPendingCLIList
+	PendingCLIRun           = protocol.DaemonHeartbeatPendingCLIRun
 )
 
 func (c *Client) SendHeartbeat(ctx context.Context, runtimeID string) (*HeartbeatResponse, error) {
@@ -684,6 +686,18 @@ func (c *Client) ReportLocalSkillListResult(ctx context.Context, runtimeID, requ
 // ReportLocalSkillImportResult sends a runtime-local-skill bundle back to the server.
 func (c *Client) ReportLocalSkillImportResult(ctx context.Context, runtimeID, requestID string, result map[string]any) error {
 	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/local-skills/import/%s/result", runtimeID, requestID), result, nil)
+}
+
+// ReportCLIListResult sends the machine-local CLI registry listing back to the
+// server. The listing is redacted on the daemon side (no paths, no hashes, no
+// env values), so this payload stays safe to persist server-side.
+func (c *Client) ReportCLIListResult(ctx context.Context, runtimeID, requestID string, result map[string]any) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/clis/%s/result", runtimeID, requestID), result, nil)
+}
+
+// ReportCLIRunResult sends one CLI execution result back to the server.
+func (c *Client) ReportCLIRunResult(ctx context.Context, runtimeID, runID string, result map[string]any) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/clis/runs/%s/result", runtimeID, runID), result, nil)
 }
 
 // WorkspaceInfo holds minimal workspace metadata returned by the API.

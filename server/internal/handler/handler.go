@@ -217,7 +217,13 @@ type Handler struct {
 	ModelListStore        ModelListStore
 	LocalSkillListStore   LocalSkillListStore
 	LocalSkillImportStore LocalSkillImportStore
-	FeatureFlags          *featureflag.Service
+	// CLIListStore / CLIRunStore carry the machine-local CLI directory
+	// (TES-140). Both are heartbeat-dispatched like the queues above; the
+	// daemon owns the authoritative registry, so these record only the
+	// request lifecycle.
+	CLIListStore RuntimeCLIListStore
+	CLIRunStore  RuntimeCLIRunStore
+	FeatureFlags *featureflag.Service
 	// IssueStatusCatalog reads the workspace status catalog. Defaults to
 	// Queries; a test can substitute a counting wrapper to assert HOW MANY
 	// catalog reads a request performs, which is the only property that
@@ -499,6 +505,8 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		ModelCatalogCache:            NewInMemoryModelCatalogCache(),
 		LocalSkillListStore:          NewInMemoryLocalSkillListStore(),
 		LocalSkillImportStore:        NewInMemoryLocalSkillImportStore(),
+		CLIListStore:                 NewInMemoryRuntimeCLIListStore(),
+		CLIRunStore:                  NewInMemoryRuntimeCLIRunStore(),
 		LivenessStore:                NewNoopLivenessStore(),
 		HeartbeatScheduler:           NewPassthroughHeartbeatScheduler(queries),
 		Storage:                      store,

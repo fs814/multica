@@ -254,6 +254,9 @@ const (
 	// RuntimeLookupSourceRuntimeUpdatePoll is the browser polling CLI update
 	// progress.
 	RuntimeLookupSourceRuntimeUpdatePoll = "runtime_update_poll"
+	// RuntimeLookupSourceRuntimeCLIPoll is the panel polling a machine-local
+	// CLI registry listing or a running CLI (every 500ms while it waits).
+	RuntimeLookupSourceRuntimeCLIPoll = "runtime_cli_poll"
 	// RuntimeLookupSourceRuntimeAPI is every other runtime-scoped API call:
 	// reads, management, and the read-access gate itself.
 	RuntimeLookupSourceRuntimeAPI = "runtime_api"
@@ -299,6 +302,7 @@ func AllRuntimeLookupSources() []string {
 		RuntimeLookupSourceRuntimeLocalSkillPoll,
 		RuntimeLookupSourceRuntimeLocalSkillImportPoll,
 		RuntimeLookupSourceRuntimeUpdatePoll,
+		RuntimeLookupSourceRuntimeCLIPoll,
 		RuntimeLookupSourceRuntimeAPI,
 		RuntimeLookupSourceIssue,
 		RuntimeLookupSourceComment,

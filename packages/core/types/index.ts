@@ -341,3 +341,14 @@ export type {
   WorkspaceSubscriptionSeatReconcileResult,
   CreateWorkspaceSubscriptionPortalResponse,
 } from "./billing";
+
+
+export type {
+  RuntimeCLIStatus,
+  RuntimeCLIParamDescriptor,
+  RuntimeCLISummary,
+  RuntimeCLIListRequest,
+  RuntimeCLIRegistryResult,
+  CreateRuntimeCLIRunRequest,
+  RuntimeCLIRunRequest,
+} from "./cli";

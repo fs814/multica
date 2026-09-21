@@ -17,6 +17,8 @@ import type {
   ChatPendingTask,
   ChatSession,
   PrioritizeQueuedChatTaskResponse,
+  RuntimeCLIListRequest,
+  RuntimeCLIRunRequest,
   SendChatMessageResponse,
   StartMikaOnboardingResponse,
   Comment,
@@ -3033,6 +3035,81 @@ export const MALFORMED_RUNTIME_MODEL_LIST_REQUEST: RuntimeModelListRequest = {
   status: "failed",
   supported: true,
   error: "invalid model discovery response",
+  created_at: "",
+  updated_at: "",
+};
+
+// ---------------------------------------------------------------------------
+// Machine-local CLI directory (TES-140)
+// ---------------------------------------------------------------------------
+
+const RuntimeCLIParamDescriptorSchema = z.object({
+  name: z.string(),
+  type: z.string().default("string"),
+  required: z.boolean().default(false),
+  values: z.array(z.string()).optional(),
+  max_len: z.number().optional(),
+}).loose();
+
+const RuntimeCLISummarySchema = z.object({
+  key: z.string(),
+  label: z.string().default(""),
+  description: z.string().optional(),
+  params: z.array(RuntimeCLIParamDescriptorSchema).optional(),
+  timeout_seconds: z.number().default(60),
+  max_output_bytes: z.number().default(65536),
+  // Defaults to true so an older daemon that does not yet report availability
+  // does not render every entry as broken.
+  available: z.boolean().default(true),
+  unavailable_reason: z.string().optional(),
+}).loose();
+
+export const RuntimeCLIListRequestSchema = z.object({
+  id: z.string().default(""),
+  runtime_id: z.string().default(""),
+  status: z.string(),
+  clis: z.array(RuntimeCLISummarySchema).optional(),
+  registry_path: z.string().optional(),
+  error: z.string().optional(),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const RuntimeCLIRunRequestSchema = z.object({
+  id: z.string().default(""),
+  runtime_id: z.string().default(""),
+  cli_key: z.string().default(""),
+  params: z.record(z.string(), z.string()).optional(),
+  status: z.string(),
+  output: z.string().optional(),
+  truncated: z.boolean().optional(),
+  exit_code: z.number().optional(),
+  duration_ms: z.number().optional(),
+  output_bytes: z.number().optional(),
+  resolved_argv: z.array(z.string()).optional(),
+  error: z.string().optional(),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+// Fallbacks for unparseable responses. `failed` is the honest status in both
+// cases: `completed` would fabricate an empty registry or a successful run
+// with no output, and `pending` would spin the client-side poll until timeout.
+export const MALFORMED_RUNTIME_CLI_LIST_REQUEST: RuntimeCLIListRequest = {
+  id: "",
+  runtime_id: "",
+  status: "failed",
+  error: "invalid CLI registry response",
+  created_at: "",
+  updated_at: "",
+};
+
+export const MALFORMED_RUNTIME_CLI_RUN_REQUEST: RuntimeCLIRunRequest = {
+  id: "",
+  runtime_id: "",
+  cli_key: "",
+  status: "failed",
+  error: "invalid CLI run response",
   created_at: "",
   updated_at: "",
 };

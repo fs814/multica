@@ -85,6 +85,9 @@ import type {
   RuntimeLocalSkillListRequest,
   CreateRuntimeLocalSkillImportRequest,
   RuntimeLocalSkillImportRequest,
+  RuntimeCLIListRequest,
+  RuntimeCLIRunRequest,
+  CreateRuntimeCLIRunRequest,
   TimelineEntry,
   AssigneeFrequencyEntry,
   TaskMessagePayload,
@@ -453,6 +456,10 @@ import {
   EMPTY_LIST_GITHUB_REPOSITORIES_RESPONSE,
   RuntimeModelListRequestSchema,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
+  RuntimeCLIListRequestSchema,
+  MALFORMED_RUNTIME_CLI_LIST_REQUEST,
+  RuntimeCLIRunRequestSchema,
+  MALFORMED_RUNTIME_CLI_RUN_REQUEST,
   SkillSchema,
   EMPTY_SKILL,
   SkillImportResultSchema,
@@ -2396,6 +2403,74 @@ export class ApiClient {
     requestId: string,
   ): Promise<RuntimeLocalSkillImportRequest> {
     return this.fetch(`/api/runtimes/${runtimeId}/local-skills/import/${requestId}`);
+  }
+
+  // --- Machine-local CLI directory (TES-140) ---
+  //
+  // Four endpoints, all owner-only on the server. `initiateCLIRun` sends a
+  // registry key plus parameter values; there is no field for a command.
+
+  async initiateListCLIs(runtimeId: string): Promise<RuntimeCLIListRequest> {
+    const raw = await this.fetch<unknown>(`/api/runtimes/${runtimeId}/clis`, {
+      method: "POST",
+    });
+    return parseWithFallback<RuntimeCLIListRequest>(
+      raw,
+      RuntimeCLIListRequestSchema,
+      { ...MALFORMED_RUNTIME_CLI_LIST_REQUEST, runtime_id: runtimeId },
+      { endpoint: "POST /api/runtimes/{id}/clis" },
+    );
+  }
+
+  async getCLIListResult(
+    runtimeId: string,
+    requestId: string,
+  ): Promise<RuntimeCLIListRequest> {
+    const raw = await this.fetch<unknown>(
+      `/api/runtimes/${runtimeId}/clis/${requestId}`,
+    );
+    return parseWithFallback<RuntimeCLIListRequest>(
+      raw,
+      RuntimeCLIListRequestSchema,
+      {
+        ...MALFORMED_RUNTIME_CLI_LIST_REQUEST,
+        id: requestId,
+        runtime_id: runtimeId,
+      },
+      { endpoint: "GET /api/runtimes/{id}/clis/{requestId}" },
+    );
+  }
+
+  async initiateCLIRun(
+    runtimeId: string,
+    cliKey: string,
+    data: CreateRuntimeCLIRunRequest,
+  ): Promise<RuntimeCLIRunRequest> {
+    const raw = await this.fetch<unknown>(
+      `/api/runtimes/${runtimeId}/clis/${encodeURIComponent(cliKey)}/runs`,
+      { method: "POST", body: JSON.stringify(data) },
+    );
+    return parseWithFallback<RuntimeCLIRunRequest>(
+      raw,
+      RuntimeCLIRunRequestSchema,
+      { ...MALFORMED_RUNTIME_CLI_RUN_REQUEST, runtime_id: runtimeId, cli_key: cliKey },
+      { endpoint: "POST /api/runtimes/{id}/clis/{key}/runs" },
+    );
+  }
+
+  async getCLIRunResult(
+    runtimeId: string,
+    runId: string,
+  ): Promise<RuntimeCLIRunRequest> {
+    const raw = await this.fetch<unknown>(
+      `/api/runtimes/${runtimeId}/clis/runs/${runId}`,
+    );
+    return parseWithFallback<RuntimeCLIRunRequest>(
+      raw,
+      RuntimeCLIRunRequestSchema,
+      { ...MALFORMED_RUNTIME_CLI_RUN_REQUEST, id: runId, runtime_id: runtimeId },
+      { endpoint: "GET /api/runtimes/{id}/clis/runs/{runId}" },
+    );
   }
 
   async listAgentTasks(agentId: string): Promise<AgentTask[]> {
