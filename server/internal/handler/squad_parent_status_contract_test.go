@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/multica-ai/multica/server/internal/util"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +53,7 @@ func TestSquadAssignedLeaderCanWrapUpOnCommentTurn(t *testing.T) {
 	squad := seedSquadForBriefing(t, leaderID, "Owning Squad", "")
 
 	// The issue is assigned to this squad → the server grants status ownership.
-	briefing := buildSquadLeaderBriefing(ctx, testHandler.Queries, squad, true)
+	briefing := buildSquadLeaderBriefing(ctx, testHandler.Queries, squad, true, util.MustParseUUID(testUserID))
 	brief := leaderCommentRuntimeBrief(t, briefing)
 
 	if !strings.Contains(briefing, "Own the parent issue status") {
@@ -96,7 +97,7 @@ func TestGuestLeaderCannotChangeStatusOnCommentTurn(t *testing.T) {
 	squad := seedSquadForBriefing(t, leaderID, "Guest Squad", "")
 
 	// The issue is assigned to someone else → no status ownership.
-	briefing := buildSquadLeaderBriefing(ctx, testHandler.Queries, squad, false)
+	briefing := buildSquadLeaderBriefing(ctx, testHandler.Queries, squad, false, util.MustParseUUID(testUserID))
 	brief := leaderCommentRuntimeBrief(t, briefing)
 
 	// The leader still gets the coordination context it was pulled in for —

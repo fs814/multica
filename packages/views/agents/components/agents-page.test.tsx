@@ -336,3 +336,9 @@ describe("AgentsPage listReady gate", () => {
     expect(screen.queryByTestId("skeleton")).not.toBeInTheDocument();
   });
 });
+
+// Location rendering has its canonical suite beside ExecutionLocation. Keep
+// these tests focused on list ordering and direct-detail cache behavior.
+vi.mock("../../runtimes/components/execution-location", () => ({
+  ExecutionLocation: () => <span data-testid="execution-location" />,
+}));

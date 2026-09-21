@@ -1,5 +1,8 @@
 "use client";
 
+import { SquadMachines } from "./squad-machines";
+import { ExecutionLocation } from "../../runtimes/components/execution-location";
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
@@ -784,6 +787,7 @@ function SquadDetailInspector({
         )}
       </div>
 
+      <div className="px-5 py-4"><SquadMachines squadId={squad.id} leaderId={squad.leader_id} /></div>
       {/* Details — read-only */}
       <div className="border-b px-5 py-4">
         <div className="mb-1 -mx-2 px-2 text-micro font-medium uppercase tracking-wider text-muted-foreground">
@@ -1202,6 +1206,7 @@ function SquadMembersTab({
                     </span>
                   )}
                 </div>
+                <ExecutionLocation agentId={m.member_id} human={m.member_type === "member"} />
                 {canManage ? (
                   <RoleEditor
                     value={m.role ?? ""}
