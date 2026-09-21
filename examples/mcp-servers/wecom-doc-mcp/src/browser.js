@@ -46,14 +46,20 @@ function isLoginPage(urlStr) {
     if (hostname.includes('passport.') || hostname.includes('login.')) {
       return true;
     }
-    // 登录路径（以 /login 开头）
-    if (pathname === '/login' || pathname.startsWith('/login/') || pathname.startsWith('/passport/')) {
+    // 登录路径：按「路径段」匹配 login / passport，而不是只看前缀。
+    // 会话失效时企微的落点是 /scenario/login.html（段名是 login.html），
+    // 旧的 startsWith('/login') 匹配不到它，会把登录页判成已登录。
+    if (/(?:^|\/)(login|passport)(?:[./]|$)/.test(pathname.toLowerCase())) {
       return true;
     }
     return false;
   } catch {
     // URL 解析失败时降级为包含检测
-    return urlStr.includes('/login') || urlStr.includes('/passport');
+    return (
+      urlStr.includes('/login') ||
+      urlStr.includes('/passport') ||
+      urlStr.includes('/scenario/login')
+    );
   }
 }
 
