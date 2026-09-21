@@ -31,6 +31,7 @@ export type RouteIconName =
   | "BarChart3"
   | "Monitor"
   | "Server"
+  | "Terminal"
   | "BookOpenText"
   | "Settings"
   | "File"
@@ -54,6 +55,7 @@ export type NavLabelKey =
   | "squads"
   | "usage"
   | "runtimes"
+  | "clis"
   | "skills"
   | "settings";
 
@@ -69,6 +71,7 @@ export type WorkspacePageKey =
   | "squads"
   | "usage"
   | "runtimes"
+  | "clis"
   | "skills"
   | "settings";
 
@@ -96,6 +99,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   squads: { segment: "squads", icon: "Users", navKey: "squads" },
   usage: { segment: "usage", icon: "BarChart3", navKey: "usage" },
   runtimes: { segment: "runtimes", icon: "Monitor", navKey: "runtimes" },
+  clis: { segment: "clis", icon: "Terminal", navKey: "clis" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
 };

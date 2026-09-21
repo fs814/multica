@@ -1090,14 +1090,26 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	authPath := middleware.DaemonAuthPathFromContext(r.Context())
 	var (
-		outcome                                                                                            = "unauth"
-		runtimeID                                                                                          string
-		decodeMs, runtimeLookupMs, workspaceCheckMs                                                        int64
-		authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs int64
-		probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut                                       bool
+		outcome                                     = "unauth"
+		runtimeID                                   string
+		decodeMs, runtimeLookupMs, workspaceCheckMs int64
+		authMs, updateMs                            int64
+		probeModelMs, popModelMs                    int64
+		probeSkillsMs, popSkillsMs                  int64
+		probeImportMs, popImportMs                  int64
+		probeCLIListMs, popCLIListMs                int64
+		probeCLIRunMs, popCLIRunMs                  int64
+		probeModelTimedOut, probeSkillsTimedOut     bool
+		probeImportTimedOut                         bool
+		probeCLIListTimedOut, probeCLIRunTimedOut   bool
 	)
 	defer func() {
-		logHeartbeatEndpointSlow(runtimeID, outcome, authPath, start, decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs, probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut)
+		logHeartbeatEndpointSlow(runtimeID, outcome, authPath, start,
+			decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs,
+			probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs,
+			probeCLIListMs, popCLIListMs, probeCLIRunMs, popCLIRunMs,
+			probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut,
+			probeCLIListTimedOut, probeCLIRunTimedOut)
 	}()
 
 	decodeStart := time.Now()
@@ -1174,6 +1186,12 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	probeModelTimedOut = m.ProbeModelTimedOut
 	probeSkillsTimedOut = m.ProbeSkillsTimedOut
 	probeImportTimedOut = m.ProbeImportTimedOut
+	probeCLIListMs = m.ProbeCLIListMs
+	popCLIListMs = m.PopCLIListMs
+	probeCLIRunMs = m.ProbeCLIRunMs
+	popCLIRunMs = m.PopCLIRunMs
+	probeCLIListTimedOut = m.ProbeCLIListTimedOut
+	probeCLIRunTimedOut = m.ProbeCLIRunTimedOut
 	if err != nil {
 		outcome = "error_update"
 		writeError(w, http.StatusInternalServerError, "heartbeat failed")
@@ -1199,6 +1217,12 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(ack.PendingLocalSkillImports) > 0 {
 		resp["pending_local_skill_imports"] = ack.PendingLocalSkillImports
+	}
+	if ack.PendingCLIList != nil {
+		resp["pending_cli_list"] = ack.PendingCLIList
+	}
+	if ack.PendingCLIRun != nil {
+		resp["pending_cli_run"] = ack.PendingCLIRun
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1362,6 +1386,8 @@ func (h *Handler) recordHeartbeatState(
 type heartbeatMetrics struct {
 	ProbeModelMs, PopModelMs, ProbeSkillsMs, PopSkillsMs, ProbeImportMs, PopImportMs int64
 	ProbeModelTimedOut, ProbeSkillsTimedOut, ProbeImportTimedOut                     bool
+	ProbeCLIListMs, PopCLIListMs, ProbeCLIRunMs, PopCLIRunMs                         int64
+	ProbeCLIListTimedOut, ProbeCLIRunTimedOut                                        bool
 }
 
 // processHeartbeat pulls pending actions for both HTTP and WebSocket
@@ -1515,6 +1541,62 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 		}
 	}
 
+	// CLI registry discovery (TES-140). Same probe-then-claim shape as the
+	// queues above; the probe stays bounded so a slow shared store cannot stall
+	// an empty-queue heartbeat, and the claim runs unbounded because the Lua
+	// side effects cannot be safely aborted mid-script.
+	probeCLIListStart := time.Now()
+	probeCLIListCtx, cancelProbeCLIList := context.WithTimeout(ctx, heartbeatHasPendingTimeout)
+	hasCLIList, probeCLIListErr := h.CLIListStore.HasPending(probeCLIListCtx, runtimeID)
+	cancelProbeCLIList()
+	m.ProbeCLIListMs = time.Since(probeCLIListStart).Milliseconds()
+	switch {
+	case probeCLIListErr == nil && hasCLIList:
+		popStart := time.Now()
+		pendingCLIList, popErr := h.CLIListStore.PopPending(ctx, runtimeID)
+		m.PopCLIListMs = time.Since(popStart).Milliseconds()
+		if popErr != nil {
+			slog.Warn("cli list PopPending failed", "error", popErr, "runtime_id", runtimeID)
+		} else if pendingCLIList != nil {
+			ack.PendingCLIList = &protocol.DaemonHeartbeatPendingCLIList{ID: pendingCLIList.ID}
+		}
+	case probeCLIListErr != nil:
+		if errors.Is(probeCLIListErr, context.DeadlineExceeded) || errors.Is(probeCLIListErr, context.Canceled) {
+			m.ProbeCLIListTimedOut = true
+			slog.Warn("cli list HasPending timed out", "runtime_id", runtimeID, "elapsed_ms", m.ProbeCLIListMs)
+		} else {
+			slog.Warn("cli list HasPending failed", "error", probeCLIListErr, "runtime_id", runtimeID)
+		}
+	}
+
+	probeCLIRunStart := time.Now()
+	probeCLIRunCtx, cancelProbeCLIRun := context.WithTimeout(ctx, heartbeatHasPendingTimeout)
+	hasCLIRun, probeCLIRunErr := h.CLIRunStore.HasPending(probeCLIRunCtx, runtimeID)
+	cancelProbeCLIRun()
+	m.ProbeCLIRunMs = time.Since(probeCLIRunStart).Milliseconds()
+	switch {
+	case probeCLIRunErr == nil && hasCLIRun:
+		popStart := time.Now()
+		pendingCLIRun, popErr := h.CLIRunStore.PopPending(ctx, runtimeID)
+		m.PopCLIRunMs = time.Since(popStart).Milliseconds()
+		if popErr != nil {
+			slog.Warn("cli run PopPending failed", "error", popErr, "runtime_id", runtimeID)
+		} else if pendingCLIRun != nil {
+			ack.PendingCLIRun = &protocol.DaemonHeartbeatPendingCLIRun{
+				ID:     pendingCLIRun.ID,
+				CLIKey: pendingCLIRun.CLIKey,
+				Params: pendingCLIRun.Params,
+			}
+		}
+	case probeCLIRunErr != nil:
+		if errors.Is(probeCLIRunErr, context.DeadlineExceeded) || errors.Is(probeCLIRunErr, context.Canceled) {
+			m.ProbeCLIRunTimedOut = true
+			slog.Warn("cli run HasPending timed out", "runtime_id", runtimeID, "elapsed_ms", m.ProbeCLIRunMs)
+		} else {
+			slog.Warn("cli run HasPending failed", "error", probeCLIRunErr, "runtime_id", runtimeID)
+		}
+	}
+
 	return ack, m, nil
 }
 
@@ -1524,9 +1606,10 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 // auth_ms is further decomposed into decode_ms, runtime_lookup_ms, and
 // workspace_check_ms; auth_path labels which token kind authenticated the
 // request ("daemon_token", "pat", or "jwt"). Mirrors logClaimEndpointSlow.
-func logHeartbeatEndpointSlow(runtimeID, outcome, authPath string, start time.Time, decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs int64, probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut bool) {
+func logHeartbeatEndpointSlow(runtimeID, outcome, authPath string, start time.Time, decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs, probeCLIListMs, popCLIListMs, probeCLIRunMs, popCLIRunMs int64, probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut, probeCLIListTimedOut, probeCLIRunTimedOut bool) {
 	totalMs := time.Since(start).Milliseconds()
-	if totalMs < 500 && !probeModelTimedOut && !probeSkillsTimedOut && !probeImportTimedOut {
+	if totalMs < 500 && !probeModelTimedOut && !probeSkillsTimedOut && !probeImportTimedOut &&
+		!probeCLIListTimedOut && !probeCLIRunTimedOut {
 		return
 	}
 	slog.Info("heartbeat_endpoint slow",
@@ -1545,9 +1628,15 @@ func logHeartbeatEndpointSlow(runtimeID, outcome, authPath string, start time.Ti
 		"pop_skills_ms", popSkillsMs,
 		"probe_import_ms", probeImportMs,
 		"pop_import_ms", popImportMs,
+		"probe_cli_list_ms", probeCLIListMs,
+		"pop_cli_list_ms", popCLIListMs,
+		"probe_cli_run_ms", probeCLIRunMs,
+		"pop_cli_run_ms", popCLIRunMs,
 		"probe_model_timed_out", probeModelTimedOut,
 		"probe_skills_timed_out", probeSkillsTimedOut,
 		"probe_import_timed_out", probeImportTimedOut,
+		"probe_cli_list_timed_out", probeCLIListTimedOut,
+		"probe_cli_run_timed_out", probeCLIRunTimedOut,
 	)
 }
 

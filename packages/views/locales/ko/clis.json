@@ -1,0 +1,35 @@
+{
+  "page": {
+    "title": "CLI",
+    "tagline": "이 머신에 등록된 명령을 실행합니다.",
+    "owner_only": "머신 소유자만 해당 머신에 등록된 CLI를 조회하고 실행할 수 있습니다.",
+    "registry_path": "레지스트리 파일",
+    "reload": "새로 고침",
+    "empty": {
+      "title": "등록된 CLI가 없습니다",
+      "hint": "머신의 레지스트리 파일에 항목을 추가한 뒤 새로 고침하세요. 항목에는 실행 파일과 내용 해시를 지정해야 합니다."
+    },
+    "unavailable": "실행 불가",
+    "unavailable_hint": "등록된 실행 파일이 없거나 기록된 해시와 일치하지 않습니다."
+  },
+  "entry": {
+    "params": "매개변수",
+    "optional": "선택",
+    "run": "실행",
+    "running": "실행 중…",
+    "awaiting_machine": "머신이 요청을 가져가기를 기다리는 중…"
+  },
+  "result": {
+    "command": "명령",
+    "output": "출력",
+    "no_output": "명령이 아무것도 출력하지 않았습니다.",
+    "truncated": "{{bytes}}바이트에서 잘렸습니다 — 명령이 더 많은 출력을 생성했습니다.",
+    "exit_code": "종료 코드 {{code}}",
+    "duration": "{{ms}}ms"
+  },
+  "error": {
+    "load_failed": "이 머신의 CLI 레지스트리를 읽을 수 없습니다.",
+    "run_failed": "CLI 실행에 실패했습니다.",
+    "retry": "다시 시도"
+  }
+}

@@ -4573,13 +4573,16 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 		}
 	}
 	d.taskSteerServerSupported.Store(steerSupported)
-	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
+	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil ||
+		resp.PendingLocalSkillImport != nil || resp.PendingCLIList != nil || resp.PendingCLIRun != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
 			"update", resp.PendingUpdate != nil,
 			"model_list", resp.PendingModelList != nil,
 			"local_skills", resp.PendingLocalSkills != nil,
 			"local_skill_import", resp.PendingLocalSkillImport != nil,
+			"cli_list", resp.PendingCLIList != nil,
+			"cli_run", resp.PendingCLIRun != nil,
 		)
 	}
 	if resp.PendingUpdate != nil {
@@ -4605,6 +4608,16 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	} else if resp.PendingLocalSkillImport != nil {
 		if rt := d.findRuntime(runtimeID); rt != nil {
 			go d.handleLocalSkillImport(ctx, *rt, *resp.PendingLocalSkillImport)
+		}
+	}
+	if resp.PendingCLIList != nil {
+		if rt := d.findRuntime(runtimeID); rt != nil {
+			go d.handleCLIRegistryList(ctx, *rt, resp.PendingCLIList.ID)
+		}
+	}
+	if resp.PendingCLIRun != nil {
+		if rt := d.findRuntime(runtimeID); rt != nil {
+			go d.handleCLIRun(ctx, *rt, *resp.PendingCLIRun)
 		}
 	}
 }

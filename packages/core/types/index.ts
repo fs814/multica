@@ -336,3 +336,13 @@ export type {
 export type { IssueWakeup, WakeupPreview, IssueWakeupSummaryRow } from "./issue-wakeup";
 
 export type { WorkspaceWakeup, WorkspaceWakeupPage, WorkspaceWakeupFilters, WakeupScope } from "./issue-wakeup";
+
+export type {
+  RuntimeCLIStatus,
+  RuntimeCLIParamDescriptor,
+  RuntimeCLISummary,
+  RuntimeCLIListRequest,
+  RuntimeCLIRegistryResult,
+  CreateRuntimeCLIRunRequest,
+  RuntimeCLIRunRequest,
+} from "./cli";

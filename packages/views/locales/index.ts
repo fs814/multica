@@ -19,6 +19,7 @@ import enSkills from "./en/skills.json";
 import enChat from "./en/chat.json";
 import enModals from "./en/modals.json";
 import enRuntimes from "./en/runtimes.json";
+import enClis from "./en/clis.json";
 import enLayout from "./en/layout.json";
 import enUsage from "./en/usage.json";
 import enUi from "./en/ui.json";
@@ -44,6 +45,7 @@ import zhHansSkills from "./zh-Hans/skills.json";
 import zhHansChat from "./zh-Hans/chat.json";
 import zhHansModals from "./zh-Hans/modals.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
+import zhHansClis from "./zh-Hans/clis.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansUsage from "./zh-Hans/usage.json";
 import zhHansUi from "./zh-Hans/ui.json";
@@ -69,6 +71,7 @@ import koSkills from "./ko/skills.json";
 import koChat from "./ko/chat.json";
 import koModals from "./ko/modals.json";
 import koRuntimes from "./ko/runtimes.json";
+import koClis from "./ko/clis.json";
 import koLayout from "./ko/layout.json";
 import koUsage from "./ko/usage.json";
 import koUi from "./ko/ui.json";
@@ -94,6 +97,7 @@ import jaSkills from "./ja/skills.json";
 import jaChat from "./ja/chat.json";
 import jaModals from "./ja/modals.json";
 import jaRuntimes from "./ja/runtimes.json";
+import jaClis from "./ja/clis.json";
 import jaLayout from "./ja/layout.json";
 import jaUsage from "./ja/usage.json";
 import jaUi from "./ja/ui.json";
@@ -119,6 +123,7 @@ import frSkills from "./fr/skills.json";
 import frChat from "./fr/chat.json";
 import frModals from "./fr/modals.json";
 import frRuntimes from "./fr/runtimes.json";
+import frClis from "./fr/clis.json";
 import frLayout from "./fr/layout.json";
 import frUsage from "./fr/usage.json";
 import frUi from "./fr/ui.json";
@@ -150,6 +155,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: enChat,
     modals: enModals,
     runtimes: enRuntimes,
+    clis: enClis,
     layout: enLayout,
     usage: enUsage,
     ui: enUi,
@@ -177,6 +183,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: zhHansChat,
     modals: zhHansModals,
     runtimes: zhHansRuntimes,
+    clis: zhHansClis,
     layout: zhHansLayout,
     usage: zhHansUsage,
     ui: zhHansUi,
@@ -204,6 +211,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: koChat,
     modals: koModals,
     runtimes: koRuntimes,
+    clis: koClis,
     layout: koLayout,
     usage: koUsage,
     ui: koUi,
@@ -231,6 +239,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: jaChat,
     modals: jaModals,
     runtimes: jaRuntimes,
+    clis: jaClis,
     layout: jaLayout,
     usage: jaUsage,
     ui: jaUi,
@@ -258,6 +267,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     chat: frChat,
     modals: frModals,
     runtimes: frRuntimes,
+    clis: frClis,
     layout: frLayout,
     usage: frUsage,
     ui: frUi,

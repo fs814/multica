@@ -20,6 +20,7 @@ import { AutopilotsPage } from "@multica/views/autopilots/components";
 import { MyIssuesPage } from "@multica/views/my-issues";
 import { SkillsPage } from "@multica/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
+import { ClisPage } from "@multica/views/clis";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
 import {
   AiCreateAgentPage,
@@ -166,6 +167,11 @@ export const appRoutes: RouteObject[] = [
             path: "runtimes",
             element: <DesktopRuntimesPage />,
             handle: { title: "Runtimes" },
+          },
+          {
+            path: "clis",
+            element: <ClisPage />,
+            handle: { title: "CLI" },
           },
           {
             path: "runtimes/:id",

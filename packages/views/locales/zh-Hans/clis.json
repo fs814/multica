@@ -1,0 +1,35 @@
+{
+  "page": {
+    "title": "CLI",
+    "tagline": "在这台机器上执行一条已注册的命令。",
+    "owner_only": "只有机器的归属者才能列出并执行该机器上注册的 CLI。",
+    "registry_path": "注册表文件",
+    "reload": "重新加载",
+    "empty": {
+      "title": "尚未注册任何 CLI",
+      "hint": "在机器上的注册表文件里添加一条条目后重新加载。条目需指定可执行文件并固定其内容哈希。"
+    },
+    "unavailable": "不可执行",
+    "unavailable_hint": "注册的可执行文件不存在，或与记录的内容哈希不一致。"
+  },
+  "entry": {
+    "params": "参数",
+    "optional": "可选",
+    "run": "运行",
+    "running": "运行中…",
+    "awaiting_machine": "正在等待机器领取该请求…"
+  },
+  "result": {
+    "command": "命令",
+    "output": "输出",
+    "no_output": "该命令没有产生任何输出。",
+    "truncated": "已在 {{bytes}} 字节处截断 —— 该命令产生了更多输出。",
+    "exit_code": "退出码 {{code}}",
+    "duration": "{{ms}} 毫秒"
+  },
+  "error": {
+    "load_failed": "无法读取这台机器上的 CLI 注册表。",
+    "run_failed": "CLI 运行失败。",
+    "retry": "重试"
+  }
+}

@@ -156,6 +156,8 @@ const (
 	PendingWorkKindLocalSkills      = "local_skills"
 	PendingWorkKindLocalSkillImport = "local_skill_import"
 	PendingWorkKindTaskSteer        = "task_steer"
+	PendingWorkKindCLIList          = "cli_list"
+	PendingWorkKindCLIRun           = "cli_run"
 )
 
 // PendingWorkPayload is sent from server to daemon as a wakeup hint when a
@@ -417,6 +419,13 @@ type DaemonHeartbeatAckPayload struct {
 	// that don't know this field silently ignore it (standard JSON behavior)
 	// and fall back to the singular PendingLocalSkillImport above.
 	PendingLocalSkillImports []DaemonHeartbeatPendingLocalSkillImport `json:"pending_local_skill_imports,omitempty"`
+	// PendingCLIList / PendingCLIRun carry the registry-backed CLI directory
+	// flows (TES-140). Like the queues above they are heartbeat-carried: the
+	// server never sends a command string, only a request id and — for a run —
+	// the registry key plus the caller's parameter values. The daemon resolves
+	// the executable itself from its own machine-local registry.
+	PendingCLIList *DaemonHeartbeatPendingCLIList `json:"pending_cli_list,omitempty"`
+	PendingCLIRun  *DaemonHeartbeatPendingCLIRun  `json:"pending_cli_run,omitempty"`
 }
 
 // HeartbeatStatusRuntimeGone is the ack Status used when the runtime row no
@@ -447,4 +456,20 @@ type DaemonHeartbeatPendingLocalSkills struct {
 type DaemonHeartbeatPendingLocalSkillImport struct {
 	ID       string `json:"id"`
 	SkillKey string `json:"skill_key"`
+}
+
+// DaemonHeartbeatPendingCLIList asks the daemon to report the redacted
+// contents of its machine-local CLI registry.
+type DaemonHeartbeatPendingCLIList struct {
+	ID string `json:"id"`
+}
+
+// DaemonHeartbeatPendingCLIRun asks the daemon to execute one registry entry.
+// It deliberately carries no executable path, no argv, and no timeout: the
+// daemon re-reads its own registry and treats that file as authoritative, so
+// a compromised or buggy server still cannot name a binary to run.
+type DaemonHeartbeatPendingCLIRun struct {
+	ID     string            `json:"id"`
+	CLIKey string            `json:"cli_key"`
+	Params map[string]string `json:"params,omitempty"`
 }

@@ -1,0 +1,35 @@
+{
+  "page": {
+    "title": "CLI",
+    "tagline": "Exécutez une commande enregistrée sur cette machine.",
+    "owner_only": "Seul le propriétaire d'une machine peut lister et exécuter les CLI qui y sont enregistrés.",
+    "registry_path": "Fichier de registre",
+    "reload": "Recharger",
+    "empty": {
+      "title": "Aucun CLI enregistré",
+      "hint": "Ajoutez une entrée au fichier de registre sur la machine, puis rechargez. Une entrée nomme un exécutable et fixe son empreinte de contenu."
+    },
+    "unavailable": "Non exécutable",
+    "unavailable_hint": "L'exécutable enregistré est introuvable ou ne correspond plus à l'empreinte enregistrée."
+  },
+  "entry": {
+    "params": "Paramètres",
+    "optional": "Facultatif",
+    "run": "Exécuter",
+    "running": "Exécution…",
+    "awaiting_machine": "En attente que la machine prenne la demande en charge…"
+  },
+  "result": {
+    "command": "Commande",
+    "output": "Sortie",
+    "no_output": "La commande n'a produit aucune sortie.",
+    "truncated": "Tronquée à {{bytes}} octets — la commande a produit davantage.",
+    "exit_code": "Code de sortie {{code}}",
+    "duration": "{{ms}} ms"
+  },
+  "error": {
+    "load_failed": "Impossible de lire le registre des CLI sur cette machine.",
+    "run_failed": "L'exécution du CLI a échoué.",
+    "retry": "Réessayer"
+  }
+}

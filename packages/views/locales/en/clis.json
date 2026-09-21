@@ -1,0 +1,35 @@
+{
+  "page": {
+    "title": "CLI",
+    "tagline": "Run a command registered on this machine.",
+    "owner_only": "Only the owner of a machine can list and run the CLIs registered on it.",
+    "registry_path": "Registry file",
+    "reload": "Reload",
+    "empty": {
+      "title": "No CLIs registered",
+      "hint": "Add an entry to the registry file on the machine, then reload. Entries name an executable and pin its content hash."
+    },
+    "unavailable": "Not runnable",
+    "unavailable_hint": "The registered executable is missing or no longer matches its recorded hash."
+  },
+  "entry": {
+    "params": "Parameters",
+    "optional": "Optional",
+    "run": "Run",
+    "running": "Running…",
+    "awaiting_machine": "Waiting for the machine to pick this up…"
+  },
+  "result": {
+    "command": "Command",
+    "output": "Output",
+    "no_output": "The command produced no output.",
+    "truncated": "Truncated at {{bytes}} bytes — the command produced more.",
+    "exit_code": "Exit code {{code}}",
+    "duration": "{{ms}} ms"
+  },
+  "error": {
+    "load_failed": "Could not read the CLI registry on this machine.",
+    "run_failed": "The CLI run failed.",
+    "retry": "Try again"
+  }
+}
