@@ -32,9 +32,9 @@ import (
 //
 // Execution model — the part that is easy to get wrong: Knot's server runs the
 // LLM loop, but the agent's file tools execute on a REGISTERED CLIENT MACHINE
-// selected by chat_extra.agent_client_uuid. This backend pins that to the LOCAL
-// host's uuid and passes the Multica workdir as chat_extra.workspace, so edits
-// land in the prepared workdir and the task's diff/commit still work. Pointing
+// selected by chat_extra.agent_client_uuid. By default this backend requires
+// the LOCAL client UUID and requests the Multica workdir as chat_extra.workspace.
+// This is a requested target; actual file placement still needs verification. Pointing
 // the uuid at another machine would run the tools on that machine's filesystem
 // and produce a task that completes having changed nothing locally.
 type knotHTTPBackend struct {
@@ -236,48 +236,26 @@ func knotHTTPClientUUIDSetting(env map[string]string) string {
 	return strings.TrimSpace(env[KnotClientUUIDEnv])
 }
 
-// resolveKnotHTTPClientUUID decides the chat_extra.agent_client_uuid value for a
-// run. "" means "send no uuid" — which happens in two very different cases the
-// log line distinguishes: the operator asked for remote dispatch ("remote"), or
-// the local probe failed. See knotHTTPClientUUIDCustomEnv for the mode table.
-func resolveKnotHTTPClientUUID(ctx context.Context, env map[string]string, executablePath string, logger *slog.Logger) string {
-	switch setting := knotHTTPClientUUIDSetting(env); {
+// resolveKnotHTTPClientUUID resolves a requested tool target, not a verified
+// execution location. Only explicit remote mode may omit the target UUID.
+func resolveKnotHTTPClientUUID(ctx context.Context, env map[string]string, executablePath string, logger *slog.Logger) (string, error) {
+	setting := knotHTTPClientUUIDSetting(env)
+	switch {
 	case setting == "":
-		// Default: pin THIS host so the agent's file edits land in the workdir
-		// this task will diff.
 		clientUUID := knotLocalClientUUID(ctx, executablePath)
-		if clientUUID == "" && logger != nil {
-			logger.Warn("knot-http could not resolve the local knot client uuid; Knot will choose the executing machine and file edits may not reach the task workdir",
-				"provider", "knot-http", "hint", "ensure the knot-cli background service is running (`knot-cli client-status`)")
+		if !LooksLikeKnotClientUUID(clientUUID) {
+			return "", fmt.Errorf("knot-http local tool target unavailable: start the local Knot client and verify `knot-cli client-status`; remote dispatch requires explicit client_uuid=remote")
 		}
-		return clientUUID
+		return clientUUID, nil
 	case strings.EqualFold(setting, knotHTTPClientUUIDRemote):
-		// Explicit remote: omit the uuid so Knot runs the agent on its own
-		// registered machine. Tools execute there, so this task's local workdir
-		// is NOT the one edited — expected for a remote-host agent.
 		if logger != nil {
-			logger.Info("knot-http client uuid = remote; Knot will run this agent on its own registered machine, not this host — local diff/commit will be empty",
-				"provider", "knot-http")
+			logger.Info("knot-http requested tool target: platform selection; actual execution location is unverified", "provider", "knot-http")
 		}
-		return ""
+		return "", nil
 	case LooksLikeKnotClientUUID(setting):
-		// Explicit machine: target the named registered client verbatim.
-		return setting
+		return setting, nil
 	default:
-		// A non-empty value that is neither the sentinel nor a UUIDv4 is almost
-		// certainly a typo. Falling back to the local host is the safe choice: it
-		// keeps edits in the task workdir instead of dispatching the run to a
-		// machine that does not exist.
-		if logger != nil {
-			logger.Warn("knot-http client uuid is neither \"remote\" nor a UUIDv4; pinning the local host instead",
-				"provider", "knot-http", "value", setting)
-		}
-		clientUUID := knotLocalClientUUID(ctx, executablePath)
-		if clientUUID == "" && logger != nil {
-			logger.Warn("knot-http could not resolve the local knot client uuid; Knot will choose the executing machine and file edits may not reach the task workdir",
-				"provider", "knot-http", "hint", "ensure the knot-cli background service is running (`knot-cli client-status`)")
-		}
-		return clientUUID
+		return "", fmt.Errorf("knot-http client_uuid must be remote or a UUID; refusing to change the requested tool target")
 	}
 }
 
@@ -309,10 +287,8 @@ func LooksLikeKnotClientUUID(s string) bool {
 // knotLocalClientUUID reads this host's registered agent-client uuid from
 // `knot-cli client-status`, which prints a JSON object after a status banner.
 //
-// Returns "" on any failure rather than an error: an absent uuid means "let
-// Knot choose a client", which is a working degraded mode, whereas guessing a
-// uuid would dispatch the run to somebody else's machine. Callers that need the
-// local workdir to be the one edited should treat "" as a warning, not a fatal.
+// Returns "" on any failure. The caller must reject local execution when
+// discovery fails; it must never interpret this as permission for remote dispatch.
 func knotLocalClientUUID(ctx context.Context, executablePath string) string {
 	if executablePath == "" {
 		executablePath = knotDefaultBinary
@@ -420,7 +396,11 @@ func (b *knotHTTPBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	timeout := opts.Timeout
 	runCtx, cancel := runContext(ctx, timeout)
 
-	clientUUID := resolveKnotHTTPClientUUID(runCtx, b.cfg.Env, b.cfg.ExecutablePath, b.cfg.Logger)
+	clientUUID, err := resolveKnotHTTPClientUUID(runCtx, b.cfg.Env, b.cfg.ExecutablePath, b.cfg.Logger)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 
 	body, err := json.Marshal(buildKnotHTTPRequest(prompt, opts, clientUUID))
 	if err != nil {

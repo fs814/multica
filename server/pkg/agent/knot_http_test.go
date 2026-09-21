@@ -26,8 +26,9 @@ func knotHTTPTestLogger() *slog.Logger {
 func knotHTTPTestBackend(t *testing.T, srv *httptest.Server, env map[string]string) *knotHTTPBackend {
 	t.Helper()
 	merged := map[string]string{
-		KnotHTTPTokenEnv: "test-token",
-		KnotAgentIDEnv:   testKnotAgentID,
+		KnotHTTPTokenEnv:  "test-token",
+		KnotAgentIDEnv:    testKnotAgentID,
+		KnotClientUUIDEnv: "remote",
 	}
 	for k, v := range env {
 		merged[k] = v
@@ -545,16 +546,20 @@ func TestKnotHTTPClientUUIDSetting(t *testing.T) {
 	}
 }
 
-// TestResolveKnotHTTPClientUUIDFallsBackToLocal pins that a value which is
-// neither "remote" nor a UUIDv4 does NOT get forwarded — it falls back to the
-// local probe (which yields "" here, no knot-cli on the test path) rather than
-// dispatching a run to a bogus machine.
-func TestResolveKnotHTTPClientUUIDFallsBackToLocal(t *testing.T) {
-	t.Parallel()
-	env := map[string]string{knotHTTPClientUUIDCustomEnv: "not-a-uuid"}
-	got := resolveKnotHTTPClientUUID(context.Background(), env, "/nonexistent/knot-cli", knotHTTPTestLogger())
-	if got != "" {
-		t.Fatalf("resolveKnotHTTPClientUUID(bad value) = %q, want empty (local probe, no forwarding)", got)
+// Invalid or unavailable local targets must fail before any HTTP request.
+func TestKnotHTTPClientTargetFailsClosed(t *testing.T) {
+	for _, setting := range []string{"", "not-a-uuid"} {
+		t.Run(setting, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Error("unexpected HTTP request for an unresolved target")
+			}))
+			defer srv.Close()
+			b := knotHTTPTestBackend(t, srv, map[string]string{KnotClientUUIDEnv: setting})
+			session, err := b.Execute(context.Background(), "test", ExecOptions{})
+			if err == nil || session != nil {
+				t.Fatal("expected a pre-request target error")
+			}
+		})
 	}
 }
 
@@ -579,7 +584,7 @@ func TestLooksLikeKnotClientUUID(t *testing.T) {
 // Remote execution must not receive a path from the dispatcher's filesystem.
 func TestKnotHTTPRemoteOmitsLocalWorkspace(t *testing.T) {
 	t.Parallel()
-	for _, setting := range []string{"remote", "REMOTE", ""} {
+	for _, setting := range []string{"remote", "REMOTE"} {
 		t.Run(setting, func(t *testing.T) {
 			var body []byte
 			srv := serveSSEFixture(t, "knot-http-agui-sse.txt", nil, &body)

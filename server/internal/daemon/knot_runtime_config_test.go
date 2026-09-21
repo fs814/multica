@@ -91,9 +91,7 @@ func TestDecodeKnotRuntimeConfigNilLoggerSafe(t *testing.T) {
 }
 
 // TestDecodeKnotClientUUID covers the per-agent client-uuid selector: the
-// "remote" sentinel, an explicit UUIDv4, and the fail-soft cases that must
-// degrade to "" so the backend pins the local host rather than dispatching a
-// run to a machine that does not exist.
+// remote sentinel, an explicit UUID and invalid targets rejected before dispatch.
 func TestDecodeKnotClientUUID(t *testing.T) {
 	t.Parallel()
 	const uuid = "68b7d6d7-8eb5-4598-830e-d71bcc739672"
@@ -116,7 +114,7 @@ func TestDecodeKnotClientUUID(t *testing.T) {
 		"client blank":     {`{"knot":{"client_uuid":"   "}}`, ""},
 		"null runtime":     {`null`, ""},
 
-		// Malformed / wrong shape must degrade, not propagate.
+		// Malformed targets must fail closed.
 		"malformed json":      {`{"knot":{"client_uuid":`, ""},
 		"knot not object":     {`{"knot":"remote"}`, ""},
 		"client not string":   {`{"knot":{"client_uuid":123}}`, ""},
@@ -126,7 +124,11 @@ func TestDecodeKnotClientUUID(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got := decodeKnotClientUUID(json.RawMessage(tc.raw), nil)
+			got, err := decodeKnotClientUUID(json.RawMessage(tc.raw), nil)
+			invalid := name == "malformed json" || name == "knot not object" || name == "client not string" || name == "not uuid not remote" || name == "uuid too short" || name == "uuid bad separator"
+			if (err != nil) != invalid {
+				t.Fatalf("error = %v, invalid = %v", err, invalid)
+			}
 			if got != tc.want {
 				t.Fatalf("decodeKnotClientUUID(%s) = %q, want %q", tc.raw, got, tc.want)
 			}
