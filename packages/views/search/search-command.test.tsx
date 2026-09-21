@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@multica/core/i18n/react";
-import { WORKSPACE_PAGES } from "@multica/core/paths";
+import { WORKSPACE_PAGES, type WorkspacePaths } from "@multica/core/paths";
 import { SearchCommand } from "./search-command";
 import { useSearchStore } from "./search-store";
 import enCommon from "../locales/en/common.json";
@@ -200,30 +200,63 @@ vi.mock("@multica/core", () => ({
   useWorkspaceId: () => "ws-test",
 }));
 
-vi.mock("@multica/core/paths", async (importOriginal) => ({
-  // Spread the real module so pure helpers (resolveRouteIconName, used to
-  // derive each nav page's icon from its href) stay intact.
-  ...(await importOriginal<typeof import("@multica/core/paths")>()),
-  useWorkspacePaths: () => ({
-    inbox: () => "/ws-test/inbox",
-    chat: () => "/ws-test/chat",
-    myIssues: () => "/ws-test/my-issues",
-    issues: () => "/ws-test/issues",
-    projects: () => "/ws-test/projects",
-    autopilots: () => "/ws-test/autopilots",
-    agents: () => "/ws-test/agents",
-    squads: () => "/ws-test/squads",
-    usage: () => "/ws-test/usage",
-    runtimes: () => "/ws-test/runtimes",
-    skills: () => "/ws-test/skills",
-    settings: () => "/ws-test/settings",
-    issueDetail: (id: string) => `/ws-test/issues/${id}`,
-    memberDetail: (id: string) => `/ws-test/members/${id}`,
-    agentDetail: (id: string) => `/ws-test/agents/${id}`,
-    squadDetail: (id: string) => `/ws-test/squads/${id}`,
-    projectDetail: (id: string) => `/ws-test/projects/${id}`,
-  }),
-}));
+vi.mock("@multica/core/paths", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@multica/core/paths")>();
+  return {
+    // Spread the real module so pure helpers (resolveRouteIconName, used to
+    // derive each item's icon from its href) stay intact; only the
+    // workspace/context hooks below are stubbed to control routes in tests.
+    ...actual,
+    // Mirrors every key of `workspaceScoped` (packages/core/paths/paths.ts).
+    // The nav surfaces resolve each page through `p[key]()`, so a key missing
+    // here throws `TypeError: p[key] is not a function` and takes the whole
+    // file down. The `WorkspacePaths` return type is what stops this list
+    // from silently drifting behind the route table again.
+    useWorkspacePaths: (): WorkspacePaths => ({
+      root: () => "/ws-test/issues",
+      usage: () => "/ws-test/usage",
+      issues: () => "/ws-test/issues",
+      workflowIssues: () => "/ws-test/workflow-issues",
+      issueDetail: (id: string) => `/ws-test/issues/${id}`,
+      projects: () => "/ws-test/projects",
+      projectDetail: (id: string) => `/ws-test/projects/${id}`,
+      autopilots: () => "/ws-test/autopilots",
+      autopilotDetail: (id: string) => `/ws-test/autopilots/${id}`,
+      workflows: () => "/ws-test/workflows",
+      workflowDetail: (id: string) => `/ws-test/workflows/${id}`,
+      workflowInstances: () => "/ws-test/workflow-instances",
+      workflowInstanceDetail: (id: string) => `/ws-test/workflow-instances/${id}`,
+      workflowTestRunDetail: (id: string) => `/ws-test/workflow-test-runs/${id}`,
+      workflowRuns: () => "/ws-test/workflow-runs",
+      workflowRunDetail: (id: string) => `/ws-test/workflow-runs/${id}`,
+      agents: () => "/ws-test/agents",
+      newAgent: () => "/ws-test/agents/new",
+      newAgentManual: () => "/ws-test/agents/new/manual",
+      newAgentAi: () => "/ws-test/agents/new/ai",
+      newAgentAiSession: (sessionId: string) => `/ws-test/agents/new/ai/${sessionId}`,
+      agentDetail: (id: string) => `/ws-test/agents/${id}`,
+      agentConversationStarters: (id: string) =>
+        `/ws-test/agents/${id}?view=instructions&focus=${actual.AGENT_FOCUS_CONVERSATION_STARTERS}`,
+      memberDetail: (id: string) => `/ws-test/members/${id}`,
+      squads: () => "/ws-test/squads",
+      squadDetail: (id: string) => `/ws-test/squads/${id}`,
+      inbox: () => "/ws-test/inbox",
+      chat: () => "/ws-test/chat",
+      chatWithAgent: (agentId: string) => `/ws-test/chat?agent=${agentId}`,
+      chatSession: (sessionId: string) => `/ws-test/chat?session=${sessionId}`,
+      myIssues: () => "/ws-test/my-issues",
+      runtimes: () => "/ws-test/runtimes",
+      clis: () => "/ws-test/clis",
+      runtimeDetail: (id: string) => `/ws-test/runtimes/${id}`,
+      runtimeSettings: (machineId: string, runtimeId: string) =>
+        `/ws-test/runtimes/${machineId}/runtime/${runtimeId}`,
+      skills: () => "/ws-test/skills",
+      skillDetail: (id: string) => `/ws-test/skills/${id}`,
+      settings: () => "/ws-test/settings",
+      attachmentPreview: (id: string) => `/ws-test/attachments/${id}/preview`,
+    }),
+  };
+});
 
 vi.mock("@multica/core/issues/queries", () => ({
   issueDetailOptions: (_wsId: string, id: string) => ({

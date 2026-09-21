@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@multica/core/api";
+import type { WorkspacePaths } from "@multica/core/paths";
 import { renderWithI18n } from "../test/i18n";
 import { AppSidebar } from "./app-sidebar";
 
@@ -115,35 +116,65 @@ vi.mock("@multica/core/chat", () => ({
     { getState: () => chatStore.current },
   ),
 }));
-vi.mock("@multica/core/paths", async (importOriginal) => ({
-  // Spread the real module so pure helpers (resolveRouteIconName, used by the
-  // nav to derive each item's icon from its href) stay intact; only the
-  // workspace/context hooks below are stubbed to control routes in tests.
-  ...(await importOriginal<typeof import("@multica/core/paths")>()),
-  paths: { workspace: (slug: string) => ({ issues: () => `/${slug}/issues` }) },
-  useCurrentWorkspace: () => ({ id: "ws-1", name: "Acme", slug: "acme" }),
-  useWorkspacePaths: () => ({
-    inbox: () => "/acme/inbox",
-    chat: () => "/acme/chat",
-    myIssues: () => "/acme/my-issues",
-    issues: () => "/acme/issues",
-    workflowIssues: () => "/acme/workflow-issues",
-    projects: () => "/acme/projects",
-    autopilots: () => "/acme/autopilots",
-    workflows: () => "/acme/workflows",
-    workflowInstances: () => "/acme/workflow-instances",
-    workflowRuns: () => "/acme/workflow-runs",
-    agents: () => "/acme/agents",
-    squads: () => "/acme/squads",
-    usage: () => "/acme/usage",
-    runtimes: () => "/acme/runtimes",
-    clis: () => "/acme/clis",
-    skills: () => "/acme/skills",
-    settings: () => "/acme/settings",
-    issueDetail: (id: string) => `/acme/issues/${id}`,
-    projectDetail: (id: string) => `/acme/projects/${id}`,
-  }),
-}));
+vi.mock("@multica/core/paths", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@multica/core/paths")>();
+  return {
+    // Spread the real module so pure helpers (resolveRouteIconName, used to
+    // derive each item's icon from its href) stay intact; only the
+    // workspace/context hooks below are stubbed to control routes in tests.
+    ...actual,
+    useCurrentWorkspace: () => ({ id: "ws-1", name: "Acme", slug: "acme" }),
+    paths: { workspace: (slug: string) => ({ issues: () => `/${slug}/issues` }) },
+    // Mirrors every key of `workspaceScoped` (packages/core/paths/paths.ts).
+    // The nav surfaces resolve each page through `p[key]()`, so a key missing
+    // here throws `TypeError: p[key] is not a function` and takes the whole
+    // file down. The `WorkspacePaths` return type is what stops this list
+    // from silently drifting behind the route table again.
+    useWorkspacePaths: (): WorkspacePaths => ({
+      root: () => "/acme/issues",
+      usage: () => "/acme/usage",
+      issues: () => "/acme/issues",
+      workflowIssues: () => "/acme/workflow-issues",
+      issueDetail: (id: string) => `/acme/issues/${id}`,
+      projects: () => "/acme/projects",
+      projectDetail: (id: string) => `/acme/projects/${id}`,
+      autopilots: () => "/acme/autopilots",
+      autopilotDetail: (id: string) => `/acme/autopilots/${id}`,
+      workflows: () => "/acme/workflows",
+      workflowDetail: (id: string) => `/acme/workflows/${id}`,
+      workflowInstances: () => "/acme/workflow-instances",
+      workflowInstanceDetail: (id: string) => `/acme/workflow-instances/${id}`,
+      workflowTestRunDetail: (id: string) => `/acme/workflow-test-runs/${id}`,
+      workflowRuns: () => "/acme/workflow-runs",
+      workflowRunDetail: (id: string) => `/acme/workflow-runs/${id}`,
+      agents: () => "/acme/agents",
+      newAgent: () => "/acme/agents/new",
+      newAgentManual: () => "/acme/agents/new/manual",
+      newAgentAi: () => "/acme/agents/new/ai",
+      newAgentAiSession: (sessionId: string) => `/acme/agents/new/ai/${sessionId}`,
+      agentDetail: (id: string) => `/acme/agents/${id}`,
+      agentConversationStarters: (id: string) =>
+        `/acme/agents/${id}?view=instructions&focus=${actual.AGENT_FOCUS_CONVERSATION_STARTERS}`,
+      memberDetail: (id: string) => `/acme/members/${id}`,
+      squads: () => "/acme/squads",
+      squadDetail: (id: string) => `/acme/squads/${id}`,
+      inbox: () => "/acme/inbox",
+      chat: () => "/acme/chat",
+      chatWithAgent: (agentId: string) => `/acme/chat?agent=${agentId}`,
+      chatSession: (sessionId: string) => `/acme/chat?session=${sessionId}`,
+      myIssues: () => "/acme/my-issues",
+      runtimes: () => "/acme/runtimes",
+      clis: () => "/acme/clis",
+      runtimeDetail: (id: string) => `/acme/runtimes/${id}`,
+      runtimeSettings: (machineId: string, runtimeId: string) =>
+        `/acme/runtimes/${machineId}/runtime/${runtimeId}`,
+      skills: () => "/acme/skills",
+      skillDetail: (id: string) => `/acme/skills/${id}`,
+      settings: () => "/acme/settings",
+      attachmentPreview: (id: string) => `/acme/attachments/${id}/preview`,
+    }),
+  };
+});
 vi.mock("@multica/core/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@multica/core/api")>();
   return {
