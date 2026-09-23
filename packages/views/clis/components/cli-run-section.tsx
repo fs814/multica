@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Loader2, Play } from "lucide-react";
+import { useId, useState } from "react";
+import { ChevronDown, ChevronUp, Eraser, Loader2, Play } from "lucide-react";
 import type {
   RuntimeCLIParamDescriptor,
   RuntimeCLIRunRequest,
@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@multica/ui/components/ui/select";
 import { useT } from "../../i18n";
+import { CLIRunOutput } from "./cli-run-output";
 
 /**
  * One registry entry: its parameter form, its Run button, and the output of
@@ -40,6 +41,8 @@ export function CLIRunSection({ runtimeId, entry }: CLIRunSectionProps) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RuntimeCLIRunRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const resultId = useId();
 
   const params = entry.params ?? [];
 
@@ -55,6 +58,7 @@ export function CLIRunSection({ runtimeId, entry }: CLIRunSectionProps) {
     setRunning(true);
     setError(null);
     setResult(null);
+    setCollapsed(false);
     try {
       const run = await runRuntimeCLI(runtimeId, entry.key, {
         params: values,
@@ -126,9 +130,43 @@ export function CLIRunSection({ runtimeId, entry }: CLIRunSectionProps) {
         </p>
       )}
 
-      {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
+      {!running && (result || error !== null) && (
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={!collapsed}
+            aria-controls={resultId}
+            onClick={() => setCollapsed((previous) => !previous)}
+          >
+            {collapsed ? (
+              <ChevronDown aria-hidden="true" className="size-4" />
+            ) : (
+              <ChevronUp aria-hidden="true" className="size-4" />
+            )}
+            {collapsed ? t(($) => $.result.expand) : t(($) => $.result.collapse)}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setResult(null);
+              setError(null);
+              setCollapsed(false);
+            }}
+          >
+            <Eraser aria-hidden="true" className="size-4" />
+            {t(($) => $.result.clear)}
+          </Button>
+        </div>
+      )}
 
-      {result && <CLIRunOutput run={result} />}
+      <div id={resultId} hidden={collapsed}>
+        {error && <p className="text-destructive mt-3 text-sm">{error}</p>}
+        {result && <CLIRunOutput key={result.id} run={result} />}
+      </div>
     </div>
   );
 }
@@ -187,38 +225,3 @@ function CLIParamField({
   );
 }
 
-function CLIRunOutput({ run }: { run: RuntimeCLIRunRequest }) {
-  const { t } = useT("clis");
-
-  return (
-    <div className="mt-4 border-t pt-3">
-      <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
-        {run.resolved_argv && run.resolved_argv.length > 0 && (
-          <span className="min-w-0 truncate">
-            {t(($) => $.result.command)}: <code>{run.resolved_argv.join(" ")}</code>
-          </span>
-        )}
-        {typeof run.exit_code === "number" && (
-          <span>{t(($) => $.result.exit_code, { code: run.exit_code })}</span>
-        )}
-        {typeof run.duration_ms === "number" && (
-          <span>{t(($) => $.result.duration, { ms: run.duration_ms })}</span>
-        )}
-      </div>
-
-      {/* A silent truncation would read as "that was everything"; say it
-          instead, and say how much was dropped. */}
-      {run.truncated && (
-        <p className="text-muted-foreground mt-2 text-xs">
-          {t(($) => $.result.truncated, { bytes: run.output_bytes ?? 0 })}
-        </p>
-      )}
-
-      <pre className="bg-muted mt-2 max-h-96 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap">
-        {run.output && run.output.length > 0
-          ? run.output
-          : t(($) => $.result.no_output)}
-      </pre>
-    </div>
-  );
-}
