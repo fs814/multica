@@ -1,0 +1,3 @@
+cfb7a1a4091e038c063b0a45cc30504bf79742f4eec87ec41fbe9faecebc4868  0001-fix-workflow-reject-case-folded-and-repeated-intake-.patch
+8f900885d0e98c3347178dfc501d4678447f5fab8e590705350ac78f76f951b9  REPORT.md
+430ecd0fa30ba47de0e863666a5515e5a81a936b636c8f874b7eeea886fd25b9  TES-105-callback-fix-evidence.zip

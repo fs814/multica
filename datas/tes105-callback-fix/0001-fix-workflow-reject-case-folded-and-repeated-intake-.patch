@@ -1,0 +1,176 @@
+From f932e6eea7b82631acf6cf02cbef33e2662e7e28 Mon Sep 17 00:00:00 2001
+From: shengfeng <shengfeng@tencent.com>
+Date: Wed, 16 Sep 2026 05:08:44 -0700
+Subject: [PATCH] fix(workflow): reject case-folded and repeated intake
+ controls
+
+---
+ server/internal/handler/workflow_intake.go    | 26 ++++--
+ .../handler/workflow_intake_boundary_test.go  | 88 +++++++++++++++++++
+ .../multica-platform/references/issues.md     |  6 +-
+ 3 files changed, 114 insertions(+), 6 deletions(-)
+ create mode 100644 server/internal/handler/workflow_intake_boundary_test.go
+
+diff --git a/server/internal/handler/workflow_intake.go b/server/internal/handler/workflow_intake.go
+index 1e86b8ac1..5a87b7e27 100644
+--- a/server/internal/handler/workflow_intake.go
++++ b/server/internal/handler/workflow_intake.go
+@@ -1,6 +1,7 @@
+ package handler
+ 
+ import (
++	"bytes"
+ 	"crypto/sha256"
+ 	"encoding/hex"
+ 	"encoding/json"
+@@ -83,16 +84,31 @@ func (h *Handler) WorkflowIntake(w http.ResponseWriter, r *http.Request) {
+ 		writeError(w, http.StatusBadRequest, "invalid request body")
+ 		return
+ 	}
+-	var controls map[string]json.RawMessage
+-	if err := json.Unmarshal(raw, &controls); err != nil || controls == nil {
++	controls := json.NewDecoder(bytes.NewReader(raw))
++	if token, err := controls.Token(); err != nil || token != json.Delim('{') {
+ 		writeError(w, http.StatusBadRequest, "request body must be a JSON object")
+ 		return
+ 	}
+-	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id", "template_version_id"} {
+-		if value, exists := controls[key]; exists && string(value) != "null" && string(value) != `""` {
+-			writeErrorCode(w, http.StatusBadRequest, "unsupported_workflow_configuration", key+" is not supported by workflow intake")
++	// Inspect every top-level occurrence before duplicate keys can overwrite a
++	// forbidden value. EqualFold matches encoding/json's struct-field lookup,
++	// including Unicode case folds; nested payload fields remain ordinary data.
++	for controls.More() {
++		token, err := controls.Token()
++		if err != nil {
++			writeError(w, http.StatusBadRequest, "invalid request body")
+ 			return
+ 		}
++		var value json.RawMessage
++		if err := controls.Decode(&value); err != nil {
++			writeError(w, http.StatusBadRequest, "invalid request body")
++			return
++		}
++		for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id", "template_version_id"} {
++			if strings.EqualFold(token.(string), key) && string(value) != "null" && string(value) != `""` {
++				writeErrorCode(w, http.StatusBadRequest, "unsupported_workflow_configuration", key+" is not supported by workflow intake")
++				return
++			}
++		}
+ 	}
+ 	req.Source = strings.ToLower(strings.TrimSpace(req.Source))
+ 	req.EventID = strings.TrimSpace(req.EventID)
+diff --git a/server/internal/handler/workflow_intake_boundary_test.go b/server/internal/handler/workflow_intake_boundary_test.go
+new file mode 100644
+index 000000000..852510c93
+--- /dev/null
++++ b/server/internal/handler/workflow_intake_boundary_test.go
+@@ -0,0 +1,88 @@
++package handler
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"strings"
++	"testing"
++
++	"github.com/multica-ai/multica/server/internal/testutil"
++)
++
++func TestWorkflowIntakeControlBoundary(t *testing.T) {
++	cleanupWorkflowTemplates(t)
++	cleanupWorkflowRuns(t)
++	withWorkflowEngineForTest(t)
++	tpl := seededBugFixTemplate(t)
++	counts := func() string {
++		var out string
++		err := testPool.QueryRow(context.Background(), `SELECT jsonb_build_array(
++			(SELECT count(*) FROM issue WHERE workspace_id=$1),
++			(SELECT count(*) FROM workflow_run WHERE workspace_id=$1),
++			(SELECT count(*) FROM workflow_step_instance WHERE workspace_id=$1),
++			(SELECT count(*) FROM workflow_event WHERE workspace_id=$1),
++			(SELECT count(*) FROM agent_task_queue t JOIN agent a ON a.id=t.agent_id WHERE a.workspace_id=$1),
++			(SELECT count(*) FROM issue_subscriber s JOIN issue i ON i.id=s.issue_id WHERE i.workspace_id=$1)
++		)::text`, testWorkspaceID).Scan(&out)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return out
++	}
++	post := func(t *testing.T, fields string) *testutil.Response {
++		t.Helper()
++		body := fmt.Sprintf(`{"source":"tes105","event_id":%q,"template_key":%q,"title":"Boundary","description":"Control validation",%s}`, t.Name(), tpl.Key, fields)
++		req := testutil.JSONRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", body)
++		testutil.WithHeaders(req, "X-User-ID", testUserID, "X-Workspace-ID", testWorkspaceID)
++		return testutil.Call(t, testHandler.WorkflowIntake, withURLParam(req, "id", testWorkspaceID))
++	}
++	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id", "template_version_id"} {
++		for _, variant := range []string{key, strings.ToUpper(key), strings.ToUpper(key[:1]) + key[1:], strings.Replace(key, "s", "ſ", 1)} {
++			for _, value := range []string{`"00000000-0000-0000-0000-000000000001"`, `" "`, `false`, `1`, `{}`, `[]`} {
++				for _, fields := range []string{
++					fmt.Sprintf(`%q:%s`, variant, value),
++					fmt.Sprintf(`%q:%s,%q:null`, variant, value, variant),
++					fmt.Sprintf(`%q:%s,%q:""`, variant, value, key),
++					fmt.Sprintf(`%q:null,%q:%s`, key, variant, value),
++				} {
++					t.Run(fields, func(t *testing.T) {
++						before := counts()
++						response := post(t, fields)
++						if after := counts(); after != before {
++							t.Errorf("rejected intake wrote business rows: %s -> %s", before, after)
++						}
++						response.Want(400)
++					})
++				}
++			}
++		}
++	}
++	// Escaped JSON names are decoded before matching; nested payload is data.
++	t.Run("escaped-key", func(t *testing.T) {
++		before := counts()
++		response := post(t, `"\u0043ALLBACK_DESTINATION_ID":"x","CALLBACK_DESTINATION_ID":null`)
++		if after := counts(); after != before {
++			t.Errorf("escaped control wrote rows: %s -> %s", before, after)
++		}
++		response.Want(400)
++	})
++	t.Run("empty-controls-payload-and-replay", func(t *testing.T) {
++		fields := `"CALLBACK_DESTINATION_ID":null,"callback_destination_id":"","input_source":null,"payload":{"CALLBACK_DESTINATION_ID":"data","execution_mode":"data"}`
++		var first, replay WorkflowIntakeResponse
++		post(t, fields).Want(201).JSON(&first)
++		before := counts()
++		post(t, fields).Want(200).JSON(&replay)
++		if replay.WorkflowRunID != first.WorkflowRunID || counts() != before {
++			t.Fatal("replay changed receipt or wrote business rows")
++		}
++		run := getWorkflowRunForTest(t, first.WorkflowRunID)
++		var input map[string]any
++		if err := json.Unmarshal(run.Input, &input); err != nil {
++			t.Fatal(err)
++		}
++		if input["CALLBACK_DESTINATION_ID"] != "data" || input["execution_mode"] != "data" {
++			t.Fatalf("nested payload changed: %s", run.Input)
++		}
++	})
++}
+diff --git a/server/internal/service/builtin_skills/multica-platform/references/issues.md b/server/internal/service/builtin_skills/multica-platform/references/issues.md
+index 0bfb0bbac..e1702f4fe 100644
+--- a/server/internal/service/builtin_skills/multica-platform/references/issues.md
++++ b/server/internal/service/builtin_skills/multica-platform/references/issues.md
+@@ -429,7 +429,11 @@ template_key, title, description, optional payload/source_url and an
+ idempotency key. It does not fetch source_url. Machine credentials are refused
+ until their full provenance can be carried; task CLI identity restrictions
+ remain unchanged. Callback, instance/debug controls and explicit version
+-selection are rejected. An owner/admin assigning another member does not gain
++selection are rejected. Intake checks every top-level occurrence of these
++controls case-insensitively, including repeated and JSON-escaped keys; a later
++null or empty string cannot hide an earlier nonempty value. Null and empty
++string controls alone remain unset, and nested payload keys are ordinary data.
++An owner/admin assigning another member does not gain
+ that member's private agent permissions: each routed step checks both humans.
+ 
+ An active workflow owns its issue's status. Repeating the same normalized
+-- 
+2.54.0.windows.1
+
