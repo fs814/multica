@@ -1,0 +1,103 @@
+{
+  "workspace-tests": {
+    "exit": 0,
+    "counts": {
+      "pass": 12
+    },
+    "failed": [],
+    "skipped": []
+  },
+  "handler-focused-verified": {
+    "exit": 0,
+    "counts": {
+      "pass": 63
+    },
+    "failed": [],
+    "skipped": []
+  },
+  "workflow-full": {
+    "exit": 0,
+    "counts": {
+      "pass": 111
+    },
+    "failed": [],
+    "skipped": []
+  },
+  "handler-full": {
+    "exit": 1,
+    "counts": {
+      "pass": 2173,
+      "fail": 2,
+      "skip": 47
+    },
+    "failed": [
+      "TestStableIDSuffixMatchesDaemon",
+      "TestParseSkillArchive_RejectsUnsafeSkillMdPath"
+    ],
+    "skipped": [
+      "TestRequireDaemonWorkspaceAccess_CacheHit",
+      "TestRequireDaemonWorkspaceAccess_CacheMissBackfills",
+      "TestMembershipCache_InvalidatedOnDeleteMember",
+      "TestMembershipCache_InvalidatedOnUpdateMember",
+      "TestMembershipCache_InvalidatedOnLeaveWorkspace",
+      "TestMembershipCache_InvalidatedOnDeleteWorkspace",
+      "TestRedisLivenessStore_TouchAndIsAlive",
+      "TestRedisLivenessStore_TTLExpiry",
+      "TestRedisLivenessStore_Forget",
+      "TestRedisLivenessStore_BatchEmptyInput",
+      "TestRedisLocalSkillListStore_CreateGetComplete",
+      "TestRedisLocalSkillListStore_CreateWithoutMultiPermission",
+      "TestRedisLocalSkillListStore_PopPendingAcrossInstances",
+      "TestRedisLocalSkillListStore_PopPendingConcurrent",
+      "TestRedisLocalSkillListStore_PendingTimeout",
+      "TestRedisLocalSkillImportStore_PreservesCreatorID",
+      "TestRedisLocalSkillImportStore_CreateWithoutMultiPermission",
+      "TestRedisLocalSkillImportStore_CompletePreservesFiles",
+      "TestRedisLocalSkillImportStore_PreservesConflict",
+      "TestRedisLocalSkillImportStore_PopPendingAcrossInstances",
+      "TestRedisLocalSkillListStore_PerRuntimeIsolation",
+      "TestRedisLocalSkillListStore_PopPendingAtomicClaim",
+      "TestRedisLocalSkillImportStore_PopPendingBatch",
+      "TestRedisModelCatalogCache_RoundTrip",
+      "TestRedisModelCatalogCache_SkipsUncacheableResults",
+      "TestRedisModelCatalogCache_InvalidateAndExpiry",
+      "TestRedisModelCatalogCache_DropsUndecodableSnapshot",
+      "TestRedisModelListStore_CreateGetComplete",
+      "TestRedisModelListStore_CreateWithoutMultiPermission",
+      "TestRedisModelListStore_PopPendingAcrossInstances",
+      "TestRedisModelListStore_PopPendingConcurrent",
+      "TestRedisModelListStore_PendingTimeout",
+      "TestRedisModelListStore_RunningTimeout",
+      "TestRedisModelListStore_HasPending",
+      "TestRedisUpdateStore_CreateGetComplete",
+      "TestRedisUpdateStore_CreateWithoutMultiPermission",
+      "TestRedisUpdateStore_PopPendingAcrossInstances",
+      "TestRedisUpdateStore_ReportAndPollAcrossInstances",
+      "TestRedisUpdateStore_FailAcrossInstances",
+      "TestRedisUpdateStore_RejectsConcurrentActive",
+      "TestRedisUpdateStore_RunningTimeoutClearsActive",
+      "TestRedisUpdateStore_PopPendingConcurrent",
+      "TestFetchFromSkillsSh_AnthropicPptxIntegration",
+      "TestRedisWebhookRateLimiter_RejectsAboveLimit",
+      "TestRedisWebhookIPRateLimiter_HasSeparateBudgetFromTokenLimiter",
+      "TestRedisSlidingWindowRateLimiter_SeparatesInvitationNamespaces",
+      "TestRedisSlidingWindowRateLimiter_PreservesWebhookFailOpenAndExposesErrors"
+    ]
+  },
+  "r6-final": {
+    "exit": 0,
+    "counts": {
+      "pass": 6
+    },
+    "failed": [],
+    "skipped": []
+  },
+  "cli-boundary": {
+    "exit": 0,
+    "counts": {
+      "pass": 2
+    },
+    "failed": [],
+    "skipped": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "remaining_owned_databases_dropped": [
+    "tes85_p0_fix_0916",
+    "tes85_p0_p1_verify_0916"
+  ],
+  "drop_exit_codes": [
+    0,
+    0
+  ],
+  "other_cleanup_records": [
+    "prefix-results.json and reproduction/prefix_matrix.py (each created database dropped in finally)",
+    "review-results.json cleaned_databases",
+    "old-app-results.json cleaned_databases/stopped",
+    "p1-http-results.json cleaned_databases/stopped"
+  ],
+  "persistent_service_started": false,
+  "live_database_or_runtime_mutation": false
+}

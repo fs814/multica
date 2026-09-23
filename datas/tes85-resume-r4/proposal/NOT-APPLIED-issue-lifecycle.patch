@@ -1,0 +1,115 @@
+diff --git a/server/internal/handler/issue.go b/server/internal/handler/issue.go
+index 8d04795b7..ef26b4ab3 100644
+--- a/server/internal/handler/issue.go
++++ b/server/internal/handler/issue.go
+@@ -27,8 +27,9 @@ import (
+ 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
+ 	"github.com/multica-ai/multica/server/internal/middleware"
+ 	"github.com/multica-ai/multica/server/internal/service"
+ 	"github.com/multica-ai/multica/server/internal/util"
++	"github.com/multica-ai/multica/server/internal/workflow"
+ 	agentpkg "github.com/multica-ai/multica/server/pkg/agent"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+ 	"github.com/multica-ai/multica/server/pkg/protocol"
+ )
+@@ -3487,8 +3532,16 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
+ 		statusKey, _, ok := h.resolveIssueStatusKeyKind(w, r, prevIssue.WorkspaceID, *req.Status)
+ 		if !ok {
+ 			return
+ 		}
++		// Guard on the RESOLVED key, not the raw request string: upstream now
++		// resolves aliases/custom statuses to a canonical key, and prevIssue.Status
++		// stores that canonical form. Comparing the raw input would both miss
++		// no-op writes sent via an alias and hand guardWorkflowOwnedIssueStatus a
++		// target it cannot match against "cancelled".
++		if statusKey != prevIssue.Status && !h.guardWorkflowOwnedIssueStatus(w, r, prevIssue, statusKey) {
++			return
++		}
+ 		statusKeyForGuard = statusKey
+ 		params.Status = pgtype.Text{String: statusKey, Valid: true}
+ 	}
+ 	if req.Priority != nil {
+@@ -3775,8 +3828,51 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
+ 
+ 	writeJSON(w, http.StatusOK, resp)
+ }
+ 
++func (h *Handler) guardWorkflowOwnedIssueStatus(w http.ResponseWriter, r *http.Request, issue db.Issue, target string) bool {
++	runs, err := h.Queries.ListActiveWorkflowRunsForIssue(r.Context(), db.ListActiveWorkflowRunsForIssueParams{IssueID: issue.ID, WorkspaceID: issue.WorkspaceID})
++	if err != nil {
++		slog.Warn("list active workflow runs for issue update failed", "error", err, "issue_id", uuidToString(issue.ID))
++		writeError(w, http.StatusInternalServerError, "failed to validate workflow-owned issue status")
++		return false
++	}
++	if len(runs) == 0 {
++		return true
++	}
++	if target != "cancelled" {
++		writeJSON(w, http.StatusConflict, map[string]any{
++			"error":           "workflow_run_active",
++			"message":         "an active workflow run owns this issue status; cancel the issue to cancel the run",
++			"workflow_run_id": uuidToString(runs[0].ID),
++		})
++		return false
++	}
++	if h.WorkflowEngine == nil {
++		writeError(w, http.StatusServiceUnavailable, "workflow engine is unavailable")
++		return false
++	}
++	userUUID, ok := parseUUIDOrBadRequest(w, requestUserID(r), "user id")
++	if !ok {
++		return false
++	}
++	for _, run := range runs {
++		taskIDs, _ := h.Queries.ListActiveAgentTaskIDsForWorkflowRun(r.Context(), db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: run.ID, WorkspaceID: run.WorkspaceID})
++		if _, err := h.WorkflowEngine.CancelRun(r.Context(), run.WorkspaceID, run.ID, userUUID); err != nil && !workflow.IsIdempotencyConflict(err) {
++			h.writeWorkflowEngineError(w, r, err, "CancelRunForIssue")
++			return false
++		}
++		if h.TaskService != nil {
++			for _, taskID := range taskIDs {
++				if _, err := h.TaskService.CancelTask(r.Context(), taskID); err != nil {
++					slog.Warn("cancel workflow task from issue cancellation failed", "error", err, "task_id", uuidToString(taskID))
++				}
++			}
++		}
++	}
++	return true
++}
++
+ // validateAssigneePair verifies the (assignee_type, assignee_id) pair refers
+ // to an existing entity in the workspace. For agent and squad assignees it
+ // also rejects archived targets and runs the INVOKE gate — canInvokeAgent, not
+ // the softer canAccessPrivateAgent view gate: assigning an issue produces a
+@@ -4223,8 +4316,31 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 		batchProjectID = projectUUID
+ 	}
+ 
+ 	updated := 0
++	if req.Updates.Status != nil {
++		// Preflight the whole batch before mutating any issue. Workflow-owned
++		// status transitions are commands on the Run, not ordinary issue field
++		// writes; checking inside the mutation loop could partially apply a batch
++		// before discovering an active Run on a later issue.
++		//
++		// Guards on batchStatusKey — the catalog-resolved canonical key — rather
++		// than the raw request string, matching what the loop below actually
++		// writes and what guardWorkflowOwnedIssueStatus compares to "cancelled".
++		for _, issueID := range req.IssueIDs {
++			issueUUID, parseErr := util.ParseUUID(issueID)
++			if parseErr != nil {
++				continue
++			}
++			issue, getErr := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{ID: issueUUID, WorkspaceID: wsUUID})
++			if getErr != nil {
++				continue
++			}
++			if !h.guardWorkflowOwnedIssueStatus(w, r, issue, batchStatusKey) {
++				return
++			}
++		}
++	}
+ 	// One Resolver for the whole batch — a per-issue filler would query the
+ 	// catalog once per custom-status row. (MUL-6243)
+ 	fillBatch := h.newStatusCategoryFiller(r.Context(), wsUUID)
+ 	// Children that transitioned into a terminal status this batch, collected so

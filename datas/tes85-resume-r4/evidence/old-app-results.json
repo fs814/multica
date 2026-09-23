@@ -1,0 +1,54 @@
+{
+  "old-before": {
+    "health": {
+      "status": "ok",
+      "pid": 61924,
+      "commit": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+      "started_at": "2026-09-16T06:39:34Z"
+    },
+    "pid": 61924,
+    "business": {
+      "template": "96942ff4-fcb9-45ce-b1a0-89bc564b9ee9",
+      "run": "3f6ae7eb-7b2d-4db2-befd-bda61881cda5",
+      "status": "completed",
+      "issue": "95373a80-4f63-4b1f-8084-d41c3f47824e"
+    },
+    "stopped": true
+  },
+  "backup_sha256": "dfc7e721cc8e14d00e820112812ceb45c88abe612954e06ff937c82ad33fcf89",
+  "old-after-p0-restart": {
+    "health": {
+      "status": "ok",
+      "pid": 54664,
+      "commit": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+      "started_at": "2026-09-16T06:39:38Z"
+    },
+    "pid": 54664,
+    "business": {
+      "historical_run_read": true,
+      "issue_updated": true,
+      "new_run_completed": true
+    },
+    "stopped": true
+  },
+  "old-after-backup-restore": {
+    "health": {
+      "status": "ok",
+      "pid": 32432,
+      "commit": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+      "started_at": "2026-09-16T06:39:43Z"
+    },
+    "pid": 32432,
+    "business": {
+      "historical_run_read": true,
+      "pre_migration_issue_restored": true
+    },
+    "stopped": true
+  },
+  "eight_synthetic_archived_instances_and_paused_binding_preserved": true,
+  "scope": "fixed old application business reads/writes after additive migration and backup restore; not new P1 service switching or real eight identity acceptance",
+  "cleaned_databases": [
+    "tes85_p0_old_app_0916",
+    "tes85_p0_old_app_0916_restore"
+  ]
+}

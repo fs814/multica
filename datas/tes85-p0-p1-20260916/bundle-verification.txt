@@ -1,0 +1,6 @@
+The bundle contains these 2 refs:
+8e24b7f4afbeac7cc79678288582a94b867a35c1 refs/heads/tes85-p0-contract
+d69546e8437bf2bd7d687661e26b42b5d909f11f refs/heads/tes85-p1-contract
+The bundle requires this ref:
+9d18186e6e8cfa168d6053d33d652e86fadfc12b 
+The bundle uses this hash algorithm: sha1

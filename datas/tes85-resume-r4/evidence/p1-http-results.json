@@ -1,0 +1,46 @@
+{
+  "p1-http": {
+    "health": {
+      "status": "ok",
+      "pid": 72952,
+      "commit": "122a8fd72",
+      "started_at": "2026-09-16T06:38:05Z"
+    },
+    "pid": 72952,
+    "published_execution": {
+      "six_request_statuses": [
+        201,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "one_run_issue": true,
+      "terminal_status": "completed",
+      "conflict_status": 409,
+      "unsupported": {
+        "callback_destination_id": {
+          "status": 400,
+          "zero_side_effects": true
+        },
+        "input_instance_id": {
+          "status": 400,
+          "zero_side_effects": true
+        },
+        "execution_mode": {
+          "status": 400,
+          "zero_side_effects": true
+        }
+      }
+    },
+    "stopped": true
+  },
+  "matched_cli": {
+    "exit": 1
+  },
+  "coverage_limit": "real authenticated router/Engine/Notifier end-node flow; no actual daemon execution, intake route, handler full suite, or production switch",
+  "cleaned_databases": [
+    "tes85_p0_p1_http_0916"
+  ]
+}

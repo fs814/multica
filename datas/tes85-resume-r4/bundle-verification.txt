@@ -1,0 +1,7 @@
+C:/Users/shengfeng/multica_workspaces_desktop-localhost-8081/test-2f5602885948/tes-85-4afb6685dfa7/worktree/datas/tes85-resume-r4/TES-85-r4.bundle is okay
+The bundle contains these 2 refs:
+0ca4c63c0dd02e00c2fdacc9d8c4f480e291f815 refs/heads/tes85-p0-r1r2
+122a8fd72e1252316aa1939a6ecc44b95212de81 refs/heads/tes85-p1-permissions
+The bundle requires this ref:
+9d18186e6e8cfa168d6053d33d652e86fadfc12b 
+The bundle uses this hash algorithm: sha1

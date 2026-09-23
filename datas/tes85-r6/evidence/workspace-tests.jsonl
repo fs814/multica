@@ -1,0 +1,26 @@
+{"Time": "2026-09-16T05:09:09.1007895-07:00", "Action": "start", "Package": "github.com/multica-ai/multica/server/internal/handler"}
+{"Time": "2026-09-16T05:09:10.6498122-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_SweepsRestoreCommittedByAConcurrentFinalizer"}
+{"Time": "2026-09-16T05:09:10.7619142-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_SweepsRestoreCommittedByAConcurrentFinalizer", "Elapsed": 0.11}
+{"Time": "2026-09-16T05:09:10.7624234-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_PrunesDraftRestoresOfCascadedSessions"}
+{"Time": "2026-09-16T05:09:10.812685-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_PrunesDraftRestoresOfCascadedSessions", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:09:10.8206139-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_CleansResourceLabelAssignments"}
+{"Time": "2026-09-16T05:09:10.8821737-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_CleansResourceLabelAssignments", "Elapsed": 0.06}
+{"Time": "2026-09-16T05:09:10.8821737-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_RollsBackResourceLabelCleanup"}
+{"Time": "2026-09-16T05:09:11.0425768-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_RollsBackResourceLabelCleanup", "Elapsed": 0.16}
+{"Time": "2026-09-16T05:09:11.0457052-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_FailsFastWhenRollupLockHeld"}
+{"Time": "2026-09-16T05:09:11.1831952-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_FailsFastWhenRollupLockHeld", "Elapsed": 0.14}
+{"Time": "2026-09-16T05:09:11.1831952-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_SucceedsWhenRollupLockIsFree"}
+{"Time": "2026-09-16T05:09:11.2363604-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_SucceedsWhenRollupLockIsFree", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:09:11.2363604-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestWorkspaceDeletionManifestCoversPublicSchema"}
+{"Time": "2026-09-16T05:09:11.2420991-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestWorkspaceDeletionManifestCoversPublicSchema", "Elapsed": 0.01}
+{"Time": "2026-09-16T05:09:11.2420991-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_CollectsTasksThroughEveryOwnershipPath"}
+{"Time": "2026-09-16T05:09:11.3319174-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_CollectsTasksThroughEveryOwnershipPath", "Elapsed": 0.09}
+{"Time": "2026-09-16T05:09:11.3319174-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_RequiresOwner"}
+{"Time": "2026-09-16T05:09:11.341301-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_RequiresOwner", "Elapsed": 0.01}
+{"Time": "2026-09-16T05:09:11.341301-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_OwnerSucceeds"}
+{"Time": "2026-09-16T05:09:11.4548389-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_OwnerSucceeds", "Elapsed": 0.11}
+{"Time": "2026-09-16T05:09:11.4548389-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_DirtyTriggersHaveTeardownGuard"}
+{"Time": "2026-09-16T05:09:11.4569434-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_DirtyTriggersHaveTeardownGuard", "Elapsed": 0}
+{"Time": "2026-09-16T05:09:11.4569434-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_PreservesOtherWorkspaceData"}
+{"Time": "2026-09-16T05:09:11.5334439-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestDeleteWorkspace_PreservesOtherWorkspaceData", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:09:11.5486558-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Elapsed": 2.448}

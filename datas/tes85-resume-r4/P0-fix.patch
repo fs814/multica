@@ -1,0 +1,395 @@
+diff --git a/server/cmd/migrate/README.md b/server/cmd/migrate/README.md
+index 9c4c601bd..f048737e5 100644
+--- a/server/cmd/migrate/README.md
++++ b/server/cmd/migrate/README.md
+@@ -183,3 +183,22 @@ Confirm the statistics landed:
+ ```sql
+ SELECT count(*) FROM pg_statistic WHERE starelid = 'idx_issue_properties_bigm'::regclass;
+ ```
++
++## TES-85 isolated rollback provenance
++
++Application rollback retains the additive workflow schema. The explicit empty
++schema rehearsal also requires the literal `tes85_p0_` database prefix, no data,
++and provenance on both the primary-key constraint and its backing index.
++
++The runner marks an index only after its own CREATE succeeds, or its own CREATE
++fails with a unique violation and leaves an invalid index. An existing equivalent
++index may be attached, preserving its OID, but remains unowned and cannot be
++removed by down. Old `tes85:p0:owned:v1` constraint comments alone prove nothing
++about the index and cannot authorize deletion.
++
++A process crash between CREATE and the provenance comment is conservative:
++a valid unmarked index can be reused without ownership; an invalid unmarked
++index stops up before cleanup. Inspect its origin and preserve or recover it
++under a separate operator decision. Never manufacture a provenance comment to
++make down succeed. Confirmed marked invalid indexes retain automatic retry after
++the duplicate data is corrected. This is not a production rollback procedure.
+diff --git a/server/cmd/migrate/main.go b/server/cmd/migrate/main.go
+index d480b7ec0..9780c9002 100644
+--- a/server/cmd/migrate/main.go
++++ b/server/cmd/migrate/main.go
+@@ -1062,7 +1062,12 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
+ 		}
+ 
+ 		if applySQL {
+-			if _, err := conn.Exec(ctx, string(sql)); err != nil {
++			if opts.Direction == "up" && tes85IndexName(version) != "" {
++				err = tes85CreateIndex(ctx, conn, tes85IndexName(version), string(sql))
++			} else {
++				_, err = conn.Exec(ctx, string(sql))
++			}
++			if err != nil {
+ 				return fmt.Errorf("apply migration %q: %w", file, err)
+ 			}
+ 		}
+@@ -1116,6 +1121,38 @@ func quoteQualifiedIdentifier(name string) (string, error) {
+ // Keep additive schema on application rollback. Destructive rehearsal is opt-in,
+ // restricted to empty isolated databases, and requires object provenance.
+ const tes85Ownership = "tes85:p0:owned:v1"
++const tes85IndexOwnership = "tes85:p0:index-created:v2"
++
++func tes85IndexName(version string) string {
++	for _, table := range tes85PrimaryTables {
++		if version == "254_tes85_"+table+"_id_index" {
++			return "idx_tes85_" + table + "_id"
++		}
++	}
++	return ""
++}
++
++// The migration advisory lock serializes runners. Only a successful CREATE (or
++// its own unique-violation artifact) proves provenance; a name or ledger does not.
++// A crash before COMMENT leaves an unowned object: valid indexes can be reused,
++// but invalid ones require operator inspection and destructive down is refused.
++func tes85CreateIndex(ctx context.Context, conn *pgxpool.Conn, name, sql string) error {
++	var exists bool
++	if err := conn.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", name).Scan(&exists); err != nil {
++		return err
++	}
++	if exists {
++		return nil // Shape-checked by the pre-migration hook; never claim it.
++	}
++	// Do not silently adopt an index created by concurrent external DDL.
++	_, createErr := conn.Exec(ctx, strings.Replace(sql, "IF NOT EXISTS ", "", 1))
++	var pgErr *pgconn.PgError
++	if createErr != nil && !(errors.As(createErr, &pgErr) && pgErr.Code == "23505") {
++		return createErr
++	}
++	_, markErr := conn.Exec(ctx, "COMMENT ON INDEX "+pgx.Identifier{name}.Sanitize()+" IS '"+tes85IndexOwnership+"'")
++	return errors.Join(createErr, markErr)
++}
+ 
+ var tes85PrimaryTables = []string{
+ 	"workflow_template", "workflow_template_version", "workflow_run",
+@@ -1167,17 +1204,18 @@ func tes85IndexHook(table string) preMigrationHook {
+ 			return err
+ 		}
+ 		name := "idx_tes85_" + table + "_id"
+-		var shape, valid, attached bool
++		var shape, valid, attached, owned bool
+ 		err = pool.QueryRow(ctx, `SELECT
+ 			COALESCE(i.indrelid=to_regclass($2) AND i.indisunique AND i.indnkeyatts=1
+ 			AND i.indnatts=1 AND i.indexprs IS NULL AND i.indpred IS NULL
+ 			AND a.attname='id' AND am.amname='btree' AND op.opcname='uuid_ops'
+ 			AND i.indoption[0]=0,false), COALESCE(i.indisvalid AND i.indisready,false),
+-			EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conindid=x.oid)
++			EXISTS(SELECT 1 FROM pg_constraint c WHERE c.conindid=x.oid),
++            COALESCE(obj_description(x.oid,'pg_class')=$3,false)
+ 			FROM pg_class x LEFT JOIN pg_index i ON i.indexrelid=x.oid
+ 			LEFT JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+ 			LEFT JOIN pg_am am ON am.oid=x.relam LEFT JOIN pg_opclass op ON op.oid=i.indclass[0]
+-			WHERE x.oid=to_regclass($1)`, name, table).Scan(&shape, &valid, &attached)
++			WHERE x.oid=to_regclass($1)`, name, table, tes85IndexOwnership).Scan(&shape, &valid, &attached, &owned)
+ 		if errors.Is(err, pgx.ErrNoRows) {
+ 			return nil
+ 		}
+@@ -1188,6 +1226,9 @@ func tes85IndexHook(table string) preMigrationHook {
+ 			return fmt.Errorf("refuse unexpected or attached index %s", name)
+ 		}
+ 		if !valid {
++			if !owned {
++				return fmt.Errorf("cannot prove invalid index ownership: %s; inspect before recovery", name)
++			}
+ 			return cleanupInvalidConcurrentIndexHook(name)(ctx, pool)
+ 		}
+ 		return nil
+@@ -1221,7 +1262,7 @@ func tes85EmptyRollback(ctx context.Context, pool *pgxpool.Pool) error {
+ 	}
+ 	// The override is deliberately unavailable to ordinary deployment databases.
+ 	var isolated bool
+-	if err := pool.QueryRow(ctx, "SELECT current_database() LIKE 'tes85_p0_%'").Scan(&isolated); err != nil {
++	if err := pool.QueryRow(ctx, "SELECT starts_with(current_database(), 'tes85_p0_')").Scan(&isolated); err != nil {
+ 		return err
+ 	}
+ 	if !isolated {
+@@ -1272,8 +1313,8 @@ func tes85EmptyPrimaryRollback(table string) preMigrationHook {
+ 			return errors.New("cannot prove primary key rollback ownership")
+ 		}
+ 		var owned bool
+-		err = pool.QueryRow(ctx, `SELECT COALESCE(obj_description(oid,'pg_constraint')=$2,false)
+-			FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, tes85Ownership).Scan(&owned)
++		err = pool.QueryRow(ctx, `SELECT COALESCE(obj_description(oid,'pg_constraint')=$2 AND obj_description(conindid,'pg_class')=$2,false)
++			FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, tes85IndexOwnership).Scan(&owned)
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/server/cmd/migrate/workflow_migration_provenance_test.go b/server/cmd/migrate/workflow_migration_provenance_test.go
+new file mode 100644
+index 000000000..8b1d31dbe
+--- /dev/null
++++ b/server/cmd/migrate/workflow_migration_provenance_test.go
+@@ -0,0 +1,141 @@
++package main
++
++import (
++	"context"
++	"github.com/jackc/pgx/v5/pgxpool"
++	"strings"
++	"testing"
++)
++
++func tes85CatalogState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
++	t.Helper()
++	var state string
++	err := pool.QueryRow(ctx, `SELECT json_build_array(
++ (SELECT json_agg(r ORDER BY r.oid) FROM (SELECT oid,relname,relkind,obj_description(oid,'pg_class') AS comment FROM pg_class WHERE relnamespace=current_schema()::regnamespace) r),
++ (SELECT json_agg(r ORDER BY r.oid) FROM (SELECT oid,conname,conindid,obj_description(oid,'pg_constraint') AS comment FROM pg_constraint WHERE connamespace=current_schema()::regnamespace) r),
++ (SELECT json_agg(r ORDER BY r.version) FROM schema_migrations r))::text`).Scan(&state)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return state
++}
++
++func TestTES85PreexistingUniqueIndexesRemainUnowned(t *testing.T) {
++	for _, table := range tes85PrimaryTables {
++		t.Run(table, func(t *testing.T) {
++			pool, ctx := tes85TestDB(t)
++			name := "idx_tes85_" + table + "_id"
++			if _, err := pool.Exec(ctx, "CREATE UNIQUE INDEX "+name+" ON "+table+"(id)"); err != nil {
++				t.Fatal(err)
++			}
++			var oid uint32
++			if err := pool.QueryRow(ctx, "SELECT to_regclass($1)::oid", name).Scan(&oid); err != nil {
++				t.Fatal(err)
++			}
++			if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++				t.Fatal(err)
++			}
++			var preserved bool
++			if err := pool.QueryRow(ctx, `SELECT conindid=$2 AND obj_description(oid,'pg_constraint') IS NULL FROM pg_constraint WHERE conrelid=to_regclass($1) AND contype='p'`, table, oid).Scan(&preserved); err != nil || !preserved {
++				t.Fatalf("adopted existing index: %v %v", preserved, err)
++			}
++			before := tes85CatalogState(t, ctx, pool)
++			t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++			if err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...); err == nil {
++				t.Fatal("unowned rollback accepted")
++			}
++			if after := tes85CatalogState(t, ctx, pool); after != before {
++				t.Fatal("refusal changed catalog or ledger")
++			}
++		})
++	}
++}
++
++func TestTES85UnknownInvalidIndexPreserved(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if _, err := pool.Exec(ctx, `INSERT INTO workflow_template(id,workspace_id,key,name,created_by_type,created_by_id)
++ SELECT '00000000-0000-0000-0000-000000000001',gen_random_uuid(),n::text,'Historical','system',gen_random_uuid() FROM generate_series(1,2)n`); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, "CREATE UNIQUE INDEX CONCURRENTLY idx_tes85_workflow_template_id ON workflow_template(id)"); err == nil {
++		t.Fatal("expected duplicate failure")
++	}
++	var oid uint32
++	if err := pool.QueryRow(ctx, "SELECT 'idx_tes85_workflow_template_id'::regclass::oid").Scan(&oid); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, "DELETE FROM workflow_template WHERE key='2'"); err != nil {
++		t.Fatal(err)
++	}
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err == nil {
++		t.Fatal("unknown invalid index removed")
++	}
++	var preserved bool
++	if err := pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_class WHERE oid=$1 AND obj_description(oid,'pg_class') IS NULL)", oid).Scan(&preserved); err != nil || !preserved {
++		t.Fatalf("lost unowned invalid index: %v %v", preserved, err)
++	}
++}
++
++func TestTES85IndexProvenanceSurvivesLedgerRetry(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	names := tes85KeyNames()
++	if err := tes85Run(t, pool, ctx, "up", names...); err != nil {
++		t.Fatal(err)
++	}
++	// Simulate losing only the ledger write after the committed DDL/comment.
++	if _, err := pool.Exec(ctx, "DELETE FROM schema_migrations WHERE version LIKE '25%'"); err != nil {
++		t.Fatal(err)
++	}
++	if err := tes85Run(t, pool, ctx, "up", names...); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	if err := tes85Run(t, pool, ctx, "down", names...); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestTES85LegacyClaimDoesNotProveIndexOwnership(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := pool.Exec(ctx, `COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:owned:v1'; COMMENT ON INDEX workflow_template_pkey IS NULL`); err != nil {
++		t.Fatal(err)
++	}
++	before := tes85CatalogState(t, ctx, pool)
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	if err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...); err == nil {
++		t.Fatal("legacy claim accepted")
++	}
++	if tes85CatalogState(t, ctx, pool) != before {
++		t.Fatal("legacy refusal changed catalog/ledger")
++	}
++}
++
++// Run on both the literal dedicated prefix and lookalike database names.
++func TestTES85DatabasePrefixBoundary(t *testing.T) {
++	pool, ctx := tes85TestDB(t)
++	if err := tes85Run(t, pool, ctx, "up", tes85KeyNames()...); err != nil {
++		t.Fatal(err)
++	}
++	var name string
++	if err := pool.QueryRow(ctx, "SELECT current_database()").Scan(&name); err != nil {
++		t.Fatal(err)
++	}
++	before := tes85CatalogState(t, ctx, pool)
++	t.Setenv("TES85_ALLOW_EMPTY_SCHEMA_ROLLBACK", "1")
++	err := tes85Run(t, pool, ctx, "down", tes85KeyNames()...)
++	if strings.HasPrefix(name, "tes85_p0_") {
++		if err != nil {
++			t.Fatal(err)
++		}
++	} else {
++		if err == nil {
++			t.Fatal("lookalike database accepted")
++		}
++		if tes85CatalogState(t, ctx, pool) != before {
++			t.Fatal("prefix refusal changed catalog/ledger")
++		}
++	}
++}
+diff --git a/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql b/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
+index f44c3415c..6cb7e7556 100644
+--- a/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_acceptance_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_acceptance ADD CONSTRAINT workflow_acceptance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_acceptance_id;
+-COMMENT ON CONSTRAINT workflow_acceptance_pkey ON workflow_acceptance IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_acceptance_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_acceptance ADD CONSTRAINT workflow_acceptance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_acceptance_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_acceptance_pkey ON workflow_acceptance IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_event_pkey.up.sql b/server/migrations/255_tes85_workflow_event_pkey.up.sql
+index 9e40b52ef..fa704ab89 100644
+--- a/server/migrations/255_tes85_workflow_event_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_event_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_event ADD CONSTRAINT workflow_event_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_event_id;
+-COMMENT ON CONSTRAINT workflow_event_pkey ON workflow_event IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_event_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_event ADD CONSTRAINT workflow_event_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_event_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_event_pkey ON workflow_event IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_run_pkey.up.sql b/server/migrations/255_tes85_workflow_run_pkey.up.sql
+index b44e0c983..e9cdedbc1 100644
+--- a/server/migrations/255_tes85_workflow_run_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_run_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_run ADD CONSTRAINT workflow_run_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_run_id;
+-COMMENT ON CONSTRAINT workflow_run_pkey ON workflow_run IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_run_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_run ADD CONSTRAINT workflow_run_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_run_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_run_pkey ON workflow_run IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql b/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
+index 99e4d3155..3e6c9b73a 100644
+--- a/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_step_instance_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_step_instance ADD CONSTRAINT workflow_step_instance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_step_instance_id;
+-COMMENT ON CONSTRAINT workflow_step_instance_pkey ON workflow_step_instance IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_step_instance_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_step_instance ADD CONSTRAINT workflow_step_instance_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_step_instance_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_step_instance_pkey ON workflow_step_instance IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_submission_pkey.up.sql b/server/migrations/255_tes85_workflow_submission_pkey.up.sql
+index 16546a0ad..1f77ddb50 100644
+--- a/server/migrations/255_tes85_workflow_submission_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_submission_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_submission ADD CONSTRAINT workflow_submission_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_submission_id;
+-COMMENT ON CONSTRAINT workflow_submission_pkey ON workflow_submission IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_submission_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_submission ADD CONSTRAINT workflow_submission_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_submission_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_submission_pkey ON workflow_submission IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_template_pkey.up.sql b/server/migrations/255_tes85_workflow_template_pkey.up.sql
+index 46638daf2..facdd3513 100644
+--- a/server/migrations/255_tes85_workflow_template_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_template_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_template ADD CONSTRAINT workflow_template_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_id;
+-COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_template_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_template ADD CONSTRAINT workflow_template_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_template_pkey ON workflow_template IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;
+diff --git a/server/migrations/255_tes85_workflow_template_version_pkey.up.sql b/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
+index 73901c340..a5d48cac9 100644
+--- a/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
++++ b/server/migrations/255_tes85_workflow_template_version_pkey.up.sql
+@@ -1,2 +1,9 @@
+-ALTER TABLE workflow_template_version ADD CONSTRAINT workflow_template_version_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_version_id;
+-COMMENT ON CONSTRAINT workflow_template_version_pkey ON workflow_template_version IS 'tes85:p0:owned:v1';
++DO $$
++DECLARE owned boolean;
++BEGIN
++    SELECT COALESCE(obj_description(to_regclass('idx_tes85_workflow_template_version_id'),'pg_class') = 'tes85:p0:index-created:v2',false) INTO owned;
++    ALTER TABLE workflow_template_version ADD CONSTRAINT workflow_template_version_pkey PRIMARY KEY USING INDEX idx_tes85_workflow_template_version_id;
++    IF owned THEN
++        COMMENT ON CONSTRAINT workflow_template_version_pkey ON workflow_template_version IS 'tes85:p0:index-created:v2';
++    END IF;
++END $$;

@@ -1,0 +1,47 @@
+{
+  "p0-regression.jsonl": {
+    "migrate": {
+      "pass_count": 9,
+      "fail_count": 0,
+      "skip_count": 0
+    }
+  },
+  "p1-focused.jsonl": {
+    "service": {
+      "pass_count": 33,
+      "fail_count": 0,
+      "skip_count": 0
+    },
+    "workflow": {
+      "pass_count": 2,
+      "fail_count": 0,
+      "skip_count": 0
+    }
+  },
+  "permission-final.jsonl": {
+    "service": {
+      "pass_count": 3,
+      "fail_count": 0,
+      "skip_count": 0
+    }
+  },
+  "p1-core-full.jsonl": {
+    "workflow": {
+      "pass_count": 111,
+      "fail_count": 0,
+      "skip_count": 0
+    }
+  },
+  "p1-daemon-output.jsonl": {
+    "agent": {
+      "pass_count": 1,
+      "fail_count": 0,
+      "skip_count": 0
+    },
+    "daemon": {
+      "pass_count": 2,
+      "fail_count": 0,
+      "skip_count": 0
+    }
+  }
+}

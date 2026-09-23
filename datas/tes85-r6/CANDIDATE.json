@@ -1,0 +1,7 @@
+{
+  "candidate": "fa698dcfc5f143a5c5c372944dbafb2b2ae2577b",
+  "base": "e6865d16a9a8110c6c06db8fa9b0cfff94437308",
+  "apply_allowed": false,
+  "scope": "workspace workflow teardown and transaction fence",
+  "migration_policy_proposal_applied": false
+}

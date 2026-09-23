@@ -1,0 +1,1798 @@
+diff --git a/server/cmd/server/router.go b/server/cmd/server/router.go
+index 58965c789..4887a0dde 100644
+--- a/server/cmd/server/router.go
++++ b/server/cmd/server/router.go
+@@ -511,7 +511,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
+ 	}
+ 
+ 	workflowEngine := &workflow.Engine{
+-		Queries: queries, TxStarter: pool,
++		TaskCanceller: h.TaskService,
++		Queries:       queries, TxStarter: pool,
+ 		Router:   service.NewWorkflowRouter(queries),
+ 		Notifier: service.NewWorkflowNotifier(bus, h.TaskService),
+ 		Schemas:  workflow.DefaultSchemaRegistry,
+@@ -2031,6 +2032,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
+ 			r.Post("/api/issues/{id}/squad-evaluated", h.RecordSquadLeaderEvaluation)
+ 
+ 			// Autopilots
++			r.Post("/api/workspaces/{id}/workflow-intake", h.WorkflowIntake)
+ 			r.Route("/api/workflow-templates", func(r chi.Router) {
+ 				r.Get("/", h.ListWorkflowTemplates)
+ 				r.Post("/", h.CreateWorkflowTemplate)
+diff --git a/server/cmd/server/workflow_intake_r5_test.go b/server/cmd/server/workflow_intake_r5_test.go
+new file mode 100644
+index 000000000..05922342a
+--- /dev/null
++++ b/server/cmd/server/workflow_intake_r5_test.go
+@@ -0,0 +1,100 @@
++package main
++
++import (
++	"context"
++	"fmt"
++	"net/http"
++	"testing"
++	"time"
++
++	"github.com/multica-ai/multica/server/internal/handler"
++	"github.com/multica-ai/multica/server/internal/testutil"
++)
++
++func TestR5PublishedIntakeActualRouter(t *testing.T) {
++	fx := testutil.New(testPool, testWorkspaceID, testUserID)
++	key := fmt.Sprintf("r5_%d", time.Now().UnixNano())
++	var tpl handler.WorkflowTemplateResponse
++	response := authRequest(t, "POST", "/api/workflow-templates", map[string]any{"key": key, "name": "R5 intake router", "definition": map[string]any{"schema_version": 1, "entry_node": "end", "nodes": []map[string]any{{"key": "end", "type": "end"}}}})
++	if response.StatusCode != 201 {
++		t.Fatalf("create template status %d", response.StatusCode)
++	}
++	readJSON(t, response, &tpl)
++	t.Cleanup(func() {
++		ctx := context.Background()
++		for _, query := range []string{
++			"DELETE FROM workflow_event WHERE run_id IN (SELECT id FROM workflow_run WHERE template_id=$1)",
++			"DELETE FROM workflow_step_instance WHERE run_id IN (SELECT id FROM workflow_run WHERE template_id=$1)",
++			"DELETE FROM issue_subscriber WHERE issue_id IN (SELECT issue_id FROM workflow_run WHERE template_id=$1)",
++			"DELETE FROM issue WHERE id IN (SELECT issue_id FROM workflow_run WHERE template_id=$1)",
++			"DELETE FROM workflow_run WHERE template_id=$1",
++			"DELETE FROM workflow_template_version WHERE template_id=$1",
++			"DELETE FROM workflow_template WHERE id=$1",
++		} {
++			if _, err := testPool.Exec(ctx, query, tpl.ID); err != nil {
++				t.Errorf("cleanup: %v", err)
++			}
++		}
++	})
++	published := authRequest(t, "POST", "/api/workflow-templates/"+tpl.ID+"/publish", map[string]any{})
++	if published.StatusCode != 200 {
++		t.Fatalf("publish status %d", published.StatusCode)
++	}
++	published.Body.Close()
++	body := map[string]any{"source": "r5", "event_id": "router", "template_key": key, "title": "Actual router", "description": "Middleware and engine assembly"}
++	path := "/api/workspaces/" + testWorkspaceID + "/workflow-intake"
++	request := func(token string, payload any) *http.Request {
++		req := testutil.JSONRequest("POST", path, payload)
++		req.Header.Set("X-Workspace-ID", testWorkspaceID)
++		if token != "" {
++			req.Header.Set("Authorization", "Bearer "+token)
++		}
++		return req
++	}
++	count := func() int {
++		var n int
++		if err := testPool.QueryRow(context.Background(), "SELECT count(*) FROM workflow_run WHERE template_id=$1", tpl.ID).Scan(&n); err != nil {
++			t.Fatal(err)
++		}
++		return n
++	}
++	serve := testServer.Config.Handler.ServeHTTP
++	testutil.Call(t, serve, request("", body)).Want(401)
++	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id"} {
++		payload := map[string]any{}
++		for k, v := range body {
++			payload[k] = v
++		}
++		payload[key] = "blocked"
++		testutil.Call(t, serve, request(testToken, payload)).Want(400)
++	}
++	var agentID, runtimeID string
++	fx.QueryRow(t, "SELECT id,runtime_id FROM agent WHERE workspace_id=$1 LIMIT 1", testWorkspaceID).Scan(&agentID, &runtimeID)
++	taskID := fx.Task(t, agentID, testutil.Cols{"runtime_id": runtimeID, "status": "running"})
++	machine := mintAgentTaskToken(t, agentID, taskID, testUserID)
++	testutil.Call(t, serve, request(machine, body)).Want(403)
++	if count() != 0 {
++		t.Fatal("refusals created workflow runs")
++	}
++	req := request(testToken, body)
++	req.Header.Set("X-Agent-ID", agentID)
++	req.Header.Set("X-Task-ID", taskID)
++	req.Header.Set("X-Actor-Source", "task_token")
++	var receipt handler.WorkflowIntakeResponse
++	testutil.Call(t, serve, req).Want(201).JSON(&receipt)
++	var creatorType, creatorID string
++	fx.QueryRow(t, "SELECT creator_type,creator_id FROM issue WHERE id=$1", receipt.IssueID).Scan(&creatorType, &creatorID)
++	if creatorType != "member" || creatorID != testUserID {
++		t.Fatal("forged headers changed attribution")
++	}
++	testutil.Call(t, serve, request(testToken, body)).Want(200)
++	if count() != 1 {
++		t.Fatal("replay created multiple runs")
++	}
++	otherWS := fx.Workspace(t, "Mismatched path", fmt.Sprintf("r5_other_%d", time.Now().UnixNano()))
++	fx.Member(t, otherWS, testUserID, "owner")
++	mismatched := testutil.JSONRequest("POST", "/api/workspaces/"+otherWS+"/workflow-intake", body)
++	mismatched.Header.Set("Authorization", "Bearer "+testToken)
++	mismatched.Header.Set("X-Workspace-ID", testWorkspaceID)
++	testutil.Call(t, serve, mismatched).Want(403)
++}
+diff --git a/server/internal/handler/issue.go b/server/internal/handler/issue.go
+index 8d04795b7..6de55d842 100644
+--- a/server/internal/handler/issue.go
++++ b/server/internal/handler/issue.go
+@@ -3309,18 +3309,110 @@ func refreshUntouchedNullableIssueParams(params *db.UpdateIssueParams, current d
+ 	}
+ }
+ 
+-var errIssueFieldConflict = errors.New("issue text field conflict")
++// issueWorkflowTx groups status writes and engine effects under one commit.
++type issueWorkflowTx struct {
++	initialStatuses map[pgtype.UUID]string
++	tx              pgx.Tx
++	actor           pgtype.UUID
++	effects         []func(context.Context)
++	cancelled       []db.WorkflowRun
++	skipped         bool
++}
++type issueWorkflowTxKey struct{}
++type workflowIssueConflict struct{ runID pgtype.UUID }
+ 
+-func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.UUID, params db.UpdateIssueParams, rawFields map[string]json.RawMessage, titleBase, descriptionBase *string, attachmentIDs []pgtype.UUID, statusKey string) (db.Issue, db.Issue, bool, error) {
+-	if h.TxStarter == nil {
+-		return db.Issue{}, db.Issue{}, false, errors.New("atomic issue update requires transaction starter")
++func (e *workflowIssueConflict) Error() string {
++	return "an active workflow run owns this issue status"
++}
++
++func writeWorkflowIssueError(w http.ResponseWriter, err error) bool {
++	if errors.Is(err, errWorkflowCancellationUnavailable) {
++		writeError(w, http.StatusServiceUnavailable, err.Error())
++		return true
+ 	}
+-	tx, err := h.TxStarter.Begin(ctx)
++	if errors.Is(err, errWorkflowAttachment) {
++		writeError(w, http.StatusBadRequest, err.Error())
++		return true
++	}
++	var conflict *workflowIssueConflict
++	if errors.As(err, &conflict) {
++		writeJSON(w, http.StatusConflict, map[string]any{"error": "workflow_run_active", "message": conflict.Error(), "workflow_run_id": uuidToString(conflict.runID)})
++		return true
++	}
++	return false
++}
++
++// coordinateWorkflowIssueStatus runs after field/CAS/text/attachment validation.
++// The issue lock is held, preventing a concurrent StartRun or terminal projection.
++func (h *Handler) coordinateWorkflowIssueStatus(ctx context.Context, scope *issueWorkflowTx, q *db.Queries, current db.Issue, target string) error {
++	if target == "" {
++		return nil
++	}
++	runs, err := q.ListActiveWorkflowRunsForIssue(ctx, db.ListActiveWorkflowRunsForIssueParams{IssueID: current.ID, WorkspaceID: current.WorkspaceID})
+ 	if err != nil {
+-		return db.Issue{}, db.Issue{}, false, fmt.Errorf("begin atomic issue update: %w", err)
++		return err
+ 	}
+-	defer tx.Rollback(ctx)
++	if len(runs) == 0 {
++		return nil
++	}
++	if scope.skipped {
++		return errors.New("workflow status batch contains an invalid target or field")
++	}
++	if target == current.Status {
++		return nil
++	}
++	entry, err := issuestatus.Resolve(ctx, q, current.WorkspaceID, target)
++	if err != nil {
++		return err
++	}
++	if entry.Category != issuestatus.CategoryClosed {
++		return &workflowIssueConflict{runID: runs[0].ID}
++	}
++	if h.WorkflowEngine == nil || h.TaskService == nil || h.WorkflowEngine.TaskCanceller == nil {
++		return errWorkflowCancellationUnavailable
++	}
++	for _, run := range runs {
++		cancelled, flush, err := h.WorkflowEngine.CancelRunInTx(ctx, scope.tx, run.WorkspaceID, run.ID, scope.actor)
++		if err != nil {
++			return err
++		}
++		scope.effects = append(scope.effects, flush)
++		scope.cancelled = append(scope.cancelled, cancelled)
++	}
++	return nil
++}
++
++func (h *Handler) finishIssueWorkflowTx(ctx context.Context, scope *issueWorkflowTx) {
++	for _, flush := range scope.effects {
++		flush(ctx)
++	}
++	for _, run := range scope.cancelled {
++		if err := h.WorkflowEngine.StopCancelledRunTasks(ctx, run.WorkspaceID, run.ID); err != nil {
++			// The cancelled run + linked active task are durable retry evidence.
++			// Reconciler retries them after failure or server restart.
++			slog.Error("workflow task stop pending recovery", "run_id", uuidToString(run.ID), "error", err)
++		}
++	}
++}
+ 
++var errIssueFieldConflict = errors.New("issue text field conflict")
++var errWorkflowCancellationUnavailable = errors.New("workflow cancellation services are unavailable")
++var errWorkflowAttachment = errors.New("workflow cancellation contains an invalid attachment")
++
++func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.UUID, params db.UpdateIssueParams, rawFields map[string]json.RawMessage, titleBase, descriptionBase *string, attachmentIDs []pgtype.UUID, statusKey string) (db.Issue, db.Issue, bool, error) {
++	scope, borrowed := ctx.Value(issueWorkflowTxKey{}).(*issueWorkflowTx)
++	if !borrowed {
++		if h.TxStarter == nil {
++			return db.Issue{}, db.Issue{}, false, errors.New("atomic issue update requires transaction starter")
++		}
++		tx, err := h.TxStarter.Begin(ctx)
++		if err != nil {
++			return db.Issue{}, db.Issue{}, false, err
++		}
++		defer tx.Rollback(ctx)
++		scope = &issueWorkflowTx{tx: tx}
++	}
++	tx := scope.tx
+ 	qtx := h.Queries.WithTx(tx)
+ 	// This path opens its own transaction, so it carries the archive-race guard
+ 	// itself rather than going through runWithIssueStatusGuard. The catalog lock
+@@ -3381,6 +3473,27 @@ func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.
+ 			Valid:  true,
+ 		}
+ 	}
++	hasWorkflow := false
++	if statusKey != "" {
++		hasWorkflow, err = qtx.HasWorkflowRunForIssue(ctx, db.HasWorkflowRunForIssueParams{IssueID: current.ID, WorkspaceID: current.WorkspaceID})
++		if err != nil {
++			return db.Issue{}, current, false, err
++		}
++	}
++	if prior, ok := scope.initialStatuses[current.ID]; ok && current.Status != prior && hasWorkflow {
++		return db.Issue{}, current, false, errIssueFieldConflict
++	}
++	if hasWorkflow && statusKey != "" && statusKey != current.Status {
++		for _, id := range attachmentIDs {
++			attachment, err := qtx.GetAttachment(ctx, db.GetAttachmentParams{ID: id, WorkspaceID: workspaceID})
++			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
++				return db.Issue{}, current, false, err
++			}
++			if errors.Is(err, pgx.ErrNoRows) || attachment.WorkspaceID != workspaceID || attachment.SourceContextID.Valid || (attachment.IssueID.Valid && attachment.IssueID != current.ID) {
++				return db.Issue{}, current, false, errWorkflowAttachment
++			}
++		}
++	}
+ 	refreshUntouchedNullableIssueParams(&params, current, rawFields)
+ 
+ 	issue, err := qtx.UpdateIssue(ctx, params)
+@@ -3410,8 +3523,14 @@ func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.
+ 			}
+ 		}
+ 	}
+-	if err := tx.Commit(ctx); err != nil {
+-		return db.Issue{}, current, false, fmt.Errorf("commit atomic issue update: %w", err)
++	if err := h.coordinateWorkflowIssueStatus(ctx, scope, qtx, current, statusKey); err != nil {
++		return db.Issue{}, current, false, err
++	}
++	if !borrowed {
++		if err := tx.Commit(ctx); err != nil {
++			return db.Issue{}, current, false, err
++		}
++		h.finishIssueWorkflowTx(ctx, scope)
+ 	}
+ 	return issue, current, attachmentsChanged, nil
+ }
+@@ -3641,9 +3760,25 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	initialStatuses := map[pgtype.UUID]string{prevIssue.ID: prevIssue.Status}
++	var singleScope *issueWorkflowTx
++	if req.Status != nil {
++		if h.TxStarter == nil {
++			writeError(w, http.StatusServiceUnavailable, "issue transaction service unavailable")
++			return
++		}
++		tx, beginErr := h.TxStarter.Begin(r.Context())
++		if beginErr != nil {
++			writeError(w, http.StatusInternalServerError, "begin issue update failed")
++			return
++		}
++		defer tx.Rollback(r.Context())
++		singleScope = &issueWorkflowTx{tx: tx, actor: parseUUID(userID), initialStatuses: initialStatuses}
++		r = r.WithContext(context.WithValue(r.Context(), issueWorkflowTxKey{}, singleScope))
++	}
+ 	var issue db.Issue
+ 	attachmentsChanged := false
+-	if req.Description != nil || req.TitleBase != nil || req.DescriptionBase != nil || len(attachmentIDs) > 0 {
++	if req.Status != nil || req.Description != nil || req.TitleBase != nil || req.DescriptionBase != nil || len(attachmentIDs) > 0 {
+ 		var lockedPrev db.Issue
+ 		issue, lockedPrev, attachmentsChanged, err = h.updateIssueAtomically(
+ 			r.Context(), prevIssue.WorkspaceID, params, rawFields, req.TitleBase, req.DescriptionBase, attachmentIDs, statusKeyForGuard,
+@@ -3659,6 +3794,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
+ 		})
+ 	}
+ 	if err != nil {
++		if writeWorkflowIssueError(w, err) {
++			return
++		}
+ 		if writeIssueStatusRaceError(w, err) {
+ 			return
+ 		}
+@@ -3678,6 +3816,14 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	if singleScope != nil {
++		if err := singleScope.tx.Commit(r.Context()); err != nil {
++			writeError(w, http.StatusInternalServerError, "commit issue update failed")
++			return
++		}
++		h.finishIssueWorkflowTx(r.Context(), singleScope)
++	}
++
+ 	// Determine actor identity: agent (via X-Agent-ID header) or member.
+ 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+ 
+@@ -4195,6 +4341,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			return
+ 		}
+ 	}
++	if req.Updates.Status != nil && len(req.Updates.AttachmentIDs) > 0 {
++		writeError(w, http.StatusBadRequest, "attachments must be updated on an individual issue")
++		return
++	}
+ 	if !h.validateBatchTriageLocks(w, r, wsUUID, req.IssueIDs, req.Updates.Status != nil, rawUpdates) {
+ 		return
+ 	}
+@@ -4231,19 +4381,36 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 	// the parent/stage notification is evaluated once against the final state
+ 	// after the loop (MUL-4155) rather than per-child mid-batch.
+ 	var childDoneCompleted []db.Issue
++	type batchPlan struct {
++		previous db.Issue
++		params   db.UpdateIssueParams
++	}
++	var plans []batchPlan
++	batchTargets := map[pgtype.UUID]db.Issue{}
++	initialStatuses := map[pgtype.UUID]string{}
++	skipped := false
++	seenIDs := map[pgtype.UUID]bool{}
+ 	for _, issueID := range req.IssueIDs {
+ 		issueUUID, err := util.ParseUUID(issueID)
+ 		if err != nil {
++			skipped = true
++			continue
++		}
++		if seenIDs[issueUUID] && req.Updates.Status != nil {
+ 			continue
+ 		}
++		seenIDs[issueUUID] = true
+ 		prevIssue, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+ 			ID:          issueUUID,
+ 			WorkspaceID: wsUUID,
+ 		})
+ 		if err != nil {
++			skipped = true
+ 			continue
+ 		}
+ 
++		batchTargets[prevIssue.ID] = prevIssue
++		initialStatuses[prevIssue.ID] = prevIssue.Status
+ 		params := db.UpdateIssueParams{
+ 			ID:            prevIssue.ID,
+ 			AssigneeType:  prevIssue.AssigneeType,
+@@ -4281,6 +4448,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			if req.Updates.AssigneeID != nil {
+ 				assigneeUUID, err := util.ParseUUID(*req.Updates.AssigneeID)
+ 				if err != nil {
++					skipped = true
+ 					continue
+ 				}
+ 				params.AssigneeID = assigneeUUID
+@@ -4292,6 +4460,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			if req.Updates.StartDate != nil && *req.Updates.StartDate != "" {
+ 				d, err := util.ParseCalendarDate(*req.Updates.StartDate)
+ 				if err != nil {
++					skipped = true
+ 					continue
+ 				}
+ 				params.StartDate = d
+@@ -4303,6 +4472,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			if req.Updates.DueDate != nil && *req.Updates.DueDate != "" {
+ 				d, err := util.ParseCalendarDate(*req.Updates.DueDate)
+ 				if err != nil {
++					skipped = true
+ 					continue
+ 				}
+ 				params.DueDate = d
+@@ -4315,10 +4485,12 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			if req.Updates.ParentIssueID != nil {
+ 				newParentID, err := util.ParseUUID(*req.Updates.ParentIssueID)
+ 				if err != nil {
++					skipped = true
+ 					continue
+ 				}
+ 				// Cannot set self as parent.
+ 				if newParentID == prevIssue.ID {
++					skipped = true
+ 					continue
+ 				}
+ 				// Validate parent exists in the same workspace.
+@@ -4326,6 +4498,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 					ID:          newParentID,
+ 					WorkspaceID: prevIssue.WorkspaceID,
+ 				}); err != nil {
++					skipped = true
+ 					continue
+ 				}
+ 				// Cycle detection: walk up from the new parent to ensure we don't reach this issue.
+@@ -4333,6 +4506,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 				cursor := newParentID
+ 				for depth := 0; depth < 10; depth++ {
+ 					ancestor, err := h.Queries.GetIssue(r.Context(), cursor)
++					if err != nil && req.Updates.Status != nil {
++						writeError(w, http.StatusInternalServerError, "cannot validate batch parent chain")
++						return
++					}
+ 					if err != nil || !ancestor.ParentIssueID.Valid {
+ 						break
+ 					}
+@@ -4343,6 +4520,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 					cursor = ancestor.ParentIssueID
+ 				}
+ 				if cycleDetected {
++					skipped = true
+ 					continue
+ 				}
+ 				params.ParentIssueID = newParentID
+@@ -4357,6 +4535,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 		if _, ok := rawUpdates["stage"]; ok {
+ 			if req.Updates.Stage != nil {
+ 				if *req.Updates.Stage < 1 {
++					skipped = true
+ 					continue
+ 				}
+ 				params.Stage = pgtype.Int4{Int32: *req.Updates.Stage, Valid: true}
+@@ -4378,12 +4557,78 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 		_, batchTouchedID := rawUpdates["assignee_id"]
+ 		if batchTouchedType || batchTouchedID {
+ 			if status, _ := h.validateAssigneePair(r.Context(), r, workspaceID, params.AssigneeType, params.AssigneeID); status != 0 {
++				skipped = true
+ 				continue
+ 			}
+ 		}
+ 
++		if req.Updates.ExpectedRevision != nil {
++			if *req.Updates.ExpectedRevision < 1 {
++				writeError(w, http.StatusBadRequest, "expected_revision must be positive")
++				return
++			}
++			params.ExpectedRevision = pgtype.Int8{Int64: *req.Updates.ExpectedRevision, Valid: true}
++		}
++		initialStatuses[prevIssue.ID] = prevIssue.Status
++		plans = append(plans, batchPlan{previous: prevIssue, params: params})
++	}
++	var batchScope *issueWorkflowTx
++	type appliedIssue struct {
++		previous db.Issue
++		issue    db.Issue
++	}
++	var applied []appliedIssue
++	if req.Updates.Status != nil {
++		if h.TxStarter == nil {
++			writeError(w, http.StatusServiceUnavailable, "issue transaction service unavailable")
++			return
++		}
++		tx, err := h.TxStarter.Begin(r.Context())
++		if err != nil {
++			writeError(w, http.StatusInternalServerError, "begin issue batch failed")
++			return
++		}
++		defer tx.Rollback(r.Context())
++		batchScope = &issueWorkflowTx{tx: tx, actor: parseUUID(userID), skipped: skipped, initialStatuses: initialStatuses}
++		r = r.WithContext(context.WithValue(r.Context(), issueWorkflowTxKey{}, batchScope))
++		qtx := h.Queries.WithTx(tx)
++		if err := assertIssueStatusStillActive(r.Context(), qtx, wsUUID, batchStatusKey); err != nil {
++			if !writeIssueStatusRaceError(w, err) {
++				writeError(w, http.StatusInternalServerError, "cannot validate batch status")
++			}
++			return
++		}
++		// Include valid identities whose fields were rejected by pure preflight.
++		// Otherwise a skipped workflow target could silently permit partial work.
++		targets := make([]pgtype.UUID, 0, len(batchTargets))
++		for id := range batchTargets {
++			targets = append(targets, id)
++		}
++		sort.Slice(targets, func(i, j int) bool { return uuidToString(targets[i]) < uuidToString(targets[j]) })
++		for _, id := range targets {
++			if _, err := qtx.LockIssueForDescriptionUpdate(r.Context(), db.LockIssueForDescriptionUpdateParams{ID: id, WorkspaceID: wsUUID}); err != nil {
++				writeError(w, http.StatusConflict, "a batch target changed during validation")
++				return
++			}
++			runs, err := qtx.ListActiveWorkflowRunsForIssue(r.Context(), db.ListActiveWorkflowRunsForIssueParams{IssueID: id, WorkspaceID: wsUUID})
++			if err != nil {
++				writeError(w, http.StatusInternalServerError, "cannot validate workflow batch")
++				return
++			}
++			if skipped && len(runs) > 0 {
++				writeError(w, http.StatusConflict, "workflow status batch contains an invalid target or field")
++				return
++			}
++		}
++
++		// Locks are sorted above; writes and notifications retain request order.
++	}
++	for _, plan := range plans {
++		prevIssue, params := plan.previous, plan.params
++		issueID := uuidToString(prevIssue.ID)
++
+ 		var issue db.Issue
+-		if req.Updates.Description != nil {
++		if req.Updates.Status != nil || req.Updates.Description != nil {
+ 			// One batch-level base cannot describe multiple issue documents.
+ 			// Preserve every marked channel-media block conservatively, matching
+ 			// legacy single-update clients that omit description_base.
+@@ -4402,6 +4647,13 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			})
+ 		}
+ 		if err != nil {
++			if batchScope != nil {
++				if writeWorkflowIssueError(w, err) || writeIssueStatusRaceError(w, err) {
++					return
++				}
++				writeError(w, http.StatusConflict, "workflow status batch rejected: "+err.Error())
++				return
++			}
+ 			// The archive race is a property of the batch's shared target
+ 			// status, not of one issue, so every remaining item would fail the
+ 			// same way. Abort with 409 instead of reporting a partial update.
+@@ -4412,6 +4664,18 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
+ 			continue
+ 		}
+ 
++		applied = append(applied, appliedIssue{previous: prevIssue, issue: issue})
++	}
++	if batchScope != nil {
++		if err := batchScope.tx.Commit(r.Context()); err != nil {
++			writeError(w, http.StatusInternalServerError, "commit issue batch failed")
++			return
++		}
++		h.finishIssueWorkflowTx(r.Context(), batchScope)
++	}
++	for _, result := range applied {
++		prevIssue, issue := result.previous, result.issue
++
+ 		prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
+ 		resp := issueToResponse(issue, prefix)
+ 		actorType, actorID := h.resolveActor(r, userID, workspaceID)
+diff --git a/server/internal/handler/workflow_intake.go b/server/internal/handler/workflow_intake.go
+new file mode 100644
+index 000000000..1e86b8ac1
+--- /dev/null
++++ b/server/internal/handler/workflow_intake.go
+@@ -0,0 +1,225 @@
++package handler
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"net/url"
++	"regexp"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/go-chi/chi/v5"
++	"github.com/jackc/pgx/v5"
++	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/workflow"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++	"github.com/multica-ai/multica/server/pkg/protocol"
++)
++
++var workflowIntakeSourcePattern = regexp.MustCompile("^[a-z0-9][a-z0-9._-]{0,63}$")
++
++type WorkflowIntakeRequest struct {
++	Source                string          `json:"source"`
++	EventID               string          `json:"event_id"`
++	TemplateKey           string          `json:"template_key"`
++	Title                 string          `json:"title"`
++	Description           string          `json:"description"`
++	OwnerUserID           string          `json:"owner_user_id"`
++	SourceURL             string          `json:"source_url"`
++	Payload               json.RawMessage `json:"payload"`
++	CallbackDestinationID *string         `json:"callback_destination_id"`
++	IdempotencyKey        string          `json:"idempotency_key"`
++}
++
++type WorkflowIntakeResponse struct {
++	ReceiptID     string `json:"receipt_id"`
++	WorkflowRunID string `json:"workflow_run_id"`
++	IssueID       string `json:"issue_id"`
++	Status        string `json:"status"`
++	TemplateKey   string `json:"template_key"`
++}
++
++func (h *Handler) WorkflowIntake(w http.ResponseWriter, r *http.Request) {
++	// StartRun does not carry task-token originator/source-task provenance.
++	// Refuse machine credentials instead of attributing them to their owner.
++	if isMachineCredentialActor(r) {
++		writeError(w, http.StatusForbidden, "workflow intake requires a human actor")
++		return
++	}
++	if r.Header.Get("X-Workflow-Template-Version-ID") != "" {
++		writeErrorCode(w, http.StatusBadRequest, "unsupported_workflow_configuration", "intake uses the current published version")
++		return
++	}
++	workspaceID := chi.URLParam(r, "id")
++	if scopedID := h.resolveWorkspaceID(r); scopedID != "" && scopedID != workspaceID {
++		writeError(w, http.StatusForbidden, "workspace path does not match request scope")
++		return
++	}
++	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
++	if !ok {
++		return
++	}
++	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
++	if !ok {
++		return
++	}
++	engine, ok := h.requireWorkflowEngine(w)
++	if !ok {
++		return
++	}
++
++	r.Body = http.MaxBytesReader(w, r.Body, workflowRunBodyLimit)
++	raw, err := io.ReadAll(r.Body)
++	if err != nil {
++		writeError(w, http.StatusBadRequest, "invalid request body")
++		return
++	}
++	var req WorkflowIntakeRequest
++	if err := json.Unmarshal(raw, &req); err != nil {
++		writeError(w, http.StatusBadRequest, "invalid request body")
++		return
++	}
++	var controls map[string]json.RawMessage
++	if err := json.Unmarshal(raw, &controls); err != nil || controls == nil {
++		writeError(w, http.StatusBadRequest, "request body must be a JSON object")
++		return
++	}
++	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id", "template_version_id"} {
++		if value, exists := controls[key]; exists && string(value) != "null" && string(value) != `""` {
++			writeErrorCode(w, http.StatusBadRequest, "unsupported_workflow_configuration", key+" is not supported by workflow intake")
++			return
++		}
++	}
++	req.Source = strings.ToLower(strings.TrimSpace(req.Source))
++	req.EventID = strings.TrimSpace(req.EventID)
++	req.TemplateKey = strings.TrimSpace(req.TemplateKey)
++	req.Title = sanitizeNullBytes(strings.TrimSpace(req.Title))
++	req.Description = sanitizeNullBytes(strings.TrimSpace(req.Description))
++	req.SourceURL = strings.TrimSpace(req.SourceURL)
++	if !workflowIntakeSourcePattern.MatchString(req.Source) {
++		writeError(w, http.StatusUnprocessableEntity, "source must match [a-z0-9][a-z0-9._-]{0,63}")
++		return
++	}
++	if req.EventID == "" || len(req.EventID) > 256 || req.TemplateKey == "" {
++		writeError(w, http.StatusUnprocessableEntity, "event_id and template_key are required")
++		return
++	}
++	if req.Title == "" || utf8.RuneCountInString(req.Title) > maxWorkflowRunTitleLen ||
++		req.Description == "" || utf8.RuneCountInString(req.Description) > maxWorkflowRunDescriptionLen {
++		writeError(w, http.StatusUnprocessableEntity, "title and description are required and must be within workflow limits")
++		return
++	}
++	if req.SourceURL != "" {
++		parsed, err := url.ParseRequestURI(req.SourceURL)
++		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
++			writeError(w, http.StatusUnprocessableEntity, "source_url must be an http or https URL")
++			return
++		}
++	}
++
++	template, err := h.Queries.GetWorkflowTemplateByKey(r.Context(), db.GetWorkflowTemplateByKeyParams{WorkspaceID: wsUUID, Key: req.TemplateKey})
++	if err != nil {
++		if errors.Is(err, pgx.ErrNoRows) {
++			writeError(w, http.StatusNotFound, "workflow template not found")
++		} else {
++			writeError(w, http.StatusInternalServerError, "failed to resolve workflow template")
++		}
++		return
++	}
++	if template.Status != "published" || !template.CurrentVersion.Valid {
++		writeError(w, http.StatusConflict, "workflow template is not published")
++		return
++	}
++
++	ownerID := member.UserID
++	if req.OwnerUserID != "" {
++		parsed, ok := parseUUIDOrBadRequest(w, req.OwnerUserID, "owner_user_id")
++		if !ok {
++			return
++		}
++		if parsed != member.UserID && member.Role != "owner" && member.Role != "admin" {
++			writeError(w, http.StatusForbidden, "only an owner or admin may assign external intake to another member")
++			return
++		}
++		if _, err := h.Queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{UserID: parsed, WorkspaceID: wsUUID}); err != nil {
++			writeError(w, http.StatusUnprocessableEntity, "owner_user_id is not a member of this workspace")
++			return
++		}
++		ownerID = parsed
++	}
++
++	payloadBag := map[string]any{}
++	if len(req.Payload) > 0 && string(req.Payload) != "null" {
++		if err := json.Unmarshal(req.Payload, &payloadBag); err != nil {
++			writeError(w, http.StatusUnprocessableEntity, "payload must be a JSON object")
++			return
++		}
++	}
++	payloadBag["title"] = req.Title
++	payloadBag["description"] = req.Description
++	if req.SourceURL != "" {
++		payloadBag["source_url"] = req.SourceURL
++	}
++	input, err := json.Marshal(payloadBag)
++	if err != nil {
++		writeError(w, http.StatusUnprocessableEntity, "payload cannot be encoded")
++		return
++	}
++	requestHash, err := workflowStartRequestHash(template.ID, ownerID, pgtype.UUID{}, input)
++	if err != nil {
++		writeError(w, http.StatusUnprocessableEntity, "payload cannot be hashed")
++		return
++	}
++	idempotencyKey := strings.TrimSpace(req.IdempotencyKey)
++	if idempotencyKey != "" {
++		if len(idempotencyKey) > 220 {
++			writeErrorCode(w, http.StatusUnprocessableEntity, "validation_error", "idempotency_key must be 220 characters or fewer")
++			return
++		}
++		idempotencyKey = "workflow-start:v1:" + idempotencyKey
++	} else {
++		eventHash := sha256.Sum256([]byte(req.EventID))
++		idempotencyKey = "external:" + req.Source + ":" + hex.EncodeToString(eventHash[:])
++	}
++
++	started, err := engine.StartRun(r.Context(), workflow.StartRunInput{
++		WorkspaceID:       wsUUID,
++		TemplateID:        template.ID,
++		Source:            "external",
++		SourceEventID:     req.EventID,
++		IdempotencyKey:    idempotencyKey,
++		RequestHash:       requestHash,
++		AccountableUserID: ownerID,
++		Issue: &workflow.RunIssueInput{
++			Title:       req.Title,
++			Description: req.Description,
++			CreatorType: "member",
++			CreatorID:   member.UserID,
++			Subscribers: []workflow.RunIssueSubscriber{{UserType: "member", UserID: ownerID, Reason: "manual"}},
++		},
++		Input:     input,
++		ActorType: "member",
++		ActorID:   member.UserID,
++	})
++	if err != nil {
++		h.writeWorkflowEngineError(w, r, err, "WorkflowIntake")
++		return
++	}
++	run := h.reloadWorkflowRun(r.Context(), started.Run)
++	if !started.AlreadyExisted && started.Issue != nil {
++		prefix := h.getIssuePrefix(r.Context(), wsUUID)
++		h.publish(protocol.EventIssueCreated, workspaceID, "member", uuidToString(member.UserID), map[string]any{"issue": issueToResponse(*started.Issue, prefix)})
++	}
++	status := http.StatusCreated
++	if started.AlreadyExisted {
++		status = http.StatusOK
++	}
++	writeJSON(w, status, WorkflowIntakeResponse{
++		ReceiptID: uuidToString(run.ID), WorkflowRunID: uuidToString(run.ID),
++		IssueID: uuidToString(run.IssueID), Status: run.Status, TemplateKey: template.Key,
++	})
++}
+diff --git a/server/internal/handler/workflow_lifecycle_r5_test.go b/server/internal/handler/workflow_lifecycle_r5_test.go
+new file mode 100644
+index 000000000..ca19d8563
+--- /dev/null
++++ b/server/internal/handler/workflow_lifecycle_r5_test.go
+@@ -0,0 +1,478 @@
++package handler
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"github.com/jackc/pgx/v5"
++	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/testutil"
++	"github.com/multica-ai/multica/server/internal/workflow"
++	db "github.com/multica-ai/multica/server/pkg/db/generated"
++)
++
++func r5ActiveRun(t *testing.T) (WorkflowRunDetailResponse, *workflow.Engine) {
++	t.Helper()
++	cleanupWorkflowTemplates(t)
++	cleanupWorkflowRuns(t)
++	engine := withWorkflowEngineForTest(t)
++	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
++	tpl := seededBugFixTemplate(t)
++	res := runWorkflowTemplateForTest(t, tpl.ID, map[string]any{"title": "Cancellation atomicity", "description": "Keep every rejected request free of side effects."})
++	return decodeWorkflowRunDetail(t, res, "start"), engine
++}
++
++func r5Snapshot(t *testing.T, runID string) string {
++	t.Helper()
++	var value string
++	err := testPool.QueryRow(context.Background(), "SELECT jsonb_build_object("+
++		"'run',(SELECT to_jsonb(r) FROM workflow_run r WHERE id=$1),"+
++		"'issue',(SELECT to_jsonb(i) FROM issue i JOIN workflow_run r ON r.issue_id=i.id WHERE r.id=$1),"+
++		"'steps',(SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM workflow_step_instance s WHERE run_id=$1),"+
++		"'events',(SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM workflow_event e WHERE run_id=$1),"+
++		"'acceptances',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM workflow_acceptance a WHERE run_id=$1),"+
++		"'tasks',(SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM agent_task_queue t JOIN workflow_step_instance s ON s.id=t.workflow_step_instance_id WHERE s.run_id=$1))::text", runID).Scan(&value)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return value
++}
++
++func TestR5IssueCancellationRejectedRequestsAreAtomic(t *testing.T) {
++	detail, _ := r5ActiveRun(t)
++	for _, tc := range []struct {
++		name   string
++		fields map[string]any
++		status int
++	}{
++		{"priority", map[string]any{"priority": "invalid"}, 400},
++		{"date", map[string]any{"due_date": "not-a-date"}, 400},
++		{"assignee", map[string]any{"assignee_type": "member", "assignee_id": "bad"}, 400},
++		{"parent", map[string]any{"parent_issue_id": *detail.IssueID}, 400},
++		{"attachment", map[string]any{"attachment_ids": []string{"bad"}}, 400},
++		{"unknown attachment", map[string]any{"attachment_ids": []string{"00000000-0000-0000-0000-0000000000ff"}}, 400},
++		{"revision", map[string]any{"expected_revision": int64(999999)}, 409},
++		{"title conflict", map[string]any{"title": "replacement", "title_base": "unrelated"}, 409},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			before := r5Snapshot(t, detail.ID)
++			tc.fields["status"] = "cancelled"
++			req := withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, tc.fields), "id", *detail.IssueID)
++			testutil.Call(t, testHandler.UpdateIssue, req).Want(tc.status)
++			if after := r5Snapshot(t, detail.ID); after != before {
++				t.Fatal("rejected request changed persisted business rows")
++			}
++		})
++	}
++}
++
++func TestR5IssueBatchCancellationIsAtomicAndNoopIsConsistent(t *testing.T) {
++	detail, _ := r5ActiveRun(t)
++	issue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(*detail.IssueID))
++	if err != nil {
++		t.Fatal(err)
++	}
++	before := r5Snapshot(t, detail.ID)
++	testutil.Call(t, testHandler.UpdateIssue, withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": issue.Status}), "id", *detail.IssueID)).Want(200)
++	testutil.Call(t, testHandler.BatchUpdateIssues, newRequest("PATCH", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{"issue_ids": []string{*detail.IssueID, *detail.IssueID}, "updates": map[string]any{"status": issue.Status}})).Want(200)
++	if r5Snapshot(t, detail.ID) != before {
++		t.Fatal("same-state update changed persisted workflow or issue")
++	}
++	for _, ids := range [][]string{{*detail.IssueID, "bad-id"}, {"bad-id", *detail.IssueID}} {
++		testutil.Call(t, testHandler.BatchUpdateIssues, newRequest("PATCH", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{"issue_ids": ids, "updates": map[string]any{"status": "cancelled"}})).Want(409)
++		if r5Snapshot(t, detail.ID) != before {
++			t.Fatal("failed batch committed cancellation")
++		}
++	}
++	testutil.Call(t, testHandler.BatchUpdateIssues, newRequest("PATCH", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{"issue_ids": []string{*detail.IssueID, *detail.IssueID}, "updates": map[string]any{"status": "cancelled"}})).Want(200)
++	var events int
++	if err := testPool.QueryRow(context.Background(), "SELECT count(*) FROM workflow_event WHERE run_id=$1 AND event_type='run.cancelled'", detail.ID).Scan(&events); err != nil {
++		t.Fatal(err)
++	}
++	if events != 1 {
++		t.Fatalf("duplicate IDs emitted %d cancellation events", events)
++	}
++}
++
++type r5FailStop struct{ calls int }
++
++func (f *r5FailStop) CancelTask(context.Context, pgtype.UUID) (*db.AgentTaskQueue, error) {
++	f.calls++
++	return nil, errors.New("injected task service failure")
++}
++
++func TestR5CancelledRunRecoversTaskServiceFailureAfterRestart(t *testing.T) {
++	detail, engine := r5ActiveRun(t)
++	fail := &r5FailStop{}
++	engine.TaskCanceller = fail
++	steps, err := testHandler.Queries.ListWorkflowStepInstances(context.Background(), db.ListWorkflowStepInstancesParams{RunID: parseUUID(detail.ID), WorkspaceID: parseUUID(testWorkspaceID)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var agentID string
++	for _, step := range steps {
++		if step.AgentID.Valid {
++			agentID = uuidToString(step.AgentID)
++			break
++		}
++	}
++	if agentID == "" {
++		t.Fatal("fixture has no routed agent")
++	}
++	agent, err := testHandler.Queries.GetAgent(context.Background(), parseUUID(agentID))
++	if err != nil {
++		t.Fatal(err)
++	}
++	unrelatedAgent := dbfx.Agent(t, "Unrelated", uuidToString(agent.RuntimeID))
++	unrelated := dbfx.Task(t, unrelatedAgent, testutil.Cols{"issue_id": *detail.IssueID, "runtime_id": uuidToString(agent.RuntimeID)})
++	testutil.Call(t, testHandler.UpdateIssue, withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "cancelled"}), "id", *detail.IssueID)).Want(200)
++	if fail.calls == 0 {
++		t.Fatal("TaskService seam was not called")
++	}
++	ids, err := testHandler.Queries.ListActiveAgentTaskIDsForWorkflowRun(context.Background(), db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: parseUUID(detail.ID), WorkspaceID: parseUUID(testWorkspaceID)})
++	if err != nil || len(ids) == 0 {
++		t.Fatalf("missing durable recovery evidence: %v %v", ids, err)
++	}
++	// Recreate the engine/reconciler as after restart; use the real TaskService.
++	restarted := *engine
++	restarted.TaskCanceller = testHandler.TaskService
++	reconciler := workflow.NewReconciler(&restarted, testHandler.Queries)
++	if err := reconciler.Sweep(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	if err := reconciler.Sweep(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	ids, err = testHandler.Queries.ListActiveAgentTaskIDsForWorkflowRun(context.Background(), db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: parseUUID(detail.ID), WorkspaceID: parseUUID(testWorkspaceID)})
++	if err != nil || len(ids) != 0 {
++		t.Fatalf("linked tasks remain active: %v %v", ids, err)
++	}
++	task, err := testHandler.Queries.GetAgentTask(context.Background(), parseUUID(unrelated))
++	if err != nil || task.Status != "queued" {
++		t.Fatalf("unrelated issue task was stopped: %s %v", task.Status, err)
++	}
++}
++
++func TestR5IntakeExcludedControlsAndIdentity(t *testing.T) {
++	cleanupWorkflowTemplates(t)
++	cleanupWorkflowRuns(t)
++	withWorkflowEngineForTest(t)
++	tpl := seededBugFixTemplate(t)
++	base := map[string]any{"source": "ticket", "event_id": "r5", "template_key": tpl.Key, "title": "Intake", "description": "Validate excluded controls"}
++	counts := func() string {
++		var out string
++		if err := testPool.QueryRow(context.Background(), "SELECT jsonb_build_array((SELECT count(*) FROM issue WHERE workspace_id=$1),(SELECT count(*) FROM workflow_run WHERE workspace_id=$1),(SELECT count(*) FROM workflow_step_instance WHERE workspace_id=$1),(SELECT count(*) FROM workflow_event WHERE workspace_id=$1),(SELECT count(*) FROM agent_task_queue t JOIN agent a ON a.id=t.agent_id WHERE a.workspace_id=$1),(SELECT count(*) FROM issue_subscriber s JOIN issue i ON i.id=s.issue_id WHERE i.workspace_id=$1))::text", testWorkspaceID).Scan(&out); err != nil {
++			t.Fatal(err)
++		}
++		return out
++	}
++	for _, key := range []string{"callback_destination_id", "input_instance_id", "input_instance_revision", "input_source", "execution_mode", "debug_session_id", "template_version_id"} {
++		for _, value := range []any{" ", "x", false, 1, map[string]any{}, []string{}} {
++			t.Run(fmt.Sprint(key, value), func(t *testing.T) {
++				body := map[string]any{}
++				for k, v := range base {
++					body[k] = v
++				}
++				body[key] = value
++				before := counts()
++				testutil.Call(t, testHandler.WorkflowIntake, withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", body), "id", testWorkspaceID)).Want(400)
++				if counts() != before {
++					t.Fatal("rejected intake left rows")
++				}
++			})
++		}
++	}
++	for _, header := range []struct {
++		key, value string
++		status     int
++	}{
++		{"X-Workflow-Template-Version-ID", " ", 400}, {"X-Actor-Source", "task_token", 403}, {"X-Actor-Source", "cloud_pat", 403},
++	} {
++		before := counts()
++		req := withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", base), "id", testWorkspaceID)
++		req.Header.Set(header.key, header.value)
++		testutil.Call(t, testHandler.WorkflowIntake, req).Want(header.status)
++		if counts() != before {
++			t.Fatal("identity/version rejection left rows")
++		}
++	}
++}
++
++func TestR5CustomCancelledCategoryAndMissingServices(t *testing.T) {
++	detail, engine := r5ActiveRun(t)
++	createTestCustomStatus(t, "r5_aborted", "closed")
++	before := r5Snapshot(t, detail.ID)
++	saved := engine.TaskCanceller
++	engine.TaskCanceller = nil
++	testutil.Call(t, testHandler.UpdateIssue, withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "r5_aborted"}), "id", *detail.IssueID)).Want(503)
++	if r5Snapshot(t, detail.ID) != before {
++		t.Fatal("missing service committed cancellation")
++	}
++	engine.TaskCanceller = saved
++	testutil.Call(t, testHandler.UpdateIssue, withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": " R5_ABORTED "}), "id", *detail.IssueID)).Want(200)
++	current, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(*detail.IssueID))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if current.Status != "r5_aborted" {
++		t.Fatalf("custom key lost: %s", current.Status)
++	}
++	if getWorkflowRunForTest(t, detail.ID).Status != "cancelled" {
++		t.Fatal("custom closed category did not cancel run")
++	}
++}
++
++func TestR5IntakeThenManualReplayPreservesProvenance(t *testing.T) {
++	cleanupWorkflowTemplates(t)
++	cleanupWorkflowRuns(t)
++	withWorkflowEngineForTest(t)
++	labelTestAgentWithCapabilities(t, "bug_analysis", "code_change")
++	tpl := seededBugFixTemplate(t)
++	body := map[string]any{"source": "ticket", "event_id": "r5-replay", "template_key": tpl.Key, "title": "Replay", "description": "Both adapters converge", "idempotency_key": "r5-cross"}
++	var receipt WorkflowIntakeResponse
++	testutil.Call(t, testHandler.WorkflowIntake, withURLParam(newRequest("POST", "/api/workspaces/"+testWorkspaceID+"/workflow-intake", body), "id", testWorkspaceID)).Want(201).JSON(&receipt)
++	before := r5Snapshot(t, receipt.WorkflowRunID)
++	manual := runWorkflowTemplateForTest(t, tpl.ID, map[string]any{"title": body["title"], "description": body["description"], "idempotency_key": body["idempotency_key"]})
++	if manual.Code != 200 {
++		t.Fatalf("manual replay: %d %s", manual.Code, manual.Body.String())
++	}
++	if r5Snapshot(t, receipt.WorkflowRunID) != before {
++		t.Fatal("cross-entry replay changed provenance or rows")
++	}
++}
++
++type r5ObservedStarter struct{ reached chan struct{} }
++type r5ObservedTx struct {
++	pgx.Tx
++	reached chan struct{}
++	once    sync.Once
++}
++
++func (s *r5ObservedStarter) Begin(ctx context.Context) (pgx.Tx, error) {
++	tx, err := testPool.Begin(ctx)
++	if err != nil {
++		return nil, err
++	}
++	return &r5ObservedTx{Tx: tx, reached: s.reached}, nil
++}
++func (tx *r5ObservedTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
++	if strings.Contains(sql, "-- name: LockIssueForDescriptionUpdate") {
++		tx.once.Do(func() { close(tx.reached) })
++	}
++	return tx.Tx.QueryRow(ctx, sql, args...)
++}
++
++type r5BlockingRouter struct {
++	workflow.Router
++	entered, release chan struct{}
++	once             sync.Once
++}
++
++func (r *r5BlockingRouter) Route(ctx context.Context, q *db.Queries, req workflow.RouteRequest) (workflow.RouteResult, error) {
++	r.once.Do(func() { close(r.entered) })
++	select {
++	case <-r.release:
++	case <-ctx.Done():
++		return workflow.RouteResult{}, ctx.Err()
++	}
++	return r.Router.Route(ctx, q, req)
++}
++
++func TestR5CancellationIncludesTaskActivatedWhileWaitingForIssueLock(t *testing.T) {
++	detail, engine := r5ActiveRun(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	var step WorkflowStepResponse
++	for _, s := range detail.Steps {
++		if s.NodeKey == "analyze" {
++			step = s
++		}
++	}
++	if step.TaskID == nil {
++		t.Fatal("missing task")
++	}
++	var result struct{ Output string }
++	if err := json.Unmarshal(e2eTaskResult(t, *step.TaskID, step.ID, "analysis", "Root cause"), &result); err != nil {
++		t.Fatal(err)
++	}
++	router := &r5BlockingRouter{Router: engine.Router, entered: make(chan struct{}), release: make(chan struct{})}
++	engine.Router = router
++	if _, err := testPool.Exec(ctx, "UPDATE agent_task_queue SET status='running' WHERE id=$1", *step.TaskID); err != nil {
++		t.Fatal(err)
++	}
++	advanced := make(chan error, 1)
++	go func() {
++		_, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(*step.TaskID), e2eTaskResult(t, *step.TaskID, step.ID, "analysis", "Root cause"), "", "", "", false, "", "")
++		advanced <- err
++	}()
++	select {
++	case <-router.entered:
++	case err := <-advanced:
++		t.Fatalf("did not reach next-step routing: %v", err)
++	case <-ctx.Done():
++		t.Fatal(ctx.Err())
++	}
++	oldStarter := testHandler.TxStarter
++	reached := make(chan struct{})
++	testHandler.TxStarter = &r5ObservedStarter{reached: reached}
++	t.Cleanup(func() { testHandler.TxStarter = oldStarter })
++	cancelled := make(chan *httptest.ResponseRecorder, 1)
++	go func() {
++		rec := httptest.NewRecorder()
++		req := withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "cancelled"}), "id", *detail.IssueID).WithContext(ctx)
++		// Preserve chi route parameters when adding the deadline context.
++		req = withURLParam(req, "id", *detail.IssueID)
++		testHandler.UpdateIssue(rec, req)
++		cancelled <- rec
++	}()
++	select {
++	case <-reached:
++	case <-ctx.Done():
++		close(router.release)
++		<-advanced
++		t.Fatal(ctx.Err())
++	}
++	close(router.release)
++	advanceErr := <-advanced
++	rec := <-cancelled
++	if advanceErr != nil {
++		t.Fatal(advanceErr)
++	}
++	if rec.Code != 200 {
++		t.Fatalf("cancel: %d %s", rec.Code, rec.Body.String())
++	}
++	if getWorkflowRunForTest(t, detail.ID).Status != "cancelled" {
++		t.Fatal("run not cancelled")
++	}
++	ids, err := testHandler.Queries.ListActiveAgentTaskIDsForWorkflowRun(ctx, db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: parseUUID(detail.ID), WorkspaceID: parseUUID(testWorkspaceID)})
++	if err != nil || len(ids) != 0 {
++		t.Fatalf("activation raced past cancellation: %v %v", ids, err)
++	}
++	if err := engine.RecordTaskTerminal(ctx, workflow.RecordTaskTerminalInput{TaskID: parseUUID(*step.TaskID), TaskStatus: "completed", Result: result.Output}); err != nil {
++		t.Fatal(err)
++	}
++	if getWorkflowRunForTest(t, detail.ID).Status != "cancelled" {
++		t.Fatal("late completion revived run")
++	}
++}
++
++type r5FailCommitStarter struct{}
++type r5FailCommitTx struct{ pgx.Tx }
++
++func (*r5FailCommitStarter) Begin(ctx context.Context) (pgx.Tx, error) {
++	tx, err := testPool.Begin(ctx)
++	if err != nil {
++		return nil, err
++	}
++	return &r5FailCommitTx{tx}, nil
++}
++func (*r5FailCommitTx) Commit(context.Context) error { return errors.New("injected commit failure") }
++
++func TestR5IssueCancellationCommitFailureRollsBackEverything(t *testing.T) {
++	detail, _ := r5ActiveRun(t)
++	before := r5Snapshot(t, detail.ID)
++	old := testHandler.TxStarter
++	testHandler.TxStarter = &r5FailCommitStarter{}
++	defer func() { testHandler.TxStarter = old }()
++	testutil.Call(t, testHandler.UpdateIssue, withURLParam(newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "cancelled"}), "id", *detail.IssueID)).Want(500)
++	if r5Snapshot(t, detail.ID) != before {
++		t.Fatal("commit failure leaked database changes")
++	}
++}
++
++type r5PausedStarter struct{ reached, release chan struct{} }
++
++func (s *r5PausedStarter) Begin(ctx context.Context) (pgx.Tx, error) {
++	close(s.reached)
++	select {
++	case <-s.release:
++	case <-ctx.Done():
++		return nil, ctx.Err()
++	}
++	return testPool.Begin(ctx)
++}
++func TestR5CompletionWinningBeforeCancellationPreservesTerminalState(t *testing.T) {
++	detail, engine := r5ActiveRun(t)
++	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
++	defer cancel()
++	starter := &r5PausedStarter{reached: make(chan struct{}), release: make(chan struct{})}
++	old := testHandler.TxStarter
++	testHandler.TxStarter = starter
++	defer func() { testHandler.TxStarter = old }()
++	response := make(chan *httptest.ResponseRecorder, 1)
++	go func() {
++		rec := httptest.NewRecorder()
++		req := newRequest("PUT", "/api/issues/"+*detail.IssueID, map[string]any{"status": "cancelled"}).WithContext(ctx)
++		testHandler.UpdateIssue(rec, withURLParam(req, "id", *detail.IssueID))
++		response <- rec
++	}()
++	select {
++	case <-starter.reached:
++	case <-ctx.Done():
++		t.Fatal(ctx.Err())
++	}
++	for _, node := range []struct{ key, artifact string }{{"analyze", "analysis"}, {"implement", "code_change"}, {"validate", "test_report"}} {
++		run := getWorkflowRunForTest(t, detail.ID)
++		step, ok := findWorkflowStep(run.Steps, node.key)
++		if !ok || step.TaskID == nil {
++			close(starter.release)
++			<-response
++			t.Fatalf("missing %s task", node.key)
++		}
++		if _, err := testPool.Exec(ctx, "UPDATE agent_task_queue SET status='running' WHERE id=$1", *step.TaskID); err != nil {
++			t.Fatal(err)
++		}
++		if _, err := testHandler.TaskService.CompleteTask(ctx, parseUUID(*step.TaskID), e2eTaskResult(t, *step.TaskID, step.ID, node.artifact, "Verified"), "", "", "", false, "", ""); err != nil {
++			t.Fatal(err)
++		}
++	}
++	acceptances, err := testHandler.Queries.ListWorkflowAcceptancesForRun(ctx, db.ListWorkflowAcceptancesForRunParams{RunID: parseUUID(detail.ID), WorkspaceID: parseUUID(testWorkspaceID)})
++	if err != nil || len(acceptances) != 1 {
++		close(starter.release)
++		<-response
++		t.Fatalf("acceptances: %v %v", acceptances, err)
++	}
++	if _, err := engine.DecideAcceptance(ctx, workflow.DecideAcceptanceInput{WorkspaceID: parseUUID(testWorkspaceID), AcceptanceID: acceptances[0].ID, Accept: true, ReviewerUserID: parseUUID(testUserID)}); err != nil {
++		close(starter.release)
++		<-response
++		t.Fatal(err)
++	}
++	before := r5Snapshot(t, detail.ID)
++	close(starter.release)
++	rec := <-response
++	if rec.Code != 409 {
++		t.Fatalf("stale cancellation status %d: %s", rec.Code, rec.Body.String())
++	}
++	if r5Snapshot(t, detail.ID) != before {
++		t.Fatal("stale cancellation overwrote completion")
++	}
++}
++
++func TestR5SkippedWorkflowTargetPreventsPartialBatch(t *testing.T) {
++	detail, _ := r5ActiveRun(t)
++	ordinary := dbfx.Issue(t, "Ordinary batch target")
++	before := r5Snapshot(t, detail.ID)
++	// The workflow target would be skipped for parenting itself; the other target
++	// could otherwise be updated. Both must remain unchanged.
++	testutil.Call(t, testHandler.BatchUpdateIssues, newRequest("PATCH", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
++		"issue_ids": []string{ordinary, *detail.IssueID},
++		"updates":   map[string]any{"status": "cancelled", "parent_issue_id": *detail.IssueID},
++	})).Want(409)
++	if r5Snapshot(t, detail.ID) != before {
++		t.Fatal("invalid batch changed workflow")
++	}
++	issue, err := testHandler.Queries.GetIssue(context.Background(), parseUUID(ordinary))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if issue.Status != "todo" || issue.ParentIssueID.Valid {
++		t.Fatal("invalid batch partially changed ordinary target")
++	}
++}
+diff --git a/server/internal/handler/workflow_run.go b/server/internal/handler/workflow_run.go
+index 41f15dbf6..ecc59785a 100644
+--- a/server/internal/handler/workflow_run.go
++++ b/server/internal/handler/workflow_run.go
+@@ -1245,19 +1245,9 @@ func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	// Read the task ids BEFORE cancelling the Run: CancelWorkflowStepInstancesForRun
+-	// does not clear task_id, so the join still resolves afterwards â€” but reading
+-	// first also means a Step activated concurrently with this cancel is captured
+-	// rather than missed.
+-	taskIDs, err := h.Queries.ListActiveAgentTaskIDsForWorkflowRun(r.Context(), db.ListActiveAgentTaskIDsForWorkflowRunParams{
+-		RunID:       run.ID,
+-		WorkspaceID: run.WorkspaceID,
+-	})
+-	if err != nil {
+-		// Not fatal to the cancel: a Run left running because its task list could
+-		// not be read is worse than a Run cancelled with one straggler task. The
+-		// straggler's completion hits an already-terminal Step and is discarded.
+-		slog.Warn("list workflow run tasks for cancel failed", append(logger.RequestAttrs(r), "error", err)...)
++	if h.TaskService == nil || engine.TaskCanceller == nil {
++		writeError(w, http.StatusServiceUnavailable, "workflow task cancellation service is unavailable")
++		return
+ 	}
+ 
+ 	cancelled, err := engine.CancelRun(r.Context(), run.WorkspaceID, run.ID, userUUID)
+@@ -1266,15 +1256,8 @@ func (h *Handler) CancelWorkflowRun(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
+-	if h.TaskService != nil {
+-		for _, taskID := range taskIDs {
+-			if _, err := h.TaskService.CancelTask(r.Context(), taskID); err != nil {
+-				// Per-task, logged and continued: one unstoppable task must not stop
+-				// the others from being stopped.
+-				slog.Warn("cancel workflow run agent task failed",
+-					append(logger.RequestAttrs(r), "error", err, "task_id", uuidToString(taskID))...)
+-			}
+-		}
++	if err := engine.StopCancelledRunTasks(r.Context(), run.WorkspaceID, run.ID); err != nil {
++		slog.Error("workflow task stop pending recovery", "run_id", uuidToString(run.ID), "error", err)
+ 	}
+ 
+ 	h.writeWorkflowRunDetail(w, r, cancelled, http.StatusOK)
+diff --git a/server/internal/handler/workflow_run_test.go b/server/internal/handler/workflow_run_test.go
+index d05d262e4..6355368b1 100644
+--- a/server/internal/handler/workflow_run_test.go
++++ b/server/internal/handler/workflow_run_test.go
+@@ -46,11 +46,12 @@ func withWorkflowEngineForTest(t *testing.T) *workflow.Engine {
+ 	}
+ 
+ 	engine := &workflow.Engine{
+-		Queries:   testHandler.Queries,
+-		TxStarter: testPool,
+-		Router:    service.NewWorkflowRouter(testHandler.Queries),
+-		Notifier:  service.NewWorkflowNotifier(testHandler.Bus, testHandler.TaskService),
+-		Schemas:   workflow.DefaultSchemaRegistry,
++		TaskCanceller: testHandler.TaskService,
++		Queries:       testHandler.Queries,
++		TxStarter:     testPool,
++		Router:        service.NewWorkflowRouter(testHandler.Queries),
++		Notifier:      service.NewWorkflowNotifier(testHandler.Bus, testHandler.TaskService),
++		Schemas:       workflow.DefaultSchemaRegistry,
+ 	}
+ 	previousEngine := testHandler.WorkflowEngine
+ 	previousTerminal := testHandler.TaskService.WorkflowTerminal
+diff --git a/server/internal/service/builtin_skills/multica-platform/references/issues.md b/server/internal/service/builtin_skills/multica-platform/references/issues.md
+index 058fec7bf..0bfb0bbac 100644
+--- a/server/internal/service/builtin_skills/multica-platform/references/issues.md
++++ b/server/internal/service/builtin_skills/multica-platform/references/issues.md
+@@ -419,3 +419,30 @@ multica issue create --title "Step 1" --parent <issue-id> --assignee <agent> --s
+ multica issue create --title "Step 2" --parent <issue-id> --assignee <agent> --stage 2 --status backlog
+ multica issue create --title "Step 3" --parent <issue-id> --assignee <agent> --stage 3 --status backlog
+ ```
++
++
++## Published workflow intake and issue cancellation
++
++The published-workflow candidate adds an authenticated
++POST /api/workspaces/{id}/workflow-intake adapter. It accepts source/event_id,
++template_key, title, description, optional payload/source_url and an
++idempotency key. It does not fetch source_url. Machine credentials are refused
++until their full provenance can be carried; task CLI identity restrictions
++remain unchanged. Callback, instance/debug controls and explicit version
++selection are rejected. An owner/admin assigning another member does not gain
++that member's private agent permissions: each routed step checks both humans.
++
++An active workflow owns its issue's status. Repeating the same normalized
++status is a no-op; other non-cancelling status changes return
++workflow_run_active. Moving the issue to cancelled or a custom closed-category
++status atomically updates the issue, cancels the run/steps/acceptances and writes
++events. Field validation, revision checks and text conflicts can reject the
++whole transaction without cancelling the run. Workflow status batches validate
++all targets before committing; a rejected target prevents partial cancellation.
++Historical terminal runs do not permanently lock an issue's status.
++
++TaskService stops only tasks linked through the cancelled workflow's steps.
++Stopping is attempted after commit and retried by reconciliation after failure
++or restart. A cancelled database row is cancellation intent, not proof that the
++daemon's process tree has exited. Direct run cancellation keeps its existing
++issue-status projection contract; it does not promise to set the issue status.
+diff --git a/server/internal/service/workflow_router.go b/server/internal/service/workflow_router.go
+index 3f4043e75..96839084c 100644
+--- a/server/internal/service/workflow_router.go
++++ b/server/internal/service/workflow_router.go
+@@ -64,6 +64,10 @@ func NewWorkflowRouter(q *db.Queries) *WorkflowRouter {
+ // cmd/server, far from the change that caused it.
+ var _ workflow.Router = (*WorkflowRouter)(nil)
+ 
++// intakeInitiatorKey carries only identity loaded from the persisted issue.
++// It is reconstructed for every activation, including retries after restart.
++type intakeInitiatorKey struct{}
++
+ // Route implements workflow.Router.
+ func (r *WorkflowRouter) Route(ctx context.Context, q *db.Queries, req workflow.RouteRequest) (workflow.RouteResult, error) {
+ 	if q == nil {
+@@ -80,6 +84,13 @@ func (r *WorkflowRouter) Route(ctx context.Context, q *db.Queries, req workflow.
+ 	}
+ 
+ 	actor := invokeActorForRun(req.WorkspaceID, req.AccountableUserID)
++	if req.Run.Source == "external" {
++		issue, err := q.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{ID: req.Run.IssueID, WorkspaceID: req.WorkspaceID})
++		if err != nil || issue.CreatorType != "member" || !issue.CreatorID.Valid {
++			return workflow.RouteResult{}, fmt.Errorf("external workflow initiator cannot be verified")
++		}
++		ctx = context.WithValue(ctx, intakeInitiatorKey{}, invokeActorForRun(req.WorkspaceID, issue.CreatorID))
++	}
+ 
+ 	// rejections accumulates why each near-miss candidate was refused. It is the
+ 	// difference between "routing_no_candidate" and an operator knowing that the
+@@ -303,6 +314,10 @@ func (r *WorkflowRouter) eligible(ctx context.Context, q *db.Queries, agent db.A
+ 		return "the run's accountable user may not invoke this agent", false
+ 	}
+ 
++	if initiator, ok := ctx.Value(intakeInitiatorKey{}).(InvokeActor); ok && !AgentInvokePermitted(ctx, q, agent, initiator) {
++		return "the intake initiator may not invoke this agent", false
++	}
++
+ 	if requiresVision {
+ 		hasVision, err := agentHasVisionCapability(ctx, q, agent.ID, agent.WorkspaceID)
+ 		if err != nil {
+diff --git a/server/internal/service/workflow_router_permission_test.go b/server/internal/service/workflow_router_permission_test.go
+index a6f3800be..f7c2b51b1 100644
+--- a/server/internal/service/workflow_router_permission_test.go
++++ b/server/internal/service/workflow_router_permission_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"context"
+ 	"github.com/jackc/pgx/v5"
+ 	"github.com/jackc/pgx/v5/pgtype"
++	"github.com/multica-ai/multica/server/internal/testutil"
+ 	"github.com/multica-ai/multica/server/internal/util"
+ 	"github.com/multica-ai/multica/server/internal/workflow"
+ 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+@@ -63,3 +64,53 @@ func TestWorkflowRouterTransactionalRevocationAllStrategies(t *testing.T) {
+ 		t.Fatal("routing refusal enqueued work")
+ 	}
+ }
++
++func TestWorkflowIntakeCannotBorrowAccountableMemberPermission(t *testing.T) {
++	env := newWorkflowRouterEnv(t)
++	ctx := context.Background()
++	fx := testutil.New(env.pool, util.UUIDToString(env.workspaceID), util.UUIDToString(env.userID))
++	issue := fx.Issue(t, "External intake", testutil.Cols{"creator_type": "member", "creator_id": util.UUIDToString(env.userID)})
++	agentID := env.createAgent(t, agentSpec{name: "Private to accountable member", owner: env.otherUserID, permission: "private", labels: []string{"intake"}})
++	requests := []workflow.RouteRequest{
++		{Node: &workflow.Node{Key: "explicit", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingExplicit, AgentID: util.UUIDToString(agentID)}}},
++		{Node: capabilityNode("capability", "intake")},
++		{Node: &workflow.Node{Key: "previous", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingPreviousStep, FromNode: "before"}}, PriorAgentByNode: map[string]pgtype.UUID{"before": agentID}},
++		{Node: &workflow.Node{Key: "fallback", Type: workflow.NodeTypeAgent, Routing: &workflow.Routing{Strategy: workflow.RoutingCapability, Capability: "missing", FallbackAgentID: util.UUIDToString(agentID)}}},
++	}
++	issueID, err := util.ParseUUID(issue)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, req := range requests {
++		req.WorkspaceID = env.workspaceID
++		req.AccountableUserID = env.otherUserID
++		req.Run = db.WorkflowRun{WorkspaceID: env.workspaceID, IssueID: issueID, Source: "external"}
++		if _, err := env.router.Route(ctx, env.q, req); err == nil {
++			t.Fatalf("%s borrowed the assignee's private permission", req.Node.Key)
++		}
++	}
++	if _, err := env.pool.Exec(ctx, "UPDATE agent SET permission_mode='public_to' WHERE id=$1", agentID); err != nil {
++		t.Fatal(err)
++	}
++	fx.Insert(t, "agent_invocation_target", testutil.Cols{"agent_id": util.UUIDToString(agentID), "target_type": "member", "target_id": util.UUIDToString(env.userID)})
++	for _, req := range requests {
++		req.WorkspaceID = env.workspaceID
++		req.AccountableUserID = env.otherUserID
++		req.Run = db.WorkflowRun{WorkspaceID: env.workspaceID, IssueID: issueID, Source: "external"}
++		if _, err := env.router.Route(ctx, env.q, req); err != nil {
++			t.Fatalf("%s: both allowed but rejected: %v", req.Node.Key, err)
++		}
++		tx, err := env.pool.Begin(ctx)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if _, err := tx.Exec(ctx, "DELETE FROM agent_invocation_target WHERE agent_id=$1", agentID); err != nil {
++			t.Fatal(err)
++		}
++		_, routeErr := env.router.Route(ctx, env.q.WithTx(tx), req)
++		_ = tx.Rollback(ctx)
++		if routeErr == nil {
++			t.Fatalf("%s ignored initiating member revocation", req.Node.Key)
++		}
++	}
++}
+diff --git a/server/internal/workflow/commands.go b/server/internal/workflow/commands.go
+index 7e4cd3b35..420e863e5 100644
+--- a/server/internal/workflow/commands.go
++++ b/server/internal/workflow/commands.go
+@@ -647,7 +647,7 @@ func (e *Engine) lockStepAndRun(ctx context.Context, q *db.Queries, workspaceID,
+ 		return db.WorkflowStepInstance{}, db.WorkflowRun{}, fmt.Errorf("probe step: %w", err)
+ 	}
+ 
+-	run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{
++	run, err := e.lockRun(ctx, q, db.GetWorkflowRunForUpdateParams{
+ 		ID:          probe.RunID,
+ 		WorkspaceID: workspaceID,
+ 	})
+@@ -1043,7 +1043,30 @@ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID,
+ 	var out db.WorkflowRun
+ 	effects := &txEffects{}
+ 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
+-		run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{
++		var err error
++		out, err = e.cancelRun(ctx, q, effects, workspaceID, runID, actorID)
++		return err
++	})
++	if err != nil {
++		return db.WorkflowRun{}, err
++	}
++	effects.flush(ctx, e.Notifier)
++	return out, nil
++}
++
++// CancelRunInTx participates in the caller's transaction. The returned function
++// must run only after that transaction commits; rollback discards all effects.
++func (e *Engine) CancelRunInTx(ctx context.Context, tx pgx.Tx, workspaceID, runID, actorID pgtype.UUID) (db.WorkflowRun, func(context.Context), error) {
++	effects := &txEffects{}
++	txCtx := context.WithValue(ctx, txEffectsContextKey{}, effects)
++	run, err := e.cancelRun(txCtx, e.Queries.WithTx(tx), effects, workspaceID, runID, actorID)
++	return run, func(ctx context.Context) { effects.flush(ctx, e.Notifier) }, err
++}
++
++func (e *Engine) cancelRun(ctx context.Context, q *db.Queries, effects *txEffects, workspaceID, runID, actorID pgtype.UUID) (db.WorkflowRun, error) {
++	var out db.WorkflowRun
++	err := func() error {
++		run, err := e.lockRun(ctx, q, db.GetWorkflowRunForUpdateParams{
+ 			ID:          runID,
+ 			WorkspaceID: workspaceID,
+ 		})
+@@ -1094,12 +1117,8 @@ func (e *Engine) CancelRun(ctx context.Context, workspaceID, runID pgtype.UUID,
+ 		out = cancelled
+ 		effects.runChanged(cancelled)
+ 		return nil
+-	})
+-	if err != nil {
+-		return db.WorkflowRun{}, err
+-	}
+-	effects.flush(ctx, e.Notifier)
+-	return out, nil
++	}()
++	return out, err
+ }
+ 
+ func joinProblems(problems []string) string {
+diff --git a/server/internal/workflow/engine.go b/server/internal/workflow/engine.go
+index 88d5ac175..2037d7013 100644
+--- a/server/internal/workflow/engine.go
++++ b/server/internal/workflow/engine.go
+@@ -20,7 +20,7 @@ import (
+ // system safe under replay and crash:
+ //
+ //  1. begin a transaction
+-//  2. lock the Run row, then the Step row (always that order, so concurrent
++//  2. lock the Issue, then Run, then Step rows (always that order, so concurrent
+ //     commands on one Run serialize instead of deadlocking)
+ //  3. validate the transition against the state machine
+ //  4. write the state change AND the workflow_event in the same transaction —
+@@ -35,9 +35,15 @@ import (
+ // transaction-scoped *db.Queries rather than calling TaskService: "Step
+ // activation and Task enqueue must share one application transaction ...
+ // dual-write repair must not be the normal path" (plan section 7).
++type TaskCanceller interface {
++	CancelTask(context.Context, pgtype.UUID) (*db.AgentTaskQueue, error)
++}
++
+ type Engine struct {
+-	Queries   *db.Queries
+-	TxStarter TxStarter
++	// TaskService owns task cancellation; the engine never writes task status.
++	TaskCanceller TaskCanceller
++	Queries       *db.Queries
++	TxStarter     TxStarter
+ 
+ 	// Router resolves which Agent runs an Agent node.
+ 	Router Router
+@@ -684,6 +690,18 @@ func (e *Engine) StartRun(ctx context.Context, in StartRunInput) (*StartRunResul
+ 	return &result, nil
+ }
+ func (e *Engine) resolveVersion(ctx context.Context, q *db.Queries, workspaceID, templateID, versionID pgtype.UUID) (db.WorkflowTemplateVersion, error) {
++	// Serialize first creation against publish/archive. Replays return before
++	// this lookup and retain their pinned version and provenance.
++	template, err := q.GetWorkflowTemplateForUpdate(ctx, db.GetWorkflowTemplateForUpdateParams{ID: templateID, WorkspaceID: workspaceID})
++	if errors.Is(err, pgx.ErrNoRows) {
++		return db.WorkflowTemplateVersion{}, newEngineError(ErrCodeNotFound, "workflow template not found")
++	}
++	if err != nil {
++		return db.WorkflowTemplateVersion{}, err
++	}
++	if template.Status != "published" {
++		return db.WorkflowTemplateVersion{}, newEngineError(ErrCodeInvalidTransition, "workflow template is not published")
++	}
+ 	if versionID.Valid {
+ 		v, err := q.GetWorkflowTemplateVersion(ctx, db.GetWorkflowTemplateVersionParams{
+ 			ID:          versionID,
+@@ -1344,3 +1362,46 @@ func uuidString(u pgtype.UUID) string {
+ 	b := u.Bytes
+ 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+ }
++
++// lockRun establishes Issue -> Run -> Step ordering for every engine command,
++// matching StartRun and issue updates. Identity is read before any row lock;
++// run.issue_id is immutable. A deleted issue does not prevent run cleanup.
++func (e *Engine) lockRun(ctx context.Context, q *db.Queries, arg db.GetWorkflowRunForUpdateParams) (db.WorkflowRun, error) {
++	run, err := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: arg.ID, WorkspaceID: arg.WorkspaceID})
++	if err != nil {
++		return db.WorkflowRun{}, err
++	}
++	if run.IssueID.Valid {
++		_, err = q.LockIssueForDescriptionUpdate(ctx, db.LockIssueForDescriptionUpdateParams{ID: run.IssueID, WorkspaceID: arg.WorkspaceID})
++		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
++			return db.WorkflowRun{}, err
++		}
++	}
++	return q.GetWorkflowRunForUpdate(ctx, arg)
++}
++
++// StopCancelledRunTasks is retryable after commit and restart. The persisted
++// cancelled run and linked active tasks are the durable cancellation intent.
++func (e *Engine) StopCancelledRunTasks(ctx context.Context, workspaceID, runID pgtype.UUID) error {
++	if e.TaskCanceller == nil {
++		return fmt.Errorf("workflow task cancellation service is unavailable")
++	}
++	run, err := e.Queries.GetWorkflowRun(ctx, db.GetWorkflowRunParams{ID: runID, WorkspaceID: workspaceID})
++	if err != nil {
++		return err
++	}
++	if run.Status != string(RunCancelled) {
++		return nil
++	}
++	ids, err := e.Queries.ListActiveAgentTaskIDsForWorkflowRun(ctx, db.ListActiveAgentTaskIDsForWorkflowRunParams{RunID: runID, WorkspaceID: workspaceID})
++	if err != nil {
++		return fmt.Errorf("list cancelled workflow tasks: %w", err)
++	}
++	var failures []error
++	for _, id := range ids {
++		if _, err := e.TaskCanceller.CancelTask(ctx, id); err != nil {
++			failures = append(failures, err)
++		}
++	}
++	return errors.Join(failures...)
++}
+diff --git a/server/internal/workflow/reconciler.go b/server/internal/workflow/reconciler.go
+index 200f4371a..765da8714 100644
+--- a/server/internal/workflow/reconciler.go
++++ b/server/internal/workflow/reconciler.go
+@@ -67,6 +67,16 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
+ 	if limit <= 0 {
+ 		limit = DefaultReconcileBatchSize
+ 	}
++	cancelled, err := r.Queries.ListCancelledWorkflowRunsWithActiveTasks(ctx, limit)
++	if err != nil {
++		return fmt.Errorf("list workflow cancellation intents: %w", err)
++	}
++	var stopErrors []error
++	for _, run := range cancelled {
++		if err := r.Engine.StopCancelledRunTasks(ctx, run.WorkspaceID, run.ID); err != nil {
++			stopErrors = append(stopErrors, err)
++		}
++	}
+ 	tasks, err := r.Queries.ListWorkflowTasksAwaitingStepProgress(ctx, db.ListWorkflowTasksAwaitingStepProgressParams{StaleSeconds: stale.Seconds(), LimitCount: limit})
+ 	if err != nil {
+ 		return fmt.Errorf("list terminal workflow tasks: %w", err)
+@@ -111,7 +121,7 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
+ 			slog.Warn("workflow reconciler could not project autopilot run", "error", err)
+ 		}
+ 	}
+-	return nil
++	return errors.Join(stopErrors...)
+ }
+ 
+ func (r *Reconciler) record(outcome string) {
+@@ -147,7 +157,7 @@ func workflowTaskOutput(result []byte) string {
+ func (e *Engine) ReconcileRun(ctx context.Context, workspaceID, runID pgtype.UUID) error {
+ 	effects := &txEffects{}
+ 	err := e.runInTx(ctx, effects, func(ctx context.Context, q *db.Queries) error {
+-		run, err := q.GetWorkflowRunForUpdate(ctx, db.GetWorkflowRunForUpdateParams{ID: runID, WorkspaceID: workspaceID})
++		run, err := e.lockRun(ctx, q, db.GetWorkflowRunForUpdateParams{ID: runID, WorkspaceID: workspaceID})
+ 		if err != nil {
+ 			return err
+ 		}
+diff --git a/server/pkg/db/generated/workflow.sql.go b/server/pkg/db/generated/workflow.sql.go
+index 50e9d2bf4..5ce13e59c 100644
+--- a/server/pkg/db/generated/workflow.sql.go
++++ b/server/pkg/db/generated/workflow.sql.go
+@@ -1685,6 +1685,25 @@ func (q *Queries) HasActiveAgentTaskForWorkflowIssue(ctx context.Context, issueI
+ 	return has_active_task, err
+ }
+ 
++const hasWorkflowRunForIssue = `-- name: HasWorkflowRunForIssue :one
++SELECT EXISTS(SELECT 1 FROM workflow_run
++WHERE issue_id = $1::uuid AND workspace_id = $2::uuid)
++`
++
++type HasWorkflowRunForIssueParams struct {
++	IssueID     pgtype.UUID `json:"issue_id"`
++	WorkspaceID pgtype.UUID `json:"workspace_id"`
++}
++
++// A locked issue's workflow history distinguishes a stale projection from an
++// ordinary issue update. Historical terminal runs do not otherwise lock status.
++func (q *Queries) HasWorkflowRunForIssue(ctx context.Context, arg HasWorkflowRunForIssueParams) (bool, error) {
++	row := q.db.QueryRow(ctx, hasWorkflowRunForIssue, arg.IssueID, arg.WorkspaceID)
++	var exists bool
++	err := row.Scan(&exists)
++	return exists, err
++}
++
+ const listActiveAgentTaskIDsForWorkflowRun = `-- name: ListActiveAgentTaskIDsForWorkflowRun :many
+ SELECT t.id
+ FROM agent_task_queue t
+@@ -1898,6 +1917,43 @@ func (q *Queries) ListAutopilotWorkflowRunsAwaitingSync(ctx context.Context, lim
+ 	return items, nil
+ }
+ 
++const listCancelledWorkflowRunsWithActiveTasks = `-- name: ListCancelledWorkflowRunsWithActiveTasks :many
++SELECT DISTINCT r.id, r.workspace_id
++FROM workflow_run r
++JOIN workflow_step_instance s ON s.run_id = r.id AND s.workspace_id = r.workspace_id
++JOIN agent_task_queue t ON t.workflow_step_instance_id = s.id
++WHERE r.status = 'cancelled'
++  AND t.status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
++ORDER BY r.id
++LIMIT $1::int
++`
++
++type ListCancelledWorkflowRunsWithActiveTasksRow struct {
++	ID          pgtype.UUID `json:"id"`
++	WorkspaceID pgtype.UUID `json:"workspace_id"`
++}
++
++// Persisted intent survives commit/stop failures. Scope the task through its step.
++func (q *Queries) ListCancelledWorkflowRunsWithActiveTasks(ctx context.Context, limitCount int32) ([]ListCancelledWorkflowRunsWithActiveTasksRow, error) {
++	rows, err := q.db.Query(ctx, listCancelledWorkflowRunsWithActiveTasks, limitCount)
++	if err != nil {
++		return nil, err
++	}
++	defer rows.Close()
++	items := []ListCancelledWorkflowRunsWithActiveTasksRow{}
++	for rows.Next() {
++		var i ListCancelledWorkflowRunsWithActiveTasksRow
++		if err := rows.Scan(&i.ID, &i.WorkspaceID); err != nil {
++			return nil, err
++		}
++		items = append(items, i)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, err
++	}
++	return items, nil
++}
++
+ const listStaleActiveWorkflowRuns = `-- name: ListStaleActiveWorkflowRuns :many
+ SELECT id, workspace_id, issue_id, template_id, template_version_id, status, source, source_event_id, idempotency_key, accountable_user_id, input, context, policy, blocked_reason, failure_reason, failure_detail, started_at, completed_at, created_at, updated_at, request_hash FROM workflow_run
+ WHERE status IN ('pending', 'running', 'waiting_acceptance', 'blocked')
+diff --git a/server/pkg/db/queries/workflow.sql b/server/pkg/db/queries/workflow.sql
+index fe199a81a..3ddf46a09 100644
+--- a/server/pkg/db/queries/workflow.sql
++++ b/server/pkg/db/queries/workflow.sql
+@@ -734,3 +734,20 @@ WHERE ar.workflow_run_id IS NOT NULL
+   AND wr.status IN ('completed', 'failed', 'cancelled', 'blocked')
+ ORDER BY wr.updated_at ASC
+ LIMIT sqlc.arg('limit_count')::int;
++
++-- name: ListCancelledWorkflowRunsWithActiveTasks :many
++-- Persisted intent survives commit/stop failures. Scope the task through its step.
++SELECT DISTINCT r.id, r.workspace_id
++FROM workflow_run r
++JOIN workflow_step_instance s ON s.run_id = r.id AND s.workspace_id = r.workspace_id
++JOIN agent_task_queue t ON t.workflow_step_instance_id = s.id
++WHERE r.status = 'cancelled'
++  AND t.status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
++ORDER BY r.id
++LIMIT sqlc.arg('limit_count')::int;
++
++-- name: HasWorkflowRunForIssue :one
++-- A locked issue's workflow history distinguishes a stale projection from an
++-- ordinary issue update. Historical terminal runs do not otherwise lock status.
++SELECT EXISTS(SELECT 1 FROM workflow_run
++WHERE issue_id = sqlc.arg('issue_id')::uuid AND workspace_id = sqlc.arg('workspace_id')::uuid);

@@ -1,0 +1,22 @@
+{
+  "p0-final-migrate.exe": {
+    "size": 16140800,
+    "sha256": "b36aef3919ed2e9a3b46e0b687b9c868c75ff3486ff8018e32ea34962c9bf35d"
+  },
+  "p1-server.exe": {
+    "size": 63779840,
+    "sha256": "5237acf57cf12757821f4644224839760f28058bb0858e511564d3d3989a375a"
+  },
+  "p1-multica.exe": {
+    "size": 26190848,
+    "sha256": "c3492dff7390775b44230329bc68eadc4568af78b0f936e88fb89c1db9cdef95"
+  },
+  "p1-migrate.exe": {
+    "size": 16140800,
+    "sha256": "f9ee8cbe17217e32a2b74d8d1f3df43003940497204a3a5394dd1ec92e07dd69"
+  },
+  "old-fork-server.exe": {
+    "size": 91425280,
+    "sha256": "5804e7a1bd8d8486567894633e201daa22ab3591264502c80666154e8b46f283"
+  }
+}

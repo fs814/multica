@@ -1,0 +1,16 @@
+ server/cmd/server/router.go                        |   4 +-
+ server/cmd/server/workflow_intake_r5_test.go       | 100 +++++
+ server/internal/handler/issue.go                   | 286 +++++++++++-
+ server/internal/handler/workflow_intake.go         | 225 ++++++++++
+ .../internal/handler/workflow_lifecycle_r5_test.go | 478 +++++++++++++++++++++
+ server/internal/handler/workflow_run.go            |  27 +-
+ server/internal/handler/workflow_run_test.go       |  11 +-
+ .../multica-platform/references/issues.md          |  27 ++
+ server/internal/service/workflow_router.go         |  15 +
+ .../service/workflow_router_permission_test.go     |  51 +++
+ server/internal/workflow/commands.go               |  35 +-
+ server/internal/workflow/engine.go                 |  67 ++-
+ server/internal/workflow/reconciler.go             |  14 +-
+ server/pkg/db/generated/workflow.sql.go            |  56 +++
+ server/pkg/db/queries/workflow.sql                 |  17 +
+ 15 files changed, 1361 insertions(+), 52 deletions(-)

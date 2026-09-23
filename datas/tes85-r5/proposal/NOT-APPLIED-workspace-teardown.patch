@@ -1,0 +1,44 @@
+--- a/server/internal/handler/workspace.go
++++ b/server/internal/handler/workspace.go
+@@ -1213,6 +1213,10 @@
+ 			run:  func() error { return deleteWorkspaceTasks(ctx, qtx, requester.WorkspaceID) },
+ 		},
+ 		{
++			name: "delete workflow data",
++			run: func() error { return qtx.DeleteWorkspaceWorkflowData(ctx, requester.WorkspaceID) },
++		},
++		{
+ 			name: "delete leaf data",
+ 			run:  func() error { return qtx.DeleteWorkspaceLeafData(ctx, requester.WorkspaceID) },
+ 		},
+--- a/server/pkg/db/queries/workspace_delete.sql
++++ b/server/pkg/db/queries/workspace_delete.sql
+@@ -690,3 +690,12 @@
+ )
+ DELETE FROM workspace_invitation
+ WHERE workspace_invitation.workspace_id = $1;
++
++-- name: DeleteWorkspaceWorkflowData :exec
++WITH removed_events AS (DELETE FROM workflow_event WHERE workspace_id = $1),
++removed_acceptances AS (DELETE FROM workflow_acceptance WHERE workspace_id = $1),
++removed_submissions AS (DELETE FROM workflow_submission WHERE workspace_id = $1),
++removed_steps AS (DELETE FROM workflow_step_instance WHERE workspace_id = $1),
++removed_runs AS (DELETE FROM workflow_run WHERE workspace_id = $1),
++removed_versions AS (DELETE FROM workflow_template_version WHERE workspace_id = $1)
++DELETE FROM workflow_template WHERE workspace_id = $1;
+--- a/server/internal/handler/workspace_delete_manifest_test.go
++++ b/server/internal/handler/workspace_delete_manifest_test.go
+@@ -128,6 +128,13 @@
+ 	"vcs_pull_request":                   workspaceDelete,
+ 	"verification_code":                  workspaceDeleteKeep,
+ 	"webhook_delivery":                   workspaceDelete,
++	"workflow_template": workspaceDelete,
++	"workflow_template_version": workspaceDelete,
++	"workflow_run": workspaceDelete,
++	"workflow_step_instance": workspaceDelete,
++	"workflow_submission": workspaceDelete,
++	"workflow_acceptance": workspaceDelete,
++	"workflow_event": workspaceDelete,
+ 	"workspace":                          workspaceDelete,
+ 	"workspace_invitation":               workspaceDelete,
+ 	"workspace_share_link":               workspaceDelete,

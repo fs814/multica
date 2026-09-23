@@ -1,0 +1,43 @@
+23:38:05.442 WRN JWT_SECRET is not set — using insecure dev default (allowed only because APP_ENV is not production).
+23:38:05.463 WRN no email backend configured (RESEND_API_KEY and SMTP_HOST both empty) — verification codes will be printed to the log instead of emailed.
+23:38:05.463 INF feature flags initialised file="" rules=0 env_prefix=FF_
+23:38:05.504 INF connected to database
+23:38:05.504 INF db pool config role=primary max_conns=25 min_conns=5 max_conn_lifetime=1h0m0s max_conn_idle_time=30m0s health_check_period=1m0s
+23:38:05.504 INF realtime: REDIS_URL is unset — using in-memory hub (single-node mode)
+23:38:05.504 INF analytics: POSTHOG_API_KEY not set, using noop client
+EmailService: DEV mode — codes printed to stdout (set MULTICA_DEV_VERIFICATION_CODE in .env for a fixed local code)
+23:38:05.504 INF S3_BUCKET not set, cloud upload disabled
+23:38:05.504 INF local storage initialized dir=./data/uploads baseURL=""
+23:38:05.504 INF CLOUDFRONT_KEY_PAIR_ID not set, signed cookies disabled
+23:38:05.504 INF llm retry policy max_retries=2 source=default request_timeout=1m0s enabled=false
+23:38:05.504 INF channel engine: lease backend configured backend=postgres ttl=3m0s renew_interval=1m0s poll_interval=30s
+23:38:05.504 INF lark integration disabled (MULTICA_LARK_SECRET_KEY not set)
+23:38:05.504 INF slack integration disabled (MULTICA_SLACK_SECRET_KEY not set)
+23:38:05.504 INF dingtalk integration disabled (MULTICA_DINGTALK_SECRET_KEY not set)
+23:38:05.504 INF wecom integration disabled (MULTICA_WECOM_SECRET_KEY not set)
+23:38:05.504 INF telegram integration disabled (MULTICA_TELEGRAM_SECRET_KEY not set)
+23:38:05.504 INF composio integration disabled (COMPOSIO_API_KEY not set)
+23:38:05.504 INF vcs integration disabled (MULTICA_VCS_SECRET_KEY not set)
+23:38:05.504 INF Plugin secrets disabled (MULTICA_PLUGIN_SECRET_KEY not set)
+23:38:05.504 WRN plugins: MULTICA_PLUGIN_API_URL and MULTICA_PUBLIC_URL are not set; hook callbacks will carry no callback_url
+23:38:05.506 WRN auth rate limiting disabled: REDIS_URL not configured
+23:38:05.508 INF autopilot failure monitor: starting interval=24h0m0s lookback=168h0m0s min_runs=50 fail_ratio=0.9
+23:38:05.508 INF server starting port=61826
+23:38:05.508 INF pprof server starting addr=127.0.0.1:6060
+23:38:05.508 INF scheduler starting component=scheduler runner_id=1d3abd78-2ae9-49eb-aba7-bd524cad2659 tick_interval=30s jobs=3
+23:38:05.508 ERR pprof server disabled after startup error error="listen tcp 127.0.0.1:6060: bind: Only one usage of each socket address (protocol/network address/port) is normally permitted."
+23:38:05.515 INF scheduler claimed plan component=scheduler runner_id=1d3abd78-2ae9-49eb-aba7-bd524cad2659 job=rollup_task_usage_hourly scope=global/global plan_time=2026-09-16T06:30:00Z attempt=1 execution_id=01a0a8ef-d6c8-79ed-8cfb-4e564d3d0063
+23:38:05.532 INF scheduler: handler succeeded component=scheduler runner_id=1d3abd78-2ae9-49eb-aba7-bd524cad2659 job=rollup_task_usage_hourly scope=global/global plan_time=2026-09-16T06:30:00Z attempt=1 execution_id=01a0a8ef-d6c8-79ed-8cfb-4e564d3d0063 duration_ms=14 rows_affected=0
+23:38:06.011 INF http request method=POST path=/api/workflow-templates status=201 duration=26.349ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000002 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.020 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/publish status=200 duration=7.535ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000003 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.067 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=201 duration=44.766ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000004 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.069 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=200 duration=47.374ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000005 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.075 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=200 duration=52.179ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000006 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.081 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=200 duration=58.382ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000008 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.086 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=200 duration=63.315ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000007 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.091 INF http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=200 duration=68.501ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000009 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:06.096 INF http request method=GET path=/api/workflow-runs/93671619-f561-450f-911a-d61ac5c4d976 status=200 duration=4.188ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000010 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:07.380 WRN http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=409 duration=6.038ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000011 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:08.068 WRN http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=400 duration=2.057ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000012 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:09.200 WRN http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=400 duration=4.193ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000013 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3
+23:38:10.442 WRN http request method=POST path=/api/workflow-templates/11c623d9-2c72-4913-8523-52a3ca51ee5d/run status=400 duration=2.609ms request_id=SHENGFENG-PC4-5090/v4MsxcX3Q1-000014 user_id=ce988979-d1dc-4e3f-9af4-9ef115dfbde3

@@ -1,0 +1,28 @@
+{"Time": "2026-09-16T05:16:41.275761-07:00", "Action": "start", "Package": "github.com/multica-ai/multica/server/internal/handler"}
+{"Time": "2026-09-16T05:16:42.7527201-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteRemovesSevenWorkflowTablesAndPreservesNeighbor"}
+{"Time": "2026-09-16T05:16:42.8563256-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteRemovesSevenWorkflowTablesAndPreservesNeighbor", "Elapsed": 0.1}
+{"Time": "2026-09-16T05:16:42.8563256-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateCreateLosesToWorkspaceDeletion"}
+{"Time": "2026-09-16T05:16:42.8773435-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateCreateLosesToWorkspaceDeletion", "Elapsed": 0.02}
+{"Time": "2026-09-16T05:16:42.8773435-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence"}
+{"Time": "2026-09-16T05:16:42.9347538-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/cancel"}
+{"Time": "2026-09-16T05:16:42.9694139-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/cancel", "Elapsed": 0.03}
+{"Time": "2026-09-16T05:16:42.9694139-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/reconcile"}
+{"Time": "2026-09-16T05:16:42.9758232-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/reconcile", "Elapsed": 0.01}
+{"Time": "2026-09-16T05:16:42.9758232-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/start"}
+{"Time": "2026-09-16T05:16:43.0113276-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence/start", "Elapsed": 0.04}
+{"Time": "2026-09-16T05:16:43.0362026-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6EngineCommandsWaitForWorkspaceDeleteFence", "Elapsed": 0.16}
+{"Time": "2026-09-16T05:16:43.0362026-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteFailureRollsBackWorkflowRows"}
+{"Time": "2026-09-16T05:16:43.1112975-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteFailureRollsBackWorkflowRows", "Elapsed": 0.08}
+{"Time": "2026-09-16T05:16:43.1112975-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence"}
+{"Time": "2026-09-16T05:16:43.1112975-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/publish"}
+{"Time": "2026-09-16T05:16:43.1507908-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/publish", "Elapsed": 0.04}
+{"Time": "2026-09-16T05:16:43.1507908-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/save"}
+{"Time": "2026-09-16T05:16:43.1890643-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/save", "Elapsed": 0.04}
+{"Time": "2026-09-16T05:16:43.1890643-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/copy"}
+{"Time": "2026-09-16T05:16:43.2284119-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/copy", "Elapsed": 0.04}
+{"Time": "2026-09-16T05:16:43.2284119-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/seed"}
+{"Time": "2026-09-16T05:16:43.2630723-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence/seed", "Elapsed": 0.03}
+{"Time": "2026-09-16T05:16:43.266843-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6TemplateMutationsWaitForWorkspaceDeleteFence", "Elapsed": 0.16}
+{"Time": "2026-09-16T05:16:43.266843-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteWaitsForWorkflowWriterAndSweepsItsCommit"}
+{"Time": "2026-09-16T05:16:43.3155351-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Test": "TestR6WorkspaceDeleteWaitsForWorkflowWriterAndSweepsItsCommit", "Elapsed": 0.05}
+{"Time": "2026-09-16T05:16:43.3297001-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/internal/handler", "Elapsed": 2.054}

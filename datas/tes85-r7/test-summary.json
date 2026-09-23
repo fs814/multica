@@ -1,0 +1,23 @@
+{
+  "migration-lint.jsonl": {
+    "github.com/multica-ai/multica/server/internal/migrations": {
+      "pass": 3,
+      "fail": 0,
+      "skip": 15
+    },
+    "subtest_pass": 272
+  },
+  "migration-packages-final.jsonl": {
+    "github.com/multica-ai/multica/server/cmd/migrate": {
+      "pass": 10,
+      "fail": 0,
+      "skip": 0
+    },
+    "github.com/multica-ai/multica/server/internal/migrations": {
+      "pass": 3,
+      "fail": 0,
+      "skip": 0
+    },
+    "subtest_pass": 286
+  }
+}

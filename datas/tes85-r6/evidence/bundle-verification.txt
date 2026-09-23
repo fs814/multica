@@ -1,0 +1,6 @@
+The bundle contains this ref:
+fa698dcfc5f143a5c5c372944dbafb2b2ae2577b refs/heads/tes85-r6
+The bundle requires this ref:
+9d18186e6e8cfa168d6053d33d652e86fadfc12b 
+The bundle uses this hash algorithm: sha1
+C:/Users/shengfeng/multica_workspaces_desktop-localhost-8081/test-2f5602885948/tes-85-3a2d4b2782e8/worktree/datas/tes85-r6/TES-85-r6.bundle is okay

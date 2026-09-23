@@ -1,0 +1,1 @@
+23:19:06.438 ERR migration run failed error="TES-85 rollback preflight 284_workflow_template_revision: TES-85 P0 rollback preserves additive schema; use the previous application or restore an isolated backup"

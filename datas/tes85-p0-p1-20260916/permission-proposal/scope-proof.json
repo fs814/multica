@@ -1,0 +1,15 @@
+{
+  "source_commit": "e44b6a8d70b826ff368390cab62de5bbffb7167e",
+  "scope_manifest_sha256": "0fd93f813f9d5dc6c0aedc2de1f9b65f181f1879cc3b6b266f8260fbe2b3146c",
+  "files": {
+    "server/internal/service/agent_invoke.go": {
+      "in_162": false,
+      "source_blob": "c1ef1d6de6005debe77775d339c0d747d4ea9fb2"
+    },
+    "server/internal/handler/agent_access.go": {
+      "in_162": false,
+      "source_blob": "70537326450781175e7fec7d9da35fba5356eb9f"
+    }
+  },
+  "applied": false
+}

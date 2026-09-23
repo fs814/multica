@@ -1,0 +1,47 @@
+[
+  {
+    "database": "tes85_p0_fresh_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_existing_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_fork_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_fork_20260916_restored",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_fork_rich_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_fork_rich_20260916_restored",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_rehearsal_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_fork_upstream_control_20260916",
+    "exit": 0,
+    "error": ""
+  },
+  {
+    "database": "tes85_p0_committed_fresh_20260916",
+    "exit": 0,
+    "error": ""
+  }
+]

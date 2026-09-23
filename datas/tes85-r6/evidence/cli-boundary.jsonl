@@ -1,0 +1,6 @@
+{"Time": "2026-09-16T05:14:23.3624603-07:00", "Action": "start", "Package": "github.com/multica-ai/multica/server/cmd/multica"}
+{"Time": "2026-09-16T05:14:24.2498256-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/cmd/multica", "Test": "TestHumanAuthCommandsFailClosedInTaskContext"}
+{"Time": "2026-09-16T05:14:24.2525066-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/cmd/multica", "Test": "TestHumanAuthCommandsFailClosedInTaskContext", "Elapsed": 0}
+{"Time": "2026-09-16T05:14:24.2540342-07:00", "Action": "run", "Package": "github.com/multica-ai/multica/server/cmd/multica", "Test": "TestDaemonLocalCommandsFailClosedInTaskContext"}
+{"Time": "2026-09-16T05:14:24.2550556-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/cmd/multica", "Test": "TestDaemonLocalCommandsFailClosedInTaskContext", "Elapsed": 0}
+{"Time": "2026-09-16T05:14:24.2695768-07:00", "Action": "pass", "Package": "github.com/multica-ai/multica/server/cmd/multica", "Elapsed": 0.907}

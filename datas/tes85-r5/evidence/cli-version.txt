@@ -1,0 +1,2 @@
+multica tes85-r5 (commit: e6865d16a9a8110c6c06db8fa9b0cfff94437308, built: 2026-09-16T08:21:26Z)
+go: go1.26.6, os/arch: windows/amd64

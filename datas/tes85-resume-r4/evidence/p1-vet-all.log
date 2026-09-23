@@ -1,0 +1,3 @@
+# github.com/multica-ai/multica/server/internal/handler
+# [github.com/multica-ai/multica/server/internal/handler]
+vet.exe: internal\handler\workflow_run_test.go:480:15: testHandler.WorkflowIntake undefined (type *Handler has no field or method WorkflowIntake)

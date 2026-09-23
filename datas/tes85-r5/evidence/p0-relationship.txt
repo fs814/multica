@@ -1,0 +1,6 @@
+P1 base: 122a8fd72e1252316aa1939a6ecc44b95212de81
+Final: e6865d16a9a8110c6c06db8fa9b0cfff94437308
+P0 reference: 0ca4c63c0dd02e00c2fdacc9d8c4f480e291f815 (separate branch, not an ancestor)
+Command: git diff --exit-code P0 Final -- server/cmd/migrate server/migrations
+Result: exit 0, no content differences.
+P0 independent acceptance remains pending. File equality does not establish behavioral acceptance.

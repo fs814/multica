@@ -1,0 +1,1 @@
+agent execution context requires MULTICA_TOKEN to be a task-scoped mat_ token; detected a daemon task marker at C:\Users\shengfeng\multica_workspaces_desktop-localhost-8081\test-2f5602885948\tes-85-4afb6685dfa7\worktree\.multica\daemon_task_context.json — if you are not running inside an agent task this is likely a leftover, remove it and retry
