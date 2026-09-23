@@ -1,0 +1,172 @@
+From f79f17ceaae0d269967437cc4c2de0496d8e482e Mon Sep 17 00:00:00 2001
+From: shengfeng <shengfeng@tencent.com>
+Date: Tue, 15 Sep 2026 20:42:12 -0700
+Subject: [PATCH] docs(delivery): fix package tests and preserve archived
+ identities
+
+---
+ e2e/delivery/MAC-ROUTING.md       | 18 +++++++++++-------
+ e2e/delivery/MAC-USER-GUIDE-r3.md | 24 +++++++++++++++---------
+ e2e/delivery/README.md            | 24 ++++++++++++++++++------
+ 3 files changed, 44 insertions(+), 22 deletions(-)
+
+diff --git a/e2e/delivery/MAC-ROUTING.md b/e2e/delivery/MAC-ROUTING.md
+index 3a1c9ffd1..6a3388c96 100644
+--- a/e2e/delivery/MAC-ROUTING.md
++++ b/e2e/delivery/MAC-ROUTING.md
+@@ -1,13 +1,13 @@
+ Mac routing handoff, TES-88 R2
+ 
+ The bundled MAC-USER-GUIDE-r3.md section 6 is the single
+-operating procedure. It replaces the older MAC-ROUTING.md. The integrated guide preserves PM revision 2 semantics and updates archive
+-references to this delivery. Unmodified PM revision 2 is retained under
+-provenance/ for traceability. Validate r3 ZIPs with SHA256SUMS-r3.txt.
++operating procedure. It replaces the older MAC-ROUTING.md. The r4 integrated guide corrects archive state and package commands while retaining
++its r3 filename for compatibility. Unmodified PM revision 2 is retained under
++provenance/ for traceability. Validate the r4 handoff and unchanged r3 source ZIP with SHA256SUMS-r4.txt.
+ 
+-Extract the original verified Mac v8 ZIP and the r3 handoff ZIP into separate
++Extract the original verified Mac v8 ZIP and the r4 handoff ZIP into separate
+ directories. PACKAGE is the absolute v8 extraction root; HANDOFF is the absolute
+-r3 handoff extraction root. CLI is "$PACKAGE/multica"; the template is
++r4 handoff extraction root. CLI is "$PACKAGE/multica"; the template is
+ "$PACKAGE/settings/buildcatalog/templates/macos.json".
+ 
+ Generate requests locally (no API writes):
+@@ -15,10 +15,14 @@ Generate requests locally (no API writes):
+ 
+ Use the real package-root CLI for read-only identity checks and template validation,
+ following section 6 of the PM guide. Canonical initialization has one owner and
+-one journal. Each Mac uses its own ordinary acceptance instance, explicit agent,
++one journal. The original eight instances are archived historical records, not
++active coverage. Preserve archival and current revisions; do not automatically
++restore, adopt by similar input, or reinitialize. Read current per-ID archival,
++revision and managed identity before reconciliation; stop if evidence is missing.
++Each Mac uses its own ordinary acceptance instance, explicit agent,
+ runtime, published template version and retry key. Verify IDs and permissions
+ online; freeze rebinding and retain task/daemon placement evidence. The generator
+ is not runtime fencing and does not authorize publication or execution.
+ 
+-TES-88 independent re-review is pending. Mac/Linux native acceptance is pending.
++TES-88 R1 remains passed within the r3 independent review scope; R2 r4 re-review is pending. Mac/Linux native acceptance is pending.
+ apply_allowed=false; no production change is authorized by this archive.
+diff --git a/e2e/delivery/MAC-USER-GUIDE-r3.md b/e2e/delivery/MAC-USER-GUIDE-r3.md
+index e67a19d13..334d005c2 100644
+--- a/e2e/delivery/MAC-USER-GUIDE-r3.md
++++ b/e2e/delivery/MAC-USER-GUIDE-r3.md
+@@ -1,4 +1,4 @@
+-TES-88 R3 packaging update to PM revision 2. Only corrected archive references and helper revision are changed; independent review and native acceptance remain pending. The unmodified PM revision 2 is retained under provenance/.
++TES-88 R4 文档修订：保留文件名 MAC-USER-GUIDE-r3.md 以兼容现有引用。本版修正包根测试命令与归档状态口径，替代 r3 现行操作单；原 PM 修订2仅在 provenance/ 留档，不作为当前平台操作依据。产品、Mac v8、Linux r3 源码包及辅助脚本字节保持不变。R1 限定范围已通过，R2 文档修订待独立复审；apply_allowed=false。
+ 
+ TES-85 固定 v8 操作单修订2：一次受管导入、双Mac路由与Linux源码交付
+ 2026-09-14；本整合版替代此前同名操作单及单独路由说明的操作口径。第1–5节原已审本地步骤保持不变；第6/8节新增脚本与路由/构建流程待 TES-88 对应结论后实施。不要同时沿用旧版双机 canonical 导入流程。
+@@ -158,14 +158,14 @@ PATH="$BUILD_ROOT/BurntSushi/ripgrep/macos/release:$PATH" \
+ 
+ 本节整体替代上一版第6节以及原 MAC-ROUTING.md 的路径示例；不要再由两台 Mac 各自重复执行 canonical 导入。第1–5节已审 v8 本地校验/构建/run-only 步骤保留，可继续执行。
+ 
+-截至本次修订，新增辅助提交 dbe9b85f8dd8359fd0eb0b93cf8adc0bf94a5ac0、Linux 源码构建包和 prepare_mac_routes.py 正在 TES-88 独立审查，尚无通过结论。本节新增脚本和平台写入流程为就绪后的操作说明，等待 TES-88 相应范围通过及现场就绪检查后实施；不要依据本次文档修订认定它们已获放行。Mac v8 已通过的原范围保持不变。若审查要求修复，使用审查最终指定包及摘要，本节固定下载摘要不得套用到修复包。
++TES-88 r3 独立复审已确认辅助提交 dbe9b85f8dd8359fd0eb0b93cf8adc0bf94a5ac0 的 R1 限定范围通过，双 Mac 本地请求生成通过；R2 操作说明经本次修订后仍待独立复审。本节新增脚本和平台写入流程为就绪后的操作说明，等待 TES-88 相应范围通过及现场就绪检查后实施；不要依据本次文档修订认定它们已获放行。Mac v8 已通过的原范围保持不变。若审查要求修复，使用审查最终指定包及摘要，本节固定下载摘要不得套用到修复包。
+ 
+ ### 6.1 统一布局和就绪检查
+ 
+ 沿用第3节 PACKAGE：它是该机已校验 v8 ZIP 的解包根目录。CLI 是 `$PACKAGE/multica`，模板是 `$PACKAGE/settings/buildcatalog/templates/macos.json`；实际包不存在 `bin/multica`，也不是大写 `Settings/`。无须搬动 CLI 或覆盖已安装版本。
+ 
+-新增交接包：TES-85-native-handoff-r3.zip，本次 TES-88 修复交付附件，SHA256：
+-`见同次交付 SHA256SUMS-r3.txt（交接包行）`。
++新增交接包：TES-85-native-handoff-r4.zip，本次 TES-88 修复交付附件，SHA256：
++`见同次交付 SHA256SUMS-r4.txt（交接包行）`。
+ 包根包含 prepare_mac_routes.py、mac-machines.example.json 和说明。先下载/校验并解压到另一独立目录，HANDOFF 填该解包根的实际绝对路径，不把新增文件写入 v8 以破坏原摘要。
+ 
+ 平台操作在普通操作者终端完成正常登录/工作区选择，不在运行中的 agent task 内执行 login/daemon stop 或移除 task 环境。服务器必须具备已审产品 79afa3cfd 对应的 API/迁移/UI/CLI 能力和现场备份、健康前置条件；正式生产切换仍受 TES-7 前置集成与发布门槛约束。未就绪时仅保留本地回执。
+@@ -186,7 +186,13 @@ chmod +x "$CLI"
+ 
+ ### 6.2 canonical 受管导入只由一位操作者执行一次
+ 
+-canonical 的受管唯一键是 SHA256(project_key + NUL + target_key)，不含机器。指定一位操作者负责同一工作区的 canonical 草稿/清单及唯一 journal；已有受管导入和 8/8 记录时优先核对复用，不再在第二台 Mac 重新初始化。以下仅用于该工作区尚未建立 canonical 时，由该操作者执行一次：
++canonical 的受管唯一键是 SHA256(project_key + NUL + target_key)，不含机器。指定一位操作者负责同一工作区的 canonical 草稿/清单及唯一 journal。
++
++TES-85 同批 identity-audit.json 记录原八条实例全部已归档，revision 均已变化。这八条是历史记录，不能计为当前活动覆盖，也不能因活动列表为空认定工作区尚未初始化。保留归档、当前 revision 和用户输入；禁止自动恢复、按相似输入认领或重新初始化，包括在第二台 Mac 重建 canonical。
++
++对账前通过受支持的只读 CLI，按原始回执的准确实例 ID 读取当前工作区、归档状态、revision、模板及受管身份，并核对原始保存回执、bindings 和唯一 journal。缺少身份字段或原始存储键读取能力时停止并交回工程师，不绕过 CLI 读取线上数据库。后续归档策略和迁移须沿父任务已审方案处理；本版保持 apply_allowed=false。
++
++下面的初始化命令仅适用于另一个经完整对账证明从未建立 canonical（包括没有归档历史）且已获准初始化的工作区；不适用于 TES-85 原八条记录，不因本单而获得执行授权：
+ 
+ ```bash
+ cd "$PACKAGE"
+@@ -197,7 +203,7 @@ python3 settings/buildcatalog/import_catalog.py --platform macos \
+ 
+ import_catalog.py 没有 --profile 参数；执行前必须确认它调用 CLI 的默认登录上下文就是上述目标工作区，不能以 PROFILE 变量已设置为由假定导入使用了该 profile。无法确认时由工程师配置就绪后再执行。
+ 
+-保留原 bindings.json、bindings.sync-state.json、bindings.instances.json。一次初始化不禁止后续必要的受控同步：若需恢复或更新，仅由同一操作者、同一 journal 串行处理，不复制 journal 改模板，也不让两台 Mac 的 sync.py 争抢受管键。导入不发布、不运行、不启用调度。移除原“每台 Mac 首次导入后再重复导入”的步骤，受管幂等证据由 canonical 操作者单独记录。
++保留原 bindings.json、bindings.sync-state.json、bindings.instances.json。一次初始化不禁止后续必要的受控同步：后续经父任务明确批准的更新仅由同一操作者、同一 journal 串行处理，并以刚读取的 revision 做 CAS；本单不授权恢复归档。归档、revision 或身份与预期不符即停止，不复制 journal 改模板，也不让两台 Mac 的 sync.py 争抢受管键。导入不发布、不运行、不启用调度。移除原“每台 Mac 首次导入后再重复导入”的步骤，受管幂等证据由 canonical 操作者单独记录。
+ 
+ ### 6.3 两台 Mac 使用不同的普通验收实例
+ 
+@@ -206,7 +212,7 @@ import_catalog.py 没有 --profile 参数；执行前必须确认它调用 CLI 
+ | Mac Studio | StudioAgent → StudioRuntime | tes85-macos-studio-acceptance | tes85-native-v8:studio: |
+ | MacBook | BookAgent → BookRuntime | tes85-macos-book-acceptance | tes85-native-v8:book: |
+ 
+-两台机器的 agent_id、runtime_id 必须分别不同，四个 UUID 来自实际注册。execute 使用 explicit agent 路由，无 capability/fallback；每个模板固定该机 host.json，普通验收实例分别绑定各自发布版本。不得修改 project_key 假装两个项目；普通实例不得带 buildcatalog:v1: 前缀或 managed_source，不计入 canonical 8/8 覆盖。
++两台机器的 agent_id、runtime_id 必须分别不同，四个 UUID 来自实际注册。execute 使用 explicit agent 路由，无 capability/fallback；每个模板固定该机 host.json，普通验收实例分别绑定各自发布版本。不得修改 project_key 假装两个项目；普通实例不得带 buildcatalog:v1: 前缀或 managed_source，不计入 canonical 活动覆盖；原八条归档记录也不计活动覆盖。
+ 
+ 审查通过后，按交接包示例填写 mac-machines.json：
+ workspace_id；machines.studio/book 各自的 agent_id、runtime_id、host_config（对应机器的绝对 host.json 路径）。可在一位操作者机器生成两份请求，但两条 host 路径必须各自属于目标 Mac。执行：
+@@ -255,7 +261,7 @@ workspace/profile名称 → agent ID → 运行前后 runtime ID/心跳 → temp
+ 
+ ## 8. Dev Cloud Linux：固定源码包与接入验收
+ 
+-Dev Cloud 架构仍在接入回执填写。新增构建脚本和源码包待 TES-88 相应结论；Windows 交叉构建不是 Linux 原生通过。本节替代上版“尚无完整 Linux CLI 源码交付”的状态及临时 go build 说明。Mac v8 原包没有 Linux CLI，实际新增源码包已经交付：
++Dev Cloud 架构仍在接入回执填写。固定 r3 构建脚本和源码包已通过 TES-88 R1 限定审查，可继续用户 Linux 本机构建；Windows 交叉构建不是 Linux 原生通过。本节替代上版“尚无完整 Linux CLI 源码交付”的状态及临时 go build 说明。Mac v8 原包没有 Linux CLI，实际新增源码包已经交付：
+ 
+ - TES-85-linux-cli-source-r3.zip，本次 TES-88 修复交付附件。
+ - SHA256 `7bdd511c78a089a7863539fe2ec3f1fd70c9d17903ffb54a785457b67510a108`。
+@@ -299,5 +305,5 @@ Settings 仍取已审 v8 解包后的小写 `settings/`，按内部 SHA 校验
+ 
+ 凭据持有人仍需撤销/轮换此前四个模型入口的旧凭据，回传完成状态即可；实际模型使用前配置受保护 HF_TOKEN binding。清理文件、离线替身通过不等于旧凭据失效。本次 Mac mquickjs/ripgrep 和离线 fixture 无需真实 HF_TOKEN，也不做模型下载。
+ 
+-当前线上确认目标/实例仍 8/8；双 Mac 普通验收实例另计，不纳入受管覆盖。1031 待启用目标、1075 设计均不等于已启用覆盖。TES-87 已独立通过限定隔离 daemon→Settings 整链、B01 15项独立目录 clone/重复更新、15实例同步/revision及8表恢复；这15项仍为待现场启用的 clone-only，不能算 build/run 或线上新增覆盖。其余1016待启用目标及现场 path/origin、匹配发布版本、生产前置仍由工程师推进。两台 Mac 与 Dev Cloud 的原生结果等待各机回传；父任务保持 in_progress。
++同批 identity-audit.json 已确认原八条实例全部归档且 revision 已变化；这是历史归档记录，不是当前活动 8/8，也不是本次重新读取线上状态的声明。执行前必须按第6.2节重新读取当前归档状态、revision 和身份后对账。保留归档，禁止自动恢复、按相似输入认领或重新初始化。双 Mac 普通验收实例另计，不纳入受管覆盖。1031 待启用目标、1075 设计均不等于已启用覆盖。TES-87 已独立通过限定隔离 daemon→Settings 整链、B01 15项独立目录 clone/重复更新、15实例同步/revision及8表恢复；这15项仍为待现场启用的 clone-only，不能算 build/run 或线上新增覆盖。其余1016待启用目标及现场 path/origin、匹配发布版本、生产前置仍由工程师推进。两台 Mac 与 Dev Cloud 的原生结果等待各机回传；父任务保持 in_progress。
+ 正式发布另需发布操作者在受控环境正常 GitHub 登录及 Settings 目标仓库地址（不发送 token）；TES-7/main 最小前置及合入顺序由架构师/工程师核定，不要求用户重新提供机器清单。
+diff --git a/e2e/delivery/README.md b/e2e/delivery/README.md
+index 7e4323624..9abb7df2d 100644
+--- a/e2e/delivery/README.md
++++ b/e2e/delivery/README.md
+@@ -15,7 +15,10 @@ mandatory. Plain acceptance instances use tes85-native-v8:* retry keys; using th
+ canonical buildcatalog:v1:* key on both machines would reuse one managed identity.
+ Agent runtime bindings remain mutable; this helper is not hardware fencing.
+ 
+-Run tests: python -m unittest discover -s e2e/delivery -p test_mac_routes.py -v
++Run from the extracted handoff ZIP root (in a source checkout, first run
++cd e2e/delivery). Tests and helpers are in the same directory.
++
++Run route tests: python -m unittest discover -s . -p test_mac_routes.py -v
+ The source ZIP was built twice from different extraction roots for each of Linux
+ amd64 and arm64, with identical per-architecture binary SHA256s. Windows cross
+ builds and cached offline builds do not constitute Linux native acceptance.
+@@ -26,9 +29,18 @@ files, modified files and symlink/reparse inputs are rejected. Output must be
+ outside the source archive. Keep the source extraction immutable while building.
+ Use the externally delivered ZIP checksum as the trust anchor for SOURCE.json.
+ 
+-R2 correction: MAC-ROUTING.md delegates to bundled PM revision 2, with r3 archive
+-names/checksums replacing its historical download references. The original PM
+-files are included byte-for-byte. Mac v8 and product commit remain unchanged.
++R2 r4 correction: MAC-USER-GUIDE-r3.md is the current integrated guide
++(the filename is retained for compatibility). It replaces the historical PM
++procedure; the original PM revision 2 remains unchanged under provenance/.
++The original eight canonical instances are historical archived records, not
++active coverage. Preserve archival and current revisions; do not automatically
++restore, adopt by similar input, or reinitialize them. Read current IDs, archival,
++revisions and managed identity before reconciliation. apply_allowed=false.
++Use SHA256SUMS-r4.txt for the r4 handoff and unchanged r3 source ZIP.
++
++Run all helper regressions from the same directory:
++    python -m unittest discover -s . -p 'test_*.py' -v
+ 
+-Run all helper regressions:
+-    python -m unittest discover -s e2e/delivery -p 'test_*.py' -v
++Expected: 5 route tests; 12 tests in the complete helper suite. R1 remains passed
++within the independent r3 review scope; R2 r4 independent review is pending.
++Mac/Linux native acceptance and production integration remain separate gates.
+-- 
+2.54.0.windows.1
+

@@ -1,0 +1,1046 @@
+diff --git a/e2e/delivery/MAC-ROUTING.md b/e2e/delivery/MAC-ROUTING.md
+new file mode 100644
+index 000000000..6a3388c96
+--- /dev/null
++++ b/e2e/delivery/MAC-ROUTING.md
+@@ -0,0 +1,28 @@
++Mac routing handoff, TES-88 R2
++
++The bundled MAC-USER-GUIDE-r3.md section 6 is the single
++operating procedure. It replaces the older MAC-ROUTING.md. The r4 integrated guide corrects archive state and package commands while retaining
++its r3 filename for compatibility. Unmodified PM revision 2 is retained under
++provenance/ for traceability. Validate the r4 handoff and unchanged r3 source ZIP with SHA256SUMS-r4.txt.
++
++Extract the original verified Mac v8 ZIP and the r4 handoff ZIP into separate
++directories. PACKAGE is the absolute v8 extraction root; HANDOFF is the absolute
++r4 handoff extraction root. CLI is "$PACKAGE/multica"; the template is
++"$PACKAGE/settings/buildcatalog/templates/macos.json".
++
++Generate requests locally (no API writes):
++    python3 "$HANDOFF/prepare_mac_routes.py" --config "$HANDOFF/mac-machines.json" --template "$PACKAGE/settings/buildcatalog/templates/macos.json" --output "$HANDOFF/mac-routes"
++
++Use the real package-root CLI for read-only identity checks and template validation,
++following section 6 of the PM guide. Canonical initialization has one owner and
++one journal. The original eight instances are archived historical records, not
++active coverage. Preserve archival and current revisions; do not automatically
++restore, adopt by similar input, or reinitialize. Read current per-ID archival,
++revision and managed identity before reconciliation; stop if evidence is missing.
++Each Mac uses its own ordinary acceptance instance, explicit agent,
++runtime, published template version and retry key. Verify IDs and permissions
++online; freeze rebinding and retain task/daemon placement evidence. The generator
++is not runtime fencing and does not authorize publication or execution.
++
++TES-88 R1 remains passed within the r3 independent review scope; R2 r4 re-review is pending. Mac/Linux native acceptance is pending.
++apply_allowed=false; no production change is authorized by this archive.
+diff --git a/e2e/delivery/MAC-USER-GUIDE-r3.md b/e2e/delivery/MAC-USER-GUIDE-r3.md
+new file mode 100644
+index 000000000..334d005c2
+--- /dev/null
++++ b/e2e/delivery/MAC-USER-GUIDE-r3.md
+@@ -0,0 +1,309 @@
++TES-88 R4 文档修订：保留文件名 MAC-USER-GUIDE-r3.md 以兼容现有引用。本版修正包根测试命令与归档状态口径，替代 r3 现行操作单；原 PM 修订2仅在 provenance/ 留档，不作为当前平台操作依据。产品、Mac v8、Linux r3 源码包及辅助脚本字节保持不变。R1 限定范围已通过，R2 文档修订待独立复审；apply_allowed=false。
++
++TES-85 固定 v8 操作单修订2：一次受管导入、双Mac路由与Linux源码交付
++2026-09-14；本整合版替代此前同名操作单及单独路由说明的操作口径。第1–5节原已审本地步骤保持不变；第6/8节新增脚本与路由/构建流程待 TES-88 对应结论后实施。不要同时沿用旧版双机 canonical 导入流程。
++
++Mac v8 已通过限定代码和实际包独立审查，可以开始两台 Mac 各自的原生验收。审查的 24/24 是 Windows 上 POSIX 离线验证，不是 Mac 原生通过。本单逐项核对了两个实际 ZIP 的包内入口；外层摘要及每包 211 个内部摘要均一致。本轮 PM 未执行 Mac/Linux 项目。
++
++## 1. 下载正确的固定包
++
++在 Mac Studio、MacBook 上分别操作。Apple Silicon 使用 arm64；Intel 使用 amd64（uname 输出 x86_64）。不要根据“MacBook”名字猜芯片。在原生终端先执行：
++
++```sh
++uname -m
++sysctl -n sysctl.proc_translated 2>/dev/null || true
++```
++
++若第二条输出 1，当前终端在 Rosetta 下，请换用该 Mac 的原生终端再确认架构；不要把翻译模式当作原生验收。
++
++下载链接来自 TES-85 工程交付评论（需在能访问该 Multica 的浏览器中下载，亦可先下载再拷贝到 Mac）：
++
++- [Apple Silicon：TES-85-macos-arm64-v8.zip](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c69e-77fe-ba19-6bf37997f1a7.zip)
++- [Intel：TES-85-macos-amd64-v8.zip](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c6bc-7d54-8679-0d825c540f3b.zip)
++- [原始 SHA256SUMS-v8.txt](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c77c-7cfb-9c55-c98a3a5bacce.txt)
++- [最终独立审查报告](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f9b-2e35-78a0-872e-98603dd28102.md)
++
++这些链接中的 localhost 指提供附件的 Multica 服务，不是让远程 Mac 访问 Windows 的 localhost。若在另一台 Mac 无法打开，请在当前工作区下载相应附件并传到 Mac；保留原文件名和字节。只需对应架构的一个 ZIP；不要混用 v6/v7。
++
++| ZIP | SHA-256 |
++|---|---|
++| TES-85-macos-arm64-v8.zip | 38e4e7ca62d1d7b03be9de2cf03a7f2016adce0cd6042c746575cf07a2c4da1b |
++| TES-85-macos-amd64-v8.zip | 07c4e30a755457bc020e9673c5d1a648e7255ba1f558bf1a88c0e4b3acf3286b |
++
++固定版本：Settings `20d15c7f4d037807c5cd02c40617f1faf789ed3d`；产品 `79afa3cfd14cf0b559324140c881e2ae50ab27e0`；平台验证提交 `73aec8d07`。包内 VERSION.json 的 pending_R6_v8 等待审字样、README 的 v7 待审段落是打包时历史状态；以上最终报告已给出 v8 通过结论。保留原包及摘要，不为更新这些文字修改包。
++
++## 2. 依赖与包的范围
++
++| 操作 | 需要本机已有的条件 |
++|---|---|
++| 摘要/解包 | shasum、unzip；使用新的空目录 |
++| 包内 Python 执行器与常规 fixture | Python 3.10+、Git |
++| Mac 首选 mquickjs | make、clang，来自本机可用的 Apple 编译工具；输出 mqjs 必须本机构建 |
++| 可选 ripgrep | Rust/Cargo、原生链接工具；rg 必须本机构建 |
++| 可选 fmt | CMake/CTest、原生 C++ 工具链；测试产物必须本机构建 |
++| 扫描器/test_scan.py | PATH 中有 rg，可等 ripgrep 构建后再测 |
++| v8 模型入口离线 fixture | Python 3.10+、/bin/sh；Mac 不需要 Go、vllm、真实凭据或下载模型 |
++| 平台导入 | 包内 Mac CLI、正常登录的目标工作区、匹配的保存实例 API；受管同步/自动化还需匹配后端、迁移 517、共享 UI 和 CLI |
++
++包包含 Mac CLI、198 份 Settings 文件、执行器/清单、测试、导入脚本、说明与补丁。CLI 由 Go 1.26.6 交叉编译，未签名/公证；不是 Desktop 安装包，也不会升级服务器。标记的 macOS 12.0 是加载下限，不能当作实测支持范围。若 macOS 阻止 CLI 启动，记录提示交回处理，不关闭系统安全功能；Python 本地验收与平台导入可分别记录。
++
++新版 Xcode 是预期环境，实际版本由两台 Mac 各自记录。首次源码/Cargo 获取需要网络或完整本地缓存；下载包可离线搬运，不等于项目能完全断网构建。以下命令不安装工具或系统包。
++
++## 3. 校验、解包、填写本机路径
++
++下面在同一个 Bash 会话顺序执行。先输入 `bash`，然后执行此段；MAC_NAME 按当前机器选 mac-studio 或 macbook。示例目录可在此时替换，后续统一从 host.json 使用，勿沿用另一台机器目录。
++
++```bash
++set -euo pipefail
++MAC_NAME=mac-studio
++ARCH=$(uname -m)
++case "$ARCH" in
++  arm64) EXPECTED=38e4e7ca62d1d7b03be9de2cf03a7f2016adce0cd6042c746575cf07a2c4da1b ;;
++  x86_64) ARCH=amd64; EXPECTED=07c4e30a755457bc020e9673c5d1a648e7255ba1f558bf1a88c0e4b3acf3286b ;;
++  *) echo "请回传未覆盖架构：$ARCH"; exit 1 ;;
++esac
++ZIP="$HOME/Downloads/TES-85-macos-$ARCH-v8.zip"
++ACTUAL=$(shasum -a 256 "$ZIP" | awk '{print $1}')
++test "$ACTUAL" = "$EXPECTED"
++PACKAGE=$(mktemp -d "$HOME/TES-85-$MAC_NAME-v8.XXXXXX")
++unzip -q "$ZIP" -d "$PACKAGE"
++cd "$PACKAGE"
++shasum -a 256 -c SHA256SUMS
++mkdir evidence
++printf '%s\n' "$PACKAGE" > evidence/package-path.txt
++```
++
++摘要不一致即停止，重新核对下载文件；不改校验表迁就文件。原始 SHA256SUMS-v8.txt 含五个不同交付包，不必为检查一个 Mac 包下载其余四个，上面直接检查所选 ZIP。
++
++填写下面四个根目录与验收时段（含时区）；host.json 独占创建，已有文件时使用新名称并同步后续参数，不覆盖原配置：
++
++```bash
++SOURCE_ROOT="$HOME/sourcecode/tes85-v8"
++BUILD_ROOT="$HOME/build/tes85-v8"
++LOG_ROOT="$HOME/Library/Logs/tes85-v8"
++WINDOW='待填：日期、起止时间和时区'
++python3 settings/buildcatalog/configure_host.py \
++  --name "$MAC_NAME" --settings-root "$PACKAGE/settings" \
++  --source-root "$SOURCE_ROOT" --build-root "$BUILD_ROOT" \
++  --log-root "$LOG_ROOT" --acceptance-window "$WINDOW" --output host.json
++{
++  sw_vers
++  uname -m
++  xcodebuild -version
++  xcode-select -p
++  python3 --version
++  git --version
++  make --version
++  clang --version
++} > evidence/environment.txt 2>&1
++```
++
++核对 environment.txt，确认 Python 至少 3.10，目录可写。缺工具就回传缺项；不要通过本单临时系统安装。host 文件可选 --runtime-id，但现在不要求远程 Mac 在线；在平台接入时填写本机实际绑定。
++
++## 4. 本机离线检查与 fixture
++
++从刚才包根目录执行，保留完整日志。单个 Mac ZIP 应产生 6 个通过场景、network_calls=0、mac_native=true：
++
++```bash
++python3 settings/buildcatalog/verify_download_zip.py \
++  --archive "$ZIP" --shell /bin/sh --report evidence/mac-v8-offline.json \
++  > evidence/mac-v8-offline.log 2>&1
++
++for suite in test_runner.py test_refs.py test_submodules.py test_intake.py \
++  test_processes.py test_sync.py test_review_boundaries.py \
++  test_continuation_intake.py test_secret_download.py; do
++  python3 -m unittest discover -s settings/buildcatalog -p "$suite" -v \
++    > "evidence/$suite.log" 2>&1
++done
++```
++
++验证器只执行实际 ZIP 两个清理入口的缺绑定、合成成功/失败三场景，并使用临时替身；不使用真实 HF_TOKEN，不代表真实模型下载已验收。任一步失败保留日志，后续步骤停止。不要因为同为退出 2 就判断缺绑定保护通过：离线 JSON/日志还必须证明 E_SECRET_BINDING 且未启动下载器。
++
++## 5. 本机构建，再验 run-only
++
++v8 首选非交互 mquickjs，替代早期操作表的 ripgrep 首选方案。清单实际构建为 make CC=clang HOST_CC=clang mqjs，然后将产物复制到本机 build 目录；运行 mqjs -e 'print(85)'，不使用旧的交互 alias 或字节码入口。
++
++```bash
++MANIFEST=settings/buildcatalog/projects/bellard-mquickjs.json
++DIGEST=$(shasum -a 256 "$MANIFEST" | awk '{print $1}')
++RUN_BUILD="$MAC_NAME-mq-build-$(date -u +%Y%m%dT%H%M%SZ)-$$"
++RUN_ONLY="$MAC_NAME-mq-run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
++python3 settings/buildcatalog/runner.py --manifest "$MANIFEST" \
++  --target macos-native --mode clone_build_run --host host.json \
++  --run-id "$RUN_BUILD" --catalog-sha256 "$DIGEST" \
++  > evidence/mquickjs-build.log 2>&1
++python3 settings/buildcatalog/runner.py --manifest "$MANIFEST" \
++  --target macos-native --mode run --host host.json \
++  --run-id "$RUN_ONLY" --catalog-sha256 "$DIGEST" \
++  > evidence/mquickjs-run-only.log 2>&1
++file "$BUILD_ROOT/bellard/mquickjs/macos/mqjs" > evidence/mquickjs-artifact.txt
++printf '%s\n' "$RUN_BUILD" "$RUN_ONLY" > evidence/local-run-ids.txt
++```
++
++预期两次成功退出、输出 85；第二次 result.json 的 stages 只能有 run，不能出现 clone/build/install。查看并回传 `$LOG_ROOT/$RUN_BUILD/result.json`、`$LOG_ROOT/$RUN_ONLY/result.json` 及各自阶段日志。检查产物架构与本机一致。构建可能在 source 目录生成中间产物，另有复制到 build 目录的最终产物。
++
++每次重试用新 run-id；包会拒绝覆盖已有运行日志目录。失败保留源码/日志，不 reset/clean，不盲目重复。记录实际 source SHA；不把保存输入或 ref 名字当作固定源码证明。
++
++可选 ripgrep：已有 Rust/Cargo 后，把上面 MANIFEST 改为 `settings/buildcatalog/projects/burntsushi-ripgrep.json`，重新计算 DIGEST，并用新的 run-id 分别运行 clone_build_run 与 run。实际清单执行 cargo build --release --locked --target-dir，随后直接运行 rg --version。构建成功后才运行扫描测试：
++
++```bash
++PATH="$BUILD_ROOT/BurntSushi/ripgrep/macos/release:$PATH" \
++  python3 -m unittest discover -s settings/buildcatalog -p test_scan.py -v \
++  > evidence/test_scan.log 2>&1
++```
++
++取消另行作为原生验收：fixture 已覆盖部分进程场景；若需要取消真实运行，只针对正在执行且已记录的 run-id，在另一个终端进入同一包目录执行 `python3 settings/buildcatalog/cancel.py --host host.json --run-id 实际运行ID`。预期取消 130、超时 124，普通失败保留真实码；不要对已完成的快速样本伪造取消通过，不按进程名批量停止。真实取消没有机会验证时如实填未测。
++
++## 6. 平台导入与双 Mac 专用路由（唯一现行流程）
++
++本节整体替代上一版第6节以及原 MAC-ROUTING.md 的路径示例；不要再由两台 Mac 各自重复执行 canonical 导入。第1–5节已审 v8 本地校验/构建/run-only 步骤保留，可继续执行。
++
++TES-88 r3 独立复审已确认辅助提交 dbe9b85f8dd8359fd0eb0b93cf8adc0bf94a5ac0 的 R1 限定范围通过，双 Mac 本地请求生成通过；R2 操作说明经本次修订后仍待独立复审。本节新增脚本和平台写入流程为就绪后的操作说明，等待 TES-88 相应范围通过及现场就绪检查后实施；不要依据本次文档修订认定它们已获放行。Mac v8 已通过的原范围保持不变。若审查要求修复，使用审查最终指定包及摘要，本节固定下载摘要不得套用到修复包。
++
++### 6.1 统一布局和就绪检查
++
++沿用第3节 PACKAGE：它是该机已校验 v8 ZIP 的解包根目录。CLI 是 `$PACKAGE/multica`，模板是 `$PACKAGE/settings/buildcatalog/templates/macos.json`；实际包不存在 `bin/multica`，也不是大写 `Settings/`。无须搬动 CLI 或覆盖已安装版本。
++
++新增交接包：TES-85-native-handoff-r4.zip，本次 TES-88 修复交付附件，SHA256：
++`见同次交付 SHA256SUMS-r4.txt（交接包行）`。
++包根包含 prepare_mac_routes.py、mac-machines.example.json 和说明。先下载/校验并解压到另一独立目录，HANDOFF 填该解包根的实际绝对路径，不把新增文件写入 v8 以破坏原摘要。
++
++平台操作在普通操作者终端完成正常登录/工作区选择，不在运行中的 agent task 内执行 login/daemon stop 或移除 task 环境。服务器必须具备已审产品 79afa3cfd 对应的 API/迁移/UI/CLI 能力和现场备份、健康前置条件；正式生产切换仍受 TES-7 前置集成与发布门槛约束。未就绪时仅保留本地回执。
++
++相应审查通过后，设置实际 profile 和本机专用 agent ID，使用包根 CLI 只读核对：
++
++```bash
++CLI="$PACKAGE/multica"
++PROFILE='填写该机正常登录的profile名称'
++AGENT_ID='填写实际本机agent UUID'
++chmod +x "$CLI"
++"$CLI" --profile "$PROFILE" runtime list --output json
++"$CLI" --profile "$PROFILE" agent get "$AGENT_ID" --output json
++"$CLI" --profile "$PROFILE" daemon status --output json
++```
++
++核对目标 workspace、runtime 的 online/最近心跳及机器、provider、agent.runtime_id、操作者可见性/权限，并将宿主 daemon 信息与 runtime 注册关联。不要导出 agent env/profile token。同时检查各自 host.json 的绝对路径、四个根目录可写、包/清单摘要、源码 origin/clean、实际工具版本和第5节本地回执。
++
++### 6.2 canonical 受管导入只由一位操作者执行一次
++
++canonical 的受管唯一键是 SHA256(project_key + NUL + target_key)，不含机器。指定一位操作者负责同一工作区的 canonical 草稿/清单及唯一 journal。
++
++TES-85 同批 identity-audit.json 记录原八条实例全部已归档，revision 均已变化。这八条是历史记录，不能计为当前活动覆盖，也不能因活动列表为空认定工作区尚未初始化。保留归档、当前 revision 和用户输入；禁止自动恢复、按相似输入认领或重新初始化，包括在第二台 Mac 重建 canonical。
++
++对账前通过受支持的只读 CLI，按原始回执的准确实例 ID 读取当前工作区、归档状态、revision、模板及受管身份，并核对原始保存回执、bindings 和唯一 journal。缺少身份字段或原始存储键读取能力时停止并交回工程师，不绕过 CLI 读取线上数据库。后续归档策略和迁移须沿父任务已审方案处理；本版保持 apply_allowed=false。
++
++下面的初始化命令仅适用于另一个经完整对账证明从未建立 canonical（包括没有归档历史）且已获准初始化的工作区；不适用于 TES-85 原八条记录，不因本单而获得执行授权：
++
++```bash
++cd "$PACKAGE"
++python3 settings/buildcatalog/import_catalog.py --platform macos \
++  --catalog "$PACKAGE/settings/buildcatalog" --cli "$CLI" \
++  --output bindings.json > evidence/canonical-import.log 2>&1
++```
++
++import_catalog.py 没有 --profile 参数；执行前必须确认它调用 CLI 的默认登录上下文就是上述目标工作区，不能以 PROFILE 变量已设置为由假定导入使用了该 profile。无法确认时由工程师配置就绪后再执行。
++
++保留原 bindings.json、bindings.sync-state.json、bindings.instances.json。一次初始化不禁止后续必要的受控同步：后续经父任务明确批准的更新仅由同一操作者、同一 journal 串行处理，并以刚读取的 revision 做 CAS；本单不授权恢复归档。归档、revision 或身份与预期不符即停止，不复制 journal 改模板，也不让两台 Mac 的 sync.py 争抢受管键。导入不发布、不运行、不启用调度。移除原“每台 Mac 首次导入后再重复导入”的步骤，受管幂等证据由 canonical 操作者单独记录。
++
++### 6.3 两台 Mac 使用不同的普通验收实例
++
++| 机器 | 专用 agent/runtime | 显式路由模板 key | 普通实例幂等键前缀 |
++|---|---|---|---|
++| Mac Studio | StudioAgent → StudioRuntime | tes85-macos-studio-acceptance | tes85-native-v8:studio: |
++| MacBook | BookAgent → BookRuntime | tes85-macos-book-acceptance | tes85-native-v8:book: |
++
++两台机器的 agent_id、runtime_id 必须分别不同，四个 UUID 来自实际注册。execute 使用 explicit agent 路由，无 capability/fallback；每个模板固定该机 host.json，普通验收实例分别绑定各自发布版本。不得修改 project_key 假装两个项目；普通实例不得带 buildcatalog:v1: 前缀或 managed_source，不计入 canonical 活动覆盖；原八条归档记录也不计活动覆盖。
++
++审查通过后，按交接包示例填写 mac-machines.json：
++workspace_id；machines.studio/book 各自的 agent_id、runtime_id、host_config（对应机器的绝对 host.json 路径）。可在一位操作者机器生成两份请求，但两条 host 路径必须各自属于目标 Mac。执行：
++
++```bash
++HANDOFF='/填写交接包的实际绝对解包目录'
++python3 "$HANDOFF/prepare_mac_routes.py" \
++  --config "$HANDOFF/mac-machines.json" \
++  --template "$PACKAGE/settings/buildcatalog/templates/macos.json" \
++  --output "$PACKAGE/mac-routes"
++"$CLI" --profile "$PROFILE" workflow call template.validate \
++  --input-file "$PACKAGE/mac-routes/studio-template.validate.json" --output json
++"$CLI" --profile "$PROFILE" workflow call template.validate \
++  --input-file "$PACKAGE/mac-routes/book-template.validate.json" --output json
++```
++
++mac-routes 必须是新目录。生成器只写本地请求与 routing-plan.json，输出 ready_for_platform_execution=false；不能据此认定 UUID 存在、权限正确或线上已配置。
++
++由已授权操作者按以下顺序核对并执行平台写入：
++
++1. template.list 查询两条 key；不存在才用对应 studio/book-template.create.json 创建草稿，已存在则 template.get 核对完整 definition，不能重复创建或覆盖其他路由。
++2. 冻结相关草稿编辑后审查 definition/agent/host，再用 template.publish 发布，记录实际返回/读取的 template version ID，不能猜 ID。
++3. 为每机分别 instance.create 普通实例：请求包含 schema_version="1"、该机 template_id/template_version_id、name、发布版本实际 entry input 节点 input_node、声明的 input 字段和 idempotency_key。mquickjs 使用同一已审 project_key、macos-native、实际 catalog SHA、supported_modes、pipeline_mode/ref；不要加入模板未声明字段或臆造构建命令。
++4. 两个幂等键分别为 `tes85-native-v8:studio:<manifest摘要>:mquickjs` 和 `tes85-native-v8:book:<manifest摘要>:mquickjs`。仅同一请求重试复用原键；修改输入按当前 revision 做 CAS update，不用同一键提交不同内容。读取结果确认两个 instance ID、template ID/version 各自不同且 managed_source 为空。
++5. 每次执行前 instance.get/instance.validate，检查当前 revision、版本、输入和 readiness，再重读该发布版本路由及 agent.runtime_id。各机先 clone_build_run，再保存/临时选择 run；使用独立运行幂等键，记录 workflow run/step/task ID。stale revision、权限撤回、offline、路径/机器不同均停止该机，不能转发到另一台 Mac。
++
++平台请求使用 `"$CLI" --profile "$PROFILE" workflow call <实际动作> --input-file <已核对请求文件> --output json`。上述字段说明供操作者按当前 API 及返回值填写，不提供虚构 UUID 或可盲跑的 publish/run 请求。新增接口操作待检查就绪；本地 mquickjs 成功不替代平台整链。
++
++### 6.4 冻结重绑并证明实际落点
++
++显式发布版本固定的是 agent_id，管理员仍可改变 agent.runtime_id；host.json 中 runtime_id 只是记录，不是执行器的硬件锁定。当前脚本没有 runtime fencing，不能宣称并发重绑时有不可变硬件保障。
++
++从发布前核对到该机运行结束，由有权限的管理员确认并保持这两个专用 agent 的重绑/删除冻结、相关模板编辑冻结，记录确认人、起止时间/时区和前后绑定。若无法保持冻结，本机局部验收可继续，平台路由验收暂缓。
++
++每台回执必须关联：
++workspace/profile名称 → agent ID → 运行前后 runtime ID/心跳 → template ID/version → 普通 instance ID/revision → workflow run/step/task ID → 实际领取任务的 daemon/机器与阶段日志。
++包摘要、host 配置、实际源码 SHA、产物和执行时间也要一致。以实际 task/daemon 日志证明落到目标机器，不能只贴生成器 routing-plan 或 online 列表。发生绑定变化、相同普通实例误用于两机、实际落点不符时暂停并标记未通过，保留证据，不重定向另一机器。
++
++验收后才按既有安排选择对应普通实例和当前 revision 配置自动化；实例更新后显式重新绑定，不自动跟随“最新”revision。本单不启用调度。
++
++## 7. 逐机回传与本地回退
++
++填写同次附件 `TES-85-v8-result-receipt-r2.md`，Mac Studio/MacBook 各一份。回传包 SHA、VERSION.json、工具版本、离线 JSON、fixture 日志、实际源码 SHA、两次 result.json/阶段日志、产物架构、取消结果及 canonical 操作者对账、各机普通实例 ID/revision/重试对账和实际落点证据。无平台运行时填“未产生及原因”，不要伪造 ID。
++
++只上传这些验收文件，不上传整个 home、数据库备份、登录配置或凭据值。停止使用此包可保留本地源码/构建/日志；不要覆盖系统 CLI。若后续启用了本次自动化，先按既有操作单停用它；需要撤销导入时核对归属后归档本次实例/模板并保留历史，不误归档 canonical 受管实例或其他机器记录。服务器回退、解绑及迁移回滚交工程师按已审方案处理。
++
++## 8. Dev Cloud Linux：固定源码包与接入验收
++
++Dev Cloud 架构仍在接入回执填写。固定 r3 构建脚本和源码包已通过 TES-88 R1 限定审查，可继续用户 Linux 本机构建；Windows 交叉构建不是 Linux 原生通过。本节替代上版“尚无完整 Linux CLI 源码交付”的状态及临时 go build 说明。Mac v8 原包没有 Linux CLI，实际新增源码包已经交付：
++
++- TES-85-linux-cli-source-r3.zip，本次 TES-88 修复交付附件。
++- SHA256 `7bdd511c78a089a7863539fe2ec3f1fd70c9d17903ffb54a785457b67510a108`。
++- 源码固定产品 `79afa3cfd14cf0b559324140c881e2ae50ab27e0`；包根有 build_linux_cli.py、SOURCE.json、许可及完整 server Go 源码/依赖锁。无 Git 历史、工具链/vendor、认证 profile 或预编译安装程序，不是正式 main release，也不升级服务器。
++
++接入时先由工程师确认连接方式/运行身份、实际发行版 ID/VERSION_ID、内核、架构和 VM/容器/WSL2 环境、目录/时段及目标服务。uname 的 x86_64 对应 amd64，aarch64/arm64 对应 arm64，其他架构停止反馈；不根据 Ubuntu/Tencent OS 名称选架构。
++
++TES-88 对应范围通过后，在 Dev Cloud 普通终端记录环境，校验包，使用新解压/输出目录；以下路径从放置源码 ZIP 的目录开始：
++
++```bash
++uname -m
++uname -sr
++cat /etc/os-release
++python3 --version
++go version
++echo '7bdd511c78a089a7863539fe2ec3f1fd70c9d17903ffb54a785457b67510a108  TES-85-linux-cli-source-r3.zip' | sha256sum -c -
++test ! -e tes85-linux-source
++python3 -m zipfile -e TES-85-linux-cli-source-r3.zip tes85-linux-source
++cd tes85-linux-source
++python3 build_linux_cli.py --arch auto --output ../linux-build-one
++../linux-build-one/multica --version
++python3 build_linux_cli.py --arch auto --output ../linux-build-two
++sha256sum ../linux-build-one/multica ../linux-build-two/multica
++```
++
++原生验收不加 --cross。build_linux_cli.py 核对 SOURCE.json，固定 go1.26.6、CGO_ENABLED=0、readonly 模块锁、trimpath/buildvcs=false 及架构参数；既有输出目录会被拒绝，不覆盖系统 CLI。产出 multica、BUILD.json 和 go-build-metadata.txt，候选版本为 0.4.42-tes85.79afa3cfd。
++
++需要 Python 3 和支持 GOTOOLCHAIN 的 Go launcher；工具链/依赖未就绪时脚本可能经 Go 拉取固定 Go1.26.6 与锁定模块，需网络或该 Linux 主机完整缓存。包不含工具链/vendor，不安装系统软件。预热后以新的输出目录加 --offline 验证缓存；不能用 Windows 工具链缓存冒充 Linux 缓存，也不关闭模块校验。BUILD.json 的 native_execution=not_run 不是失败，它表示构建脚本未执行 CLI；上述实际 --version 和后续项目结果另记。
++
++工程报告的同架构 Windows 双目录交叉构建摘要：amd64 d6a8c5d9079e34235e8e2356cd57737b7653fdc2d6a2367a2faf1ddb4a7d18c3；arm64 83b87874391125545deb08a0cbc112949d3fcae499817a6d9bbb46d8519764f6。它们不是 Dev Cloud 原生验收结论。Linux 两次原生输出需对账；若与跨宿主摘要不同，保留 BUILD.json/Go 元数据交工程核实，不直接判通过或伪称可复现。
++
++Settings 仍取已审 v8 解包后的小写 `settings/`，按内部 SHA 校验；不能在 Linux 运行其中的 Mach-O multica。先检查 Python 3.10+、Git、make、gcc，再沿第4/5节适用的 fixture 和 mquickjs 流程，用本机 host.json、target=linux-native、独立 run-id 依次执行 clone_build_run 与 run，预期85，记录 `bellard/mquickjs/linux/mqjs` 产物。扫描器另需 rg，取消/锁/权限和发行版×版本×架构×环境分别验收。
++
++平台接入使用新构建的 Linux CLI 绝对路径，独立 Linux agent/runtime 和 host 配置，不能指向 Mac agent。保存实例/迁移/服务能力、正常登录、生产备份健康及发布前置同第6节，服务器未就绪则只保留本地结果。Linux 导入由该工作区的指定受管操作者负责，不照搬双 Mac 的普通实例脚本或重复 canonical 初始化。Dev Cloud 架构确认后再交付对应原生产物；不默认选任一交叉二进制。
++
++## 9. 只需补充的最少信息及未完成事项
++
++在机器实际接入/导入时一次填写：每机 Settings/包、source、build、log 根目录与验收时段（含时区）；目标 Multica 工作区及可访问的服务位置。Dev Cloud 另填连接方式/已有安全配置名称、实际发行版和执行环境。Mac 芯片/Xcode/工具版本按上述命令采集，不要求现在远程在线，不重复索取机器清单或凭据值。
++
++另保留此前未答的两个项目意图：Linux virtualbox 入口保留 Kubernetes 还是更正为 VirtualBox；PDFMathTranslate 的完整 owner/repository URL。只影响这些目标，不阻塞 Mac 首批验收。H01/H02/H03 的路径/origin 核对继续由工程师处理，不新增重复问题。
++
++凭据持有人仍需撤销/轮换此前四个模型入口的旧凭据，回传完成状态即可；实际模型使用前配置受保护 HF_TOKEN binding。清理文件、离线替身通过不等于旧凭据失效。本次 Mac mquickjs/ripgrep 和离线 fixture 无需真实 HF_TOKEN，也不做模型下载。
++
++同批 identity-audit.json 已确认原八条实例全部归档且 revision 已变化；这是历史归档记录，不是当前活动 8/8，也不是本次重新读取线上状态的声明。执行前必须按第6.2节重新读取当前归档状态、revision 和身份后对账。保留归档，禁止自动恢复、按相似输入认领或重新初始化。双 Mac 普通验收实例另计，不纳入受管覆盖。1031 待启用目标、1075 设计均不等于已启用覆盖。TES-87 已独立通过限定隔离 daemon→Settings 整链、B01 15项独立目录 clone/重复更新、15实例同步/revision及8表恢复；这15项仍为待现场启用的 clone-only，不能算 build/run 或线上新增覆盖。其余1016待启用目标及现场 path/origin、匹配发布版本、生产前置仍由工程师推进。两台 Mac 与 Dev Cloud 的原生结果等待各机回传；父任务保持 in_progress。
++正式发布另需发布操作者在受控环境正常 GitHub 登录及 Settings 目标仓库地址（不发送 token）；TES-7/main 最小前置及合入顺序由架构师/工程师核定，不要求用户重新提供机器清单。
+diff --git a/e2e/delivery/README.md b/e2e/delivery/README.md
+new file mode 100644
+index 000000000..9abb7df2d
+--- /dev/null
++++ b/e2e/delivery/README.md
+@@ -0,0 +1,46 @@
++TES-85 native handoff helpers (product remains 79afa3cfd)
++
++build_linux_cli.py accompanies a source-only ZIP exported from the fixed product
++commit (server + LICENSE + NOTICE). SOURCE.json contains the exact file SHA256s.
++The helper requires Go 1.26.6, locks module edits, pins Linux CPU baselines and
++build metadata, and emits a checked ELF plus BUILD.json. Native mode requires a
++Linux host; --cross is explicit. --offline requires a prewarmed matching cache.
++No system binary installation, login or daemon startup is performed.
++
++prepare_mac_routes.py creates two local template requests with explicit agents.
++Distinct Studio/Book runtime and agent UUIDs are required, along with each Mac's
++absolute host config path. It does not query or mutate the platform. Live identity,
++ownership, health, permission, published-version and native-result gates remain
++mandatory. Plain acceptance instances use tes85-native-v8:* retry keys; using the
++canonical buildcatalog:v1:* key on both machines would reuse one managed identity.
++Agent runtime bindings remain mutable; this helper is not hardware fencing.
++
++Run from the extracted handoff ZIP root (in a source checkout, first run
++cd e2e/delivery). Tests and helpers are in the same directory.
++
++Run route tests: python -m unittest discover -s . -p test_mac_routes.py -v
++The source ZIP was built twice from different extraction roots for each of Linux
++amd64 and arm64, with identical per-architecture binary SHA256s. Windows cross
++builds and cached offline builds do not constitute Linux native acceptance.
++R1 correction: build_linux_cli.py compares the entire server file set before
++running Go or creating output, then verifies all manifest checksums. New Go,
++assembly, cgo, object and embed resources (including hidden/nested files), missing
++files, modified files and symlink/reparse inputs are rejected. Output must be
++outside the source archive. Keep the source extraction immutable while building.
++Use the externally delivered ZIP checksum as the trust anchor for SOURCE.json.
++
++R2 r4 correction: MAC-USER-GUIDE-r3.md is the current integrated guide
++(the filename is retained for compatibility). It replaces the historical PM
++procedure; the original PM revision 2 remains unchanged under provenance/.
++The original eight canonical instances are historical archived records, not
++active coverage. Preserve archival and current revisions; do not automatically
++restore, adopt by similar input, or reinitialize them. Read current IDs, archival,
++revisions and managed identity before reconciliation. apply_allowed=false.
++Use SHA256SUMS-r4.txt for the r4 handoff and unchanged r3 source ZIP.
++
++Run all helper regressions from the same directory:
++    python -m unittest discover -s . -p 'test_*.py' -v
++
++Expected: 5 route tests; 12 tests in the complete helper suite. R1 remains passed
++within the independent r3 review scope; R2 r4 independent review is pending.
++Mac/Linux native acceptance and production integration remain separate gates.
+diff --git a/e2e/delivery/TES-85-v8-Mac-DevCloud-user-guide-r2.md b/e2e/delivery/TES-85-v8-Mac-DevCloud-user-guide-r2.md
+new file mode 100644
+index 000000000..02c10fd74
+--- /dev/null
++++ b/e2e/delivery/TES-85-v8-Mac-DevCloud-user-guide-r2.md
+@@ -0,0 +1,301 @@
++TES-85 固定 v8 操作单修订2：一次受管导入、双Mac路由与Linux源码交付
++2026-09-14；本整合版替代此前同名操作单及单独路由说明的操作口径。第1–5节原已审本地步骤保持不变；第6/8节新增脚本与路由/构建流程待 TES-88 对应结论后实施。不要同时沿用旧版双机 canonical 导入流程。
++
++Mac v8 已通过限定代码和实际包独立审查，可以开始两台 Mac 各自的原生验收。审查的 24/24 是 Windows 上 POSIX 离线验证，不是 Mac 原生通过。本单逐项核对了两个实际 ZIP 的包内入口；外层摘要及每包 211 个内部摘要均一致。本轮 PM 未执行 Mac/Linux 项目。
++
++## 1. 下载正确的固定包
++
++在 Mac Studio、MacBook 上分别操作。Apple Silicon 使用 arm64；Intel 使用 amd64（uname 输出 x86_64）。不要根据“MacBook”名字猜芯片。在原生终端先执行：
++
++```sh
++uname -m
++sysctl -n sysctl.proc_translated 2>/dev/null || true
++```
++
++若第二条输出 1，当前终端在 Rosetta 下，请换用该 Mac 的原生终端再确认架构；不要把翻译模式当作原生验收。
++
++下载链接来自 TES-85 工程交付评论（需在能访问该 Multica 的浏览器中下载，亦可先下载再拷贝到 Mac）：
++
++- [Apple Silicon：TES-85-macos-arm64-v8.zip](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c69e-77fe-ba19-6bf37997f1a7.zip)
++- [Intel：TES-85-macos-amd64-v8.zip](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c6bc-7d54-8679-0d825c540f3b.zip)
++- [原始 SHA256SUMS-v8.txt](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f91-c77c-7cfb-9c55-c98a3a5bacce.txt)
++- [最终独立审查报告](http://localhost:8081/uploads/workspaces/544d68c5-004d-47bb-8388-2f5602885948/01a09f9b-2e35-78a0-872e-98603dd28102.md)
++
++这些链接中的 localhost 指提供附件的 Multica 服务，不是让远程 Mac 访问 Windows 的 localhost。若在另一台 Mac 无法打开，请在当前工作区下载相应附件并传到 Mac；保留原文件名和字节。只需对应架构的一个 ZIP；不要混用 v6/v7。
++
++| ZIP | SHA-256 |
++|---|---|
++| TES-85-macos-arm64-v8.zip | 38e4e7ca62d1d7b03be9de2cf03a7f2016adce0cd6042c746575cf07a2c4da1b |
++| TES-85-macos-amd64-v8.zip | 07c4e30a755457bc020e9673c5d1a648e7255ba1f558bf1a88c0e4b3acf3286b |
++
++固定版本：Settings `20d15c7f4d037807c5cd02c40617f1faf789ed3d`；产品 `79afa3cfd14cf0b559324140c881e2ae50ab27e0`；平台验证提交 `73aec8d07`。包内 VERSION.json 的 pending_R6_v8 等待审字样、README 的 v7 待审段落是打包时历史状态；以上最终报告已给出 v8 通过结论。保留原包及摘要，不为更新这些文字修改包。
++
++## 2. 依赖与包的范围
++
++| 操作 | 需要本机已有的条件 |
++|---|---|
++| 摘要/解包 | shasum、unzip；使用新的空目录 |
++| 包内 Python 执行器与常规 fixture | Python 3.10+、Git |
++| Mac 首选 mquickjs | make、clang，来自本机可用的 Apple 编译工具；输出 mqjs 必须本机构建 |
++| 可选 ripgrep | Rust/Cargo、原生链接工具；rg 必须本机构建 |
++| 可选 fmt | CMake/CTest、原生 C++ 工具链；测试产物必须本机构建 |
++| 扫描器/test_scan.py | PATH 中有 rg，可等 ripgrep 构建后再测 |
++| v8 模型入口离线 fixture | Python 3.10+、/bin/sh；Mac 不需要 Go、vllm、真实凭据或下载模型 |
++| 平台导入 | 包内 Mac CLI、正常登录的目标工作区、匹配的保存实例 API；受管同步/自动化还需匹配后端、迁移 517、共享 UI 和 CLI |
++
++包包含 Mac CLI、198 份 Settings 文件、执行器/清单、测试、导入脚本、说明与补丁。CLI 由 Go 1.26.6 交叉编译，未签名/公证；不是 Desktop 安装包，也不会升级服务器。标记的 macOS 12.0 是加载下限，不能当作实测支持范围。若 macOS 阻止 CLI 启动，记录提示交回处理，不关闭系统安全功能；Python 本地验收与平台导入可分别记录。
++
++新版 Xcode 是预期环境，实际版本由两台 Mac 各自记录。首次源码/Cargo 获取需要网络或完整本地缓存；下载包可离线搬运，不等于项目能完全断网构建。以下命令不安装工具或系统包。
++
++## 3. 校验、解包、填写本机路径
++
++下面在同一个 Bash 会话顺序执行。先输入 `bash`，然后执行此段；MAC_NAME 按当前机器选 mac-studio 或 macbook。示例目录可在此时替换，后续统一从 host.json 使用，勿沿用另一台机器目录。
++
++```bash
++set -euo pipefail
++MAC_NAME=mac-studio
++ARCH=$(uname -m)
++case "$ARCH" in
++  arm64) EXPECTED=38e4e7ca62d1d7b03be9de2cf03a7f2016adce0cd6042c746575cf07a2c4da1b ;;
++  x86_64) ARCH=amd64; EXPECTED=07c4e30a755457bc020e9673c5d1a648e7255ba1f558bf1a88c0e4b3acf3286b ;;
++  *) echo "请回传未覆盖架构：$ARCH"; exit 1 ;;
++esac
++ZIP="$HOME/Downloads/TES-85-macos-$ARCH-v8.zip"
++ACTUAL=$(shasum -a 256 "$ZIP" | awk '{print $1}')
++test "$ACTUAL" = "$EXPECTED"
++PACKAGE=$(mktemp -d "$HOME/TES-85-$MAC_NAME-v8.XXXXXX")
++unzip -q "$ZIP" -d "$PACKAGE"
++cd "$PACKAGE"
++shasum -a 256 -c SHA256SUMS
++mkdir evidence
++printf '%s\n' "$PACKAGE" > evidence/package-path.txt
++```
++
++摘要不一致即停止，重新核对下载文件；不改校验表迁就文件。原始 SHA256SUMS-v8.txt 含五个不同交付包，不必为检查一个 Mac 包下载其余四个，上面直接检查所选 ZIP。
++
++填写下面四个根目录与验收时段（含时区）；host.json 独占创建，已有文件时使用新名称并同步后续参数，不覆盖原配置：
++
++```bash
++SOURCE_ROOT="$HOME/sourcecode/tes85-v8"
++BUILD_ROOT="$HOME/build/tes85-v8"
++LOG_ROOT="$HOME/Library/Logs/tes85-v8"
++WINDOW='待填：日期、起止时间和时区'
++python3 settings/buildcatalog/configure_host.py \
++  --name "$MAC_NAME" --settings-root "$PACKAGE/settings" \
++  --source-root "$SOURCE_ROOT" --build-root "$BUILD_ROOT" \
++  --log-root "$LOG_ROOT" --acceptance-window "$WINDOW" --output host.json
++{
++  sw_vers
++  uname -m
++  xcodebuild -version
++  xcode-select -p
++  python3 --version
++  git --version
++  make --version
++  clang --version
++} > evidence/environment.txt 2>&1
++```
++
++核对 environment.txt，确认 Python 至少 3.10，目录可写。缺工具就回传缺项；不要通过本单临时系统安装。host 文件可选 --runtime-id，但现在不要求远程 Mac 在线；在平台接入时填写本机实际绑定。
++
++## 4. 本机离线检查与 fixture
++
++从刚才包根目录执行，保留完整日志。单个 Mac ZIP 应产生 6 个通过场景、network_calls=0、mac_native=true：
++
++```bash
++python3 settings/buildcatalog/verify_download_zip.py \
++  --archive "$ZIP" --shell /bin/sh --report evidence/mac-v8-offline.json \
++  > evidence/mac-v8-offline.log 2>&1
++
++for suite in test_runner.py test_refs.py test_submodules.py test_intake.py \
++  test_processes.py test_sync.py test_review_boundaries.py \
++  test_continuation_intake.py test_secret_download.py; do
++  python3 -m unittest discover -s settings/buildcatalog -p "$suite" -v \
++    > "evidence/$suite.log" 2>&1
++done
++```
++
++验证器只执行实际 ZIP 两个清理入口的缺绑定、合成成功/失败三场景，并使用临时替身；不使用真实 HF_TOKEN，不代表真实模型下载已验收。任一步失败保留日志，后续步骤停止。不要因为同为退出 2 就判断缺绑定保护通过：离线 JSON/日志还必须证明 E_SECRET_BINDING 且未启动下载器。
++
++## 5. 本机构建，再验 run-only
++
++v8 首选非交互 mquickjs，替代早期操作表的 ripgrep 首选方案。清单实际构建为 make CC=clang HOST_CC=clang mqjs，然后将产物复制到本机 build 目录；运行 mqjs -e 'print(85)'，不使用旧的交互 alias 或字节码入口。
++
++```bash
++MANIFEST=settings/buildcatalog/projects/bellard-mquickjs.json
++DIGEST=$(shasum -a 256 "$MANIFEST" | awk '{print $1}')
++RUN_BUILD="$MAC_NAME-mq-build-$(date -u +%Y%m%dT%H%M%SZ)-$$"
++RUN_ONLY="$MAC_NAME-mq-run-$(date -u +%Y%m%dT%H%M%SZ)-$$"
++python3 settings/buildcatalog/runner.py --manifest "$MANIFEST" \
++  --target macos-native --mode clone_build_run --host host.json \
++  --run-id "$RUN_BUILD" --catalog-sha256 "$DIGEST" \
++  > evidence/mquickjs-build.log 2>&1
++python3 settings/buildcatalog/runner.py --manifest "$MANIFEST" \
++  --target macos-native --mode run --host host.json \
++  --run-id "$RUN_ONLY" --catalog-sha256 "$DIGEST" \
++  > evidence/mquickjs-run-only.log 2>&1
++file "$BUILD_ROOT/bellard/mquickjs/macos/mqjs" > evidence/mquickjs-artifact.txt
++printf '%s\n' "$RUN_BUILD" "$RUN_ONLY" > evidence/local-run-ids.txt
++```
++
++预期两次成功退出、输出 85；第二次 result.json 的 stages 只能有 run，不能出现 clone/build/install。查看并回传 `$LOG_ROOT/$RUN_BUILD/result.json`、`$LOG_ROOT/$RUN_ONLY/result.json` 及各自阶段日志。检查产物架构与本机一致。构建可能在 source 目录生成中间产物，另有复制到 build 目录的最终产物。
++
++每次重试用新 run-id；包会拒绝覆盖已有运行日志目录。失败保留源码/日志，不 reset/clean，不盲目重复。记录实际 source SHA；不把保存输入或 ref 名字当作固定源码证明。
++
++可选 ripgrep：已有 Rust/Cargo 后，把上面 MANIFEST 改为 `settings/buildcatalog/projects/burntsushi-ripgrep.json`，重新计算 DIGEST，并用新的 run-id 分别运行 clone_build_run 与 run。实际清单执行 cargo build --release --locked --target-dir，随后直接运行 rg --version。构建成功后才运行扫描测试：
++
++```bash
++PATH="$BUILD_ROOT/BurntSushi/ripgrep/macos/release:$PATH" \
++  python3 -m unittest discover -s settings/buildcatalog -p test_scan.py -v \
++  > evidence/test_scan.log 2>&1
++```
++
++取消另行作为原生验收：fixture 已覆盖部分进程场景；若需要取消真实运行，只针对正在执行且已记录的 run-id，在另一个终端进入同一包目录执行 `python3 settings/buildcatalog/cancel.py --host host.json --run-id 实际运行ID`。预期取消 130、超时 124，普通失败保留真实码；不要对已完成的快速样本伪造取消通过，不按进程名批量停止。真实取消没有机会验证时如实填未测。
++
++## 6. 平台导入与双 Mac 专用路由（唯一现行流程）
++
++本节整体替代上一版第6节以及原 MAC-ROUTING.md 的路径示例；不要再由两台 Mac 各自重复执行 canonical 导入。第1–5节已审 v8 本地校验/构建/run-only 步骤保留，可继续执行。
++
++截至本次修订，新增辅助提交 a51f770314、Linux 源码构建包和 prepare_mac_routes.py 正在 TES-88 独立审查，尚无通过结论。本节新增脚本和平台写入流程为就绪后的操作说明，等待 TES-88 相应范围通过及现场就绪检查后实施；不要依据本次文档修订认定它们已获放行。Mac v8 已通过的原范围保持不变。若审查要求修复，使用审查最终指定包及摘要，本节固定下载摘要不得套用到修复包。
++
++### 6.1 统一布局和就绪检查
++
++沿用第3节 PACKAGE：它是该机已校验 v8 ZIP 的解包根目录。CLI 是 `$PACKAGE/multica`，模板是 `$PACKAGE/settings/buildcatalog/templates/macos.json`；实际包不存在 `bin/multica`，也不是大写 `Settings/`。无须搬动 CLI 或覆盖已安装版本。
++
++新增交接包：TES-85-native-handoff.zip，附件 ID `01a09fbe-f1fa-7d71-a02e-96ded8217e8f`，SHA256：
++`43ff134514c3ee68777e455e2de14768f4288492e37fc8b7c9e5feea11679007`。
++包根包含 prepare_mac_routes.py、mac-machines.example.json 和说明。先下载/校验并解压到另一独立目录，HANDOFF 填该解包根的实际绝对路径，不把新增文件写入 v8 以破坏原摘要。
++
++平台操作在普通操作者终端完成正常登录/工作区选择，不在运行中的 agent task 内执行 login/daemon stop 或移除 task 环境。服务器必须具备已审产品 79afa3cfd 对应的 API/迁移/UI/CLI 能力和现场备份、健康前置条件；正式生产切换仍受 TES-7 前置集成与发布门槛约束。未就绪时仅保留本地回执。
++
++相应审查通过后，设置实际 profile 和本机专用 agent ID，使用包根 CLI 只读核对：
++
++```bash
++CLI="$PACKAGE/multica"
++PROFILE='填写该机正常登录的profile名称'
++AGENT_ID='填写实际本机agent UUID'
++chmod +x "$CLI"
++"$CLI" --profile "$PROFILE" runtime list --output json
++"$CLI" --profile "$PROFILE" agent get "$AGENT_ID" --output json
++"$CLI" --profile "$PROFILE" daemon status --output json
++```
++
++核对目标 workspace、runtime 的 online/最近心跳及机器、provider、agent.runtime_id、操作者可见性/权限，并将宿主 daemon 信息与 runtime 注册关联。不要导出 agent env/profile token。同时检查各自 host.json 的绝对路径、四个根目录可写、包/清单摘要、源码 origin/clean、实际工具版本和第5节本地回执。
++
++### 6.2 canonical 受管导入只由一位操作者执行一次
++
++canonical 的受管唯一键是 SHA256(project_key + NUL + target_key)，不含机器。指定一位操作者负责同一工作区的 canonical 草稿/清单及唯一 journal；已有受管导入和 8/8 记录时优先核对复用，不再在第二台 Mac 重新初始化。以下仅用于该工作区尚未建立 canonical 时，由该操作者执行一次：
++
++```bash
++cd "$PACKAGE"
++python3 settings/buildcatalog/import_catalog.py --platform macos \
++  --catalog "$PACKAGE/settings/buildcatalog" --cli "$CLI" \
++  --output bindings.json > evidence/canonical-import.log 2>&1
++```
++
++import_catalog.py 没有 --profile 参数；执行前必须确认它调用 CLI 的默认登录上下文就是上述目标工作区，不能以 PROFILE 变量已设置为由假定导入使用了该 profile。无法确认时由工程师配置就绪后再执行。
++
++保留原 bindings.json、bindings.sync-state.json、bindings.instances.json。一次初始化不禁止后续必要的受控同步：若需恢复或更新，仅由同一操作者、同一 journal 串行处理，不复制 journal 改模板，也不让两台 Mac 的 sync.py 争抢受管键。导入不发布、不运行、不启用调度。移除原“每台 Mac 首次导入后再重复导入”的步骤，受管幂等证据由 canonical 操作者单独记录。
++
++### 6.3 两台 Mac 使用不同的普通验收实例
++
++| 机器 | 专用 agent/runtime | 显式路由模板 key | 普通实例幂等键前缀 |
++|---|---|---|---|
++| Mac Studio | StudioAgent → StudioRuntime | tes85-macos-studio-acceptance | tes85-native-v8:studio: |
++| MacBook | BookAgent → BookRuntime | tes85-macos-book-acceptance | tes85-native-v8:book: |
++
++两台机器的 agent_id、runtime_id 必须分别不同，四个 UUID 来自实际注册。execute 使用 explicit agent 路由，无 capability/fallback；每个模板固定该机 host.json，普通验收实例分别绑定各自发布版本。不得修改 project_key 假装两个项目；普通实例不得带 buildcatalog:v1: 前缀或 managed_source，不计入 canonical 8/8 覆盖。
++
++审查通过后，按交接包示例填写 mac-machines.json：
++workspace_id；machines.studio/book 各自的 agent_id、runtime_id、host_config（对应机器的绝对 host.json 路径）。可在一位操作者机器生成两份请求，但两条 host 路径必须各自属于目标 Mac。执行：
++
++```bash
++HANDOFF='/填写交接包的实际绝对解包目录'
++python3 "$HANDOFF/prepare_mac_routes.py" \
++  --config "$HANDOFF/mac-machines.json" \
++  --template "$PACKAGE/settings/buildcatalog/templates/macos.json" \
++  --output "$PACKAGE/mac-routes"
++"$CLI" --profile "$PROFILE" workflow call template.validate \
++  --input-file "$PACKAGE/mac-routes/studio-template.validate.json" --output json
++"$CLI" --profile "$PROFILE" workflow call template.validate \
++  --input-file "$PACKAGE/mac-routes/book-template.validate.json" --output json
++```
++
++mac-routes 必须是新目录。生成器只写本地请求与 routing-plan.json，输出 ready_for_platform_execution=false；不能据此认定 UUID 存在、权限正确或线上已配置。
++
++由已授权操作者按以下顺序核对并执行平台写入：
++
++1. template.list 查询两条 key；不存在才用对应 studio/book-template.create.json 创建草稿，已存在则 template.get 核对完整 definition，不能重复创建或覆盖其他路由。
++2. 冻结相关草稿编辑后审查 definition/agent/host，再用 template.publish 发布，记录实际返回/读取的 template version ID，不能猜 ID。
++3. 为每机分别 instance.create 普通实例：请求包含 schema_version="1"、该机 template_id/template_version_id、name、发布版本实际 entry input 节点 input_node、声明的 input 字段和 idempotency_key。mquickjs 使用同一已审 project_key、macos-native、实际 catalog SHA、supported_modes、pipeline_mode/ref；不要加入模板未声明字段或臆造构建命令。
++4. 两个幂等键分别为 `tes85-native-v8:studio:<manifest摘要>:mquickjs` 和 `tes85-native-v8:book:<manifest摘要>:mquickjs`。仅同一请求重试复用原键；修改输入按当前 revision 做 CAS update，不用同一键提交不同内容。读取结果确认两个 instance ID、template ID/version 各自不同且 managed_source 为空。
++5. 每次执行前 instance.get/instance.validate，检查当前 revision、版本、输入和 readiness，再重读该发布版本路由及 agent.runtime_id。各机先 clone_build_run，再保存/临时选择 run；使用独立运行幂等键，记录 workflow run/step/task ID。stale revision、权限撤回、offline、路径/机器不同均停止该机，不能转发到另一台 Mac。
++
++平台请求使用 `"$CLI" --profile "$PROFILE" workflow call <实际动作> --input-file <已核对请求文件> --output json`。上述字段说明供操作者按当前 API 及返回值填写，不提供虚构 UUID 或可盲跑的 publish/run 请求。新增接口操作待检查就绪；本地 mquickjs 成功不替代平台整链。
++
++### 6.4 冻结重绑并证明实际落点
++
++显式发布版本固定的是 agent_id，管理员仍可改变 agent.runtime_id；host.json 中 runtime_id 只是记录，不是执行器的硬件锁定。当前脚本没有 runtime fencing，不能宣称并发重绑时有不可变硬件保障。
++
++从发布前核对到该机运行结束，由有权限的管理员确认并保持这两个专用 agent 的重绑/删除冻结、相关模板编辑冻结，记录确认人、起止时间/时区和前后绑定。若无法保持冻结，本机局部验收可继续，平台路由验收暂缓。
++
++每台回执必须关联：
++workspace/profile名称 → agent ID → 运行前后 runtime ID/心跳 → template ID/version → 普通 instance ID/revision → workflow run/step/task ID → 实际领取任务的 daemon/机器与阶段日志。
++包摘要、host 配置、实际源码 SHA、产物和执行时间也要一致。以实际 task/daemon 日志证明落到目标机器，不能只贴生成器 routing-plan 或 online 列表。发生绑定变化、相同普通实例误用于两机、实际落点不符时暂停并标记未通过，保留证据，不重定向另一机器。
++
++验收后才按既有安排选择对应普通实例和当前 revision 配置自动化；实例更新后显式重新绑定，不自动跟随“最新”revision。本单不启用调度。
++
++## 7. 逐机回传与本地回退
++
++填写同次附件 `TES-85-v8-result-receipt-r2.md`，Mac Studio/MacBook 各一份。回传包 SHA、VERSION.json、工具版本、离线 JSON、fixture 日志、实际源码 SHA、两次 result.json/阶段日志、产物架构、取消结果及 canonical 操作者对账、各机普通实例 ID/revision/重试对账和实际落点证据。无平台运行时填“未产生及原因”，不要伪造 ID。
++
++只上传这些验收文件，不上传整个 home、数据库备份、登录配置或凭据值。停止使用此包可保留本地源码/构建/日志；不要覆盖系统 CLI。若后续启用了本次自动化，先按既有操作单停用它；需要撤销导入时核对归属后归档本次实例/模板并保留历史，不误归档 canonical 受管实例或其他机器记录。服务器回退、解绑及迁移回滚交工程师按已审方案处理。
++
++## 8. Dev Cloud Linux：固定源码包与接入验收
++
++Dev Cloud 架构仍在接入回执填写。新增构建脚本和源码包待 TES-88 相应结论；Windows 交叉构建不是 Linux 原生通过。本节替代上版“尚无完整 Linux CLI 源码交付”的状态及临时 go build 说明。Mac v8 原包没有 Linux CLI，实际新增源码包已经交付：
++
++- TES-85-linux-cli-source.zip，附件 ID `01a09fbe-f1ed-72af-b0ee-5489cdb0ffb3`。
++- SHA256 `92861f187387a775e51c91a9053ea4b7bb689c37d63ba46b3fb0c3e7104abf93`。
++- 源码固定产品 `79afa3cfd14cf0b559324140c881e2ae50ab27e0`；包根有 build_linux_cli.py、SOURCE.json、许可及完整 server Go 源码/依赖锁。无 Git 历史、工具链/vendor、认证 profile 或预编译安装程序，不是正式 main release，也不升级服务器。
++
++接入时先由工程师确认连接方式/运行身份、实际发行版 ID/VERSION_ID、内核、架构和 VM/容器/WSL2 环境、目录/时段及目标服务。uname 的 x86_64 对应 amd64，aarch64/arm64 对应 arm64，其他架构停止反馈；不根据 Ubuntu/Tencent OS 名称选架构。
++
++TES-88 对应范围通过后，在 Dev Cloud 普通终端记录环境，校验包，使用新解压/输出目录；以下路径从放置源码 ZIP 的目录开始：
++
++```bash
++uname -m
++uname -sr
++cat /etc/os-release
++python3 --version
++go version
++echo '92861f187387a775e51c91a9053ea4b7bb689c37d63ba46b3fb0c3e7104abf93  TES-85-linux-cli-source.zip' | sha256sum -c -
++test ! -e tes85-linux-source
++python3 -m zipfile -e TES-85-linux-cli-source.zip tes85-linux-source
++cd tes85-linux-source
++python3 build_linux_cli.py --arch auto --output ../linux-build-one
++../linux-build-one/multica --version
++python3 build_linux_cli.py --arch auto --output ../linux-build-two
++sha256sum ../linux-build-one/multica ../linux-build-two/multica
++```
++
++原生验收不加 --cross。build_linux_cli.py 核对 SOURCE.json，固定 go1.26.6、CGO_ENABLED=0、readonly 模块锁、trimpath/buildvcs=false 及架构参数；既有输出目录会被拒绝，不覆盖系统 CLI。产出 multica、BUILD.json 和 go-build-metadata.txt，候选版本为 0.4.42-tes85.79afa3cfd。
++
++需要 Python 3 和支持 GOTOOLCHAIN 的 Go launcher；工具链/依赖未就绪时脚本可能经 Go 拉取固定 Go1.26.6 与锁定模块，需网络或该 Linux 主机完整缓存。包不含工具链/vendor，不安装系统软件。预热后以新的输出目录加 --offline 验证缓存；不能用 Windows 工具链缓存冒充 Linux 缓存，也不关闭模块校验。BUILD.json 的 native_execution=not_run 不是失败，它表示构建脚本未执行 CLI；上述实际 --version 和后续项目结果另记。
++
++工程报告的同架构 Windows 双目录交叉构建摘要：amd64 d6a8c5d9079e34235e8e2356cd57737b7653fdc2d6a2367a2faf1ddb4a7d18c3；arm64 83b87874391125545deb08a0cbc112949d3fcae499817a6d9bbb46d8519764f6。它们不是 Dev Cloud 原生验收结论。Linux 两次原生输出需对账；若与跨宿主摘要不同，保留 BUILD.json/Go 元数据交工程核实，不直接判通过或伪称可复现。
++
++Settings 仍取已审 v8 解包后的小写 `settings/`，按内部 SHA 校验；不能在 Linux 运行其中的 Mach-O multica。先检查 Python 3.10+、Git、make、gcc，再沿第4/5节适用的 fixture 和 mquickjs 流程，用本机 host.json、target=linux-native、独立 run-id 依次执行 clone_build_run 与 run，预期85，记录 `bellard/mquickjs/linux/mqjs` 产物。扫描器另需 rg，取消/锁/权限和发行版×版本×架构×环境分别验收。
++
++平台接入使用新构建的 Linux CLI 绝对路径，独立 Linux agent/runtime 和 host 配置，不能指向 Mac agent。保存实例/迁移/服务能力、正常登录、生产备份健康及发布前置同第6节，服务器未就绪则只保留本地结果。Linux 导入由该工作区的指定受管操作者负责，不照搬双 Mac 的普通实例脚本或重复 canonical 初始化。Dev Cloud 架构确认后再交付对应原生产物；不默认选任一交叉二进制。
++
++## 9. 只需补充的最少信息及未完成事项
++
++在机器实际接入/导入时一次填写：每机 Settings/包、source、build、log 根目录与验收时段（含时区）；目标 Multica 工作区及可访问的服务位置。Dev Cloud 另填连接方式/已有安全配置名称、实际发行版和执行环境。Mac 芯片/Xcode/工具版本按上述命令采集，不要求现在远程在线，不重复索取机器清单或凭据值。
++
++另保留此前未答的两个项目意图：Linux virtualbox 入口保留 Kubernetes 还是更正为 VirtualBox；PDFMathTranslate 的完整 owner/repository URL。只影响这些目标，不阻塞 Mac 首批验收。H01/H02/H03 的路径/origin 核对继续由工程师处理，不新增重复问题。
++
++凭据持有人仍需撤销/轮换此前四个模型入口的旧凭据，回传完成状态即可；实际模型使用前配置受保护 HF_TOKEN binding。清理文件、离线替身通过不等于旧凭据失效。本次 Mac mquickjs/ripgrep 和离线 fixture 无需真实 HF_TOKEN，也不做模型下载。
++
++当前线上确认目标/实例仍 8/8；双 Mac 普通验收实例另计，不纳入受管覆盖。1031 待启用目标、1075 设计均不等于已启用覆盖。TES-87 已独立通过限定隔离 daemon→Settings 整链、B01 15项独立目录 clone/重复更新、15实例同步/revision及8表恢复；这15项仍为待现场启用的 clone-only，不能算 build/run 或线上新增覆盖。其余1016待启用目标及现场 path/origin、匹配发布版本、生产前置仍由工程师推进。两台 Mac 与 Dev Cloud 的原生结果等待各机回传；父任务保持 in_progress。
++正式发布另需发布操作者在受控环境正常 GitHub 登录及 Settings 目标仓库地址（不发送 token）；TES-7/main 最小前置及合入顺序由架构师/工程师核定，不要求用户重新提供机器清单。
+diff --git a/e2e/delivery/TES-85-v8-result-receipt-r2.md b/e2e/delivery/TES-85-v8-result-receipt-r2.md
+new file mode 100644
+index 000000000..92b493998
+--- /dev/null
++++ b/e2e/delivery/TES-85-v8-result-receipt-r2.md
+@@ -0,0 +1,57 @@
++TES-85 v8 修订2：逐机结果回传（Mac Studio / MacBook / Dev Cloud Linux，各机复制一份）
++
++填写时间点：该机接入或导入时。已知机器无需重新申报；不填写密码、token、私钥或数据库备份。
++
++机器记录：Mac Studio / MacBook / Dev Cloud Linux（选一）
++日期、起止时间、时区：
++OS/发行版、实际版本或滚动快照、内核、架构：
++运行环境：原生 / VM / 容器 / WSL2；Mac 是否原生终端：
++Dev Cloud 连接方式/已有安全配置名称（不填凭据值）：
++Settings/包目录：
++源码根目录：
++构建根目录：
++日志根目录：
++目录可写性：
++Xcode/clang 或 gcc、Python、Git、make、可选 Rust/Cargo/CMake：
++目标 Multica 工作区/服务位置与版本（不附登录配置）：
++该机执行 agent/runtime（导入时填写，尚未配置可填待配置）：
++包文件名、SHA256、VERSION.json：
++Settings=20d15c7f；产品=79afa3cfd 是否匹配：
++
++| 步骤 | 未执行/通过/失败 | 退出码及证据文件 | 缺项/现象 |
++|---|---|---|---|
++| 外层和内部摘要 | | | |
++| v8 实际 ZIP 离线验证 | | Mac 单包应6场景，mac_native=true，network_calls=0 | 不代表模型下载 |
++| 原生 fixture（逐套） | | | |
++| mquickjs clone_build_run | | result.json、阶段日志；输出85 | |
++| 同产物 run-only | | result.json 仅run阶段；输出85 | |
++| 真实取消/超时（如执行） | | 取消130/超时124及进程/锁证据 | 未测不得填通过 |
++| 可选 ripgrep/fmt/扫描 | | | |
++| canonical受管初始化/后续同步（仅指定操作者） | | 原journal、实例对账 | 其他机器填不适用 |
++| 本机普通实例创建/幂等重试 | | 独立ID/revision、managed_source为空、幂等键 | 不计8/8受管覆盖 |
++| execute 路由/发布版本绑定 | | 当前机器的实际绑定 | |
++| 平台 clone_build_run/run-only | | workflow run/step ID | 本地执行不能代替 |
++| 本地停止/回退（如执行） | | | |
++
++实际项目ref及源码SHA：
++清单/脚本摘要：
++产物路径、架构及版本：
++本地 run-id、result.json 所在附件：
++模板ID/发布版本、实例ID/revision、workflow run/step ID（未产生写原因）：
++canonical受管操作者及原journal位置（不附凭据）：
++本机专用模板key/发布版本/普通实例ID与另一台是否不同：
++运行前后专用agent.runtime_id、online及心跳：
++重绑/删除与相关模板编辑冻结：确认人、开始/结束时间/时区：
++实际领取任务的task/runtime/daemon/机器与阶段日志关联证据：
++是否发生重绑/路由变化/误落另一机，发生时已暂停及处理：
++TES-88对应脚本/源码包的审查结论、固定提交及包SHA：
++Linux源码包SOURCE.json摘要、BUILD.json、go-build-metadata.txt、两次本机构建摘要及实际--version（Mac填不适用）：
++未验证范围/需要工程处理的缺口：
++日志与回执附件列表：
++
++另行汇总的待答项目（已有答案可引用，不重复作答）：
++- Linux virtualbox 入口：保留 Kubernetes / 更正为 VirtualBox。
++- PDFMathTranslate 完整仓库 URL。
++- 旧模型凭据撤销/轮换状态（仅状态，不填值；与首批无需凭据的样本分开）。
++
++确认：本机通过范围只对应以上记录，不代表另一台Mac、其他Linux组合或全部待启用目标已验收。
+\ No newline at end of file
+diff --git a/e2e/delivery/build_linux_cli.py b/e2e/delivery/build_linux_cli.py
+new file mode 100644
+index 000000000..8fdeac2ad
+--- /dev/null
++++ b/e2e/delivery/build_linux_cli.py
+@@ -0,0 +1,90 @@
++"""Build the fixed TES-85 Linux CLI without modifying system installations."""
++import argparse, hashlib, json, os, platform, stat, struct, subprocess
++from pathlib import Path, PurePosixPath
++
++COMMIT = '79afa3cfd14cf0b559324140c881e2ae50ab27e0'
++VERSION = '0.4.42-tes85.79afa3cfd'
++TOOLCHAIN = 'go1.26.6'
++DATE = '2026-09-14T00:00:00Z'
++
++def sha(path):
++    return hashlib.sha256(path.read_bytes()).hexdigest()
++
++
++def verify_source(root, meta):
++    """Verify all inputs, including assembly and arbitrary embed resources."""
++    if meta.get('commit') != COMMIT or meta.get('toolchain') != TOOLCHAIN:
++        raise SystemExit('Unexpected source commit or toolchain')
++    files = meta['files']
++    for name in files:
++        path = PurePosixPath(name)
++        if (not name or chr(92) in name or ':' in name or path.is_absolute()
++                or '..' in path.parts or path.as_posix() != name):
++            raise SystemExit('Unsafe source path: ' + name)
++    expected = {name for name in files if name.startswith('server/')}
++    actual = set()
++    # No suffix filter: embed all: patterns can consume hidden files too.
++    pending = [root / 'server']
++    while pending:
++        path = pending.pop()
++        info = path.lstat()
++        if (stat.S_ISLNK(info.st_mode)
++                or getattr(info, 'st_file_attributes', 0) & 0x400):
++            raise SystemExit('Source link/reparse point: ' + str(path))
++        if stat.S_ISDIR(info.st_mode):
++            pending.extend(path.iterdir())
++        elif stat.S_ISREG(info.st_mode):
++            actual.add(path.relative_to(root).as_posix())
++        else:
++            raise SystemExit('Non-regular source input: ' + str(path))
++    if actual != expected:
++        raise SystemExit('Source input set mismatch; added=' + repr(sorted(actual - expected))
++                         + '; missing=' + repr(sorted(expected - actual)))
++    for name, digest in files.items():
++        path = root / name
++        for parent in (path, *path.parents):
++            if parent == root:
++                break
++            info = parent.lstat()
++            if (stat.S_ISLNK(info.st_mode)
++                    or getattr(info, 'st_file_attributes', 0) & 0x400):
++                raise SystemExit('Source link/reparse point: ' + name)
++        if not path.is_file() or sha(path) != digest:
++            raise SystemExit('Source checksum mismatch: ' + name)
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--arch',choices=['auto','amd64','arm64'],default='auto')
++    p.add_argument('--cross',action='store_true',help='Allow cross compilation; never proves native acceptance')
++    p.add_argument('--offline',action='store_true',help='Require a prewarmed toolchain/module cache')
++    p.add_argument('--output',required=True,help='New output directory; existing artifacts are never overwritten')
++    a=p.parse_args();root=Path(__file__).resolve().parent
++    native={'x86_64':'amd64','amd64':'amd64','aarch64':'arm64','arm64':'arm64'}.get(platform.machine().lower())
++    arch=native if a.arch=='auto' else a.arch
++    if not arch:raise SystemExit('Unsupported architecture; record uname -m for engineering')
++    if not a.cross and (platform.system()!='Linux' or arch!=native):raise SystemExit('Native Linux target required; use --cross only for build verification')
++    meta=json.loads((root/'SOURCE.json').read_text(encoding='utf-8'))
++    verify_source(root, meta)
++    out=Path(a.output).resolve()
++    if out == root or root in out.parents:raise SystemExit('Output must be outside the source package')
++    if out.exists():raise SystemExit('Output already exists; choose a fresh directory')
++    out.mkdir(parents=True)
++    env=os.environ.copy();env.update(GOOS='linux',GOARCH=arch,CGO_ENABLED='0',GOTOOLCHAIN=TOOLCHAIN,GOENV='off',GOWORK='off',GOFLAGS='',GOAMD64='v1',GOARM64='v8.0',GOPRIVATE='',GONOSUMDB='',GONOPROXY='')
++    env['GOPROXY']='off' if a.offline else 'https://proxy.golang.org'
++    env['GOSUMDB']='sum.golang.org'
++    if subprocess.check_output(['go','version'],env=env,text=True).split()[2]!=TOOLCHAIN:raise SystemExit('Exact Go 1.26.6 required')
++    exe=out/'multica'
++    flags=f'-s -w -buildid= -X main.version={VERSION} -X main.commit={COMMIT} -X main.date={DATE}'
++    argv=['go','build','-mod=readonly','-trimpath','-buildvcs=false','-ldflags',flags,'-o',str(exe),'./cmd/multica']
++    subprocess.run(argv,cwd=root/'server',env=env,check=True)
++    for name in ('server/go.mod','server/go.sum'):
++        if sha(root/name)!=meta['files'][name]:raise SystemExit('Dependency lock changed')
++    raw=exe.read_bytes();machine=struct.unpack_from('<H',raw,18)[0]
++    if raw[:4]!=b'\x7fELF' or raw[4:6]!=bytes([2,1]) or machine!=({'amd64':62,'arm64':183}[arch]):raise SystemExit('ELF architecture mismatch')
++    metadata=subprocess.check_output(['go','version','-m',str(exe)],env=env,text=True)
++    (out/'go-build-metadata.txt').write_text(metadata,encoding='utf-8')
++    result={'commit':COMMIT,'version':VERSION,'toolchain':TOOLCHAIN,'os':'linux','arch':arch,'cgo':False,'source_manifest_sha256':sha(root/'SOURCE.json'),'binary_sha256':sha(exe),'bytes':len(raw),'native_execution':'not_run','build_host':platform.system(),'elf_machine':machine}
++    (out/'BUILD.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
++    print(json.dumps(result))
++
++if __name__=='__main__':main()
+\ No newline at end of file
+diff --git a/e2e/delivery/prepare_mac_routes.py b/e2e/delivery/prepare_mac_routes.py
+new file mode 100644
+index 000000000..7bdfdc7f1
+--- /dev/null
++++ b/e2e/delivery/prepare_mac_routes.py
+@@ -0,0 +1,39 @@
++"""Prepare two explicit Mac acceptance routes locally; makes no platform writes."""
++import argparse,copy,hashlib,json,uuid
++from pathlib import Path,PurePosixPath
++
++def prepare(config,template):
++    uuid.UUID(config['workspace_id'])
++    machines=config['machines']
++    if set(machines)!={'studio','book'}:raise ValueError('Exactly studio and book required')
++    for field in ['agent_id','runtime_id']:
++        values=[str(uuid.UUID(machines[k][field])) for k in machines]
++        if len(set(values))!=2:raise ValueError('Distinct '+field+' required for each Mac')
++    results={}
++    for machine,record in machines.items():
++        host=record['host_config']
++        if not PurePosixPath(host).is_absolute() or any(c in host for c in '\r\n\0'):raise ValueError('Absolute single-line Mac host config path required')
++        body=copy.deepcopy(template);body['schema_version']='1'
++        body['key']='tes85-macos-'+machine+'-acceptance'
++        body['name']='TES85 Mac '+machine+' native acceptance'
++        definition=body['definition']
++        nodes=[n for n in definition['nodes'] if n['type']=='agent']
++        if len(nodes)!=1:raise ValueError('Expected one execution node')
++        nodes[0]['routing']={'strategy':'explicit','agent_id':record['agent_id']}
++        nodes[0]['instruction']+='\nAcceptance machine: '+machine+'. Expected runtime: '+record['runtime_id']+'. Use only host config '+host+'. Stop if the machine, package digest or host binding differs; do not substitute another host or install tools.'
++        digest=hashlib.sha256(json.dumps(definition,sort_keys=True,separators=(',',':')).encode()).hexdigest()
++        results[machine]={'create_request':body,'definition_sha256':digest,'expected_agent_id':record['agent_id'],'expected_runtime_id':record['runtime_id'],'host_config':host,'instance_key_prefix':'tes85-native-v8:'+machine+':','managed_source_expected':'','ready_for_platform_execution':False}
++    return results
++
++def main():
++    p=argparse.ArgumentParser(description=__doc__)
++    p.add_argument('--config',required=True);p.add_argument('--template',required=True);p.add_argument('--output',required=True)
++    a=p.parse_args();config=json.loads(Path(a.config).read_text(encoding='utf-8'));template=json.loads(Path(a.template).read_text(encoding='utf-8'))
++    result=prepare(config,template);out=Path(a.output);out.mkdir(parents=True,exist_ok=False)
++    for machine,row in result.items():
++        (out/(machine+'-template.create.json')).write_text(json.dumps(row['create_request'],indent=2),encoding='utf-8')
++        (out/(machine+'-template.validate.json')).write_text(json.dumps({'schema_version':'1','definition':row['create_request']['definition']},indent=2),encoding='utf-8')
++    (out/'routing-plan.json').write_text(json.dumps({'workspace_id':config['workspace_id'],'routes':result,'platform_writes':0,'execution_gate':'Verify live runtime, agent, published version, saved inputs and native receipt before run'},indent=2),encoding='utf-8')
++    print(json.dumps({'routes':2,'platform_writes':0,'ready_for_platform_execution':False}))
++
++if __name__=='__main__':main()
+\ No newline at end of file
+diff --git a/e2e/delivery/test_linux_build.py b/e2e/delivery/test_linux_build.py
+new file mode 100644
+index 000000000..c83727a26
+--- /dev/null
++++ b/e2e/delivery/test_linux_build.py
+@@ -0,0 +1,92 @@
++"""Source verification must reject changes before invoking Go or creating output."""
++import hashlib
++import json
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import patch
++
++import build_linux_cli as builder
++
++
++class SourceGateTests(unittest.TestCase):
++    def setUp(self):
++        self.temp = tempfile.TemporaryDirectory()
++        self.addCleanup(self.temp.cleanup)
++        self.root = Path(self.temp.name) / 'package'
++        self.root.mkdir()
++        (self.root / 'server/assets').mkdir(parents=True)
++        for name, data in {'server/go.mod': b'module fixture',
++                           'server/main.go': b'package main',
++                           'server/assets/base.txt': b'embedded',
++                           'LICENSE': b'license'}.items():
++            (self.root / name).write_bytes(data)
++        self.meta = {'commit': builder.COMMIT, 'toolchain': builder.TOOLCHAIN,
++                     'files': {p.relative_to(self.root).as_posix():
++                               hashlib.sha256(p.read_bytes()).hexdigest()
++                               for p in self.root.rglob('*') if p.is_file()}}
++        (self.root / 'SOURCE.json').write_text(json.dumps(self.meta))
++        self.out = self.root.parent / 'output'
++
++    def reject_before_go(self):
++        with patch.object(builder, '__file__', str(self.root / 'build_linux_cli.py')), \
++                patch('sys.argv', ['builder', '--cross', '--arch', 'amd64',
++                                   '--output', str(self.out)]), \
++                patch.object(builder.subprocess, 'check_output') as check, \
++                patch.object(builder.subprocess, 'run') as run:
++            with self.assertRaises(SystemExit):
++                builder.main()
++            check.assert_not_called()
++            run.assert_not_called()
++        self.assertFalse(self.out.exists())
++
++    def test_original_inputs(self):
++        builder.verify_source(self.root, self.meta)
++
++    def test_unlisted_build_inputs(self):
++        for name in ['extra.go', 'extra_linux_arm64.go', 'extra.s', 'extra.S',
++                     'extra.h', 'extra.c', 'extra.syso', 'go.work',
++                     'assets/new.txt', 'assets/.hidden', 'assets/nested/resource',
++                     'vendor/modules.txt', 'nested/go.mod']:
++            with self.subTest(name=name):
++                extra = self.root / 'server' / name
++                extra.parent.mkdir(parents=True, exist_ok=True)
++                extra.write_bytes(b'unlisted input')
++                self.reject_before_go()
++                extra.unlink()
++
++    def test_missing_file(self):
++        (self.root / 'server/main.go').unlink()
++        self.reject_before_go()
++
++    def test_changed_file(self):
++        (self.root / 'server/assets/base.txt').write_bytes(b'changed')
++        self.reject_before_go()
++
++    def test_unsafe_manifest_paths(self):
++        for name in ['../outside', '/absolute', 'server/../LICENSE', 'C:/outside',
++                     'server\\\\main.go']:
++            with self.subTest(name=name):
++                meta = dict(self.meta, files=dict(self.meta['files'], **{name: '0' * 64}))
++                with self.assertRaises(SystemExit):
++                    builder.verify_source(self.root, meta)
++
++    def test_output_inside_package(self):
++        self.out = self.root / 'server' / 'output'
++        self.reject_before_go()
++
++    def test_directory_symlink(self):
++        target = self.root.parent / 'external'
++        target.mkdir()
++        link = self.root / 'server' / 'external'
++        try:
++            link.symlink_to(target, target_is_directory=True)
++        except OSError:
++            self.skipTest('Host does not permit symlink creation')
++        self.reject_before_go()
++        link.unlink()
++
++
++if __name__ == '__main__':
++    unittest.main()
++
+diff --git a/e2e/delivery/test_mac_routes.py b/e2e/delivery/test_mac_routes.py
+new file mode 100644
+index 000000000..951d12711
+--- /dev/null
++++ b/e2e/delivery/test_mac_routes.py
+@@ -0,0 +1,26 @@
++import copy,unittest
++from prepare_mac_routes import prepare
++class RouteTests(unittest.TestCase):
++ def setUp(self):
++  self.c={'workspace_id':'10000000-0000-0000-0000-000000000001','machines':{'studio':{'agent_id':'20000000-0000-0000-0000-000000000001','runtime_id':'30000000-0000-0000-0000-000000000001','host_config':'/Users/operator/studio-host.json'},'book':{'agent_id':'20000000-0000-0000-0000-000000000002','runtime_id':'30000000-0000-0000-0000-000000000002','host_config':'/Users/operator/book-host.json'}}}
++  self.t={'definition':{'schema_version':2,'nodes':[{'type':'agent','instruction':'run reviewed target','routing':{'strategy':'capability','capability':'settings-macos-runner'}}]}}
++ def test_routes_explicit_and_source_unchanged(self):
++  before=copy.deepcopy(self.t);r=prepare(self.c,self.t)
++  self.assertEqual(before,self.t)
++  for k,v in r.items():
++   self.assertEqual({'strategy':'explicit','agent_id':self.c['machines'][k]['agent_id']},v['create_request']['definition']['nodes'][0]['routing'])
++   self.assertFalse(v['ready_for_platform_execution']);self.assertFalse(v['instance_key_prefix'].startswith('buildcatalog:'))
++  self.assertNotEqual(r['studio']['definition_sha256'],r['book']['definition_sha256'])
++ def test_shared_runtime_rejected(self):
++  self.c['machines']['book']['runtime_id']=self.c['machines']['studio']['runtime_id']
++  with self.assertRaises(ValueError):prepare(self.c,self.t)
++ def test_shared_agent_rejected(self):
++  self.c['machines']['book']['agent_id']=self.c['machines']['studio']['agent_id']
++  with self.assertRaises(ValueError):prepare(self.c,self.t)
++ def test_invalid_host_rejected(self):
++  self.c['machines']['studio']['host_config']='relative.json'
++  with self.assertRaises(ValueError):prepare(self.c,self.t)
++ def test_missing_identity_rejected(self):
++  self.c['machines']['book']['agent_id']=''
++  with self.assertRaises(ValueError):prepare(self.c,self.t)
++if __name__=='__main__':unittest.main()
+\ No newline at end of file

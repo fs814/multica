@@ -1,0 +1,61 @@
+{
+  "commit": "f79f17ceaae0d269967437cc4c2de0496d8e482e",
+  "handoff_sha256": "c4de68646968c96859202386a3d1b32620fa34cf7290b95c87fb46b4a1c2ba9e",
+  "source_zip_sha256_unchanged": "7bdd511c78a089a7863539fe2ec3f1fd70c9d17903ffb54a785457b67510a108",
+  "manifest_entries_verified": 25,
+  "commands": [
+    {
+      "command": "python -m unittest discover -s . -p test_mac_routes.py -v",
+      "cwd": "fresh handoff extraction root",
+      "exit_code": 0,
+      "tests": 5,
+      "log": "package-root-1.log"
+    },
+    {
+      "command": "python -m unittest discover -s . -p 'test_*.py' -v",
+      "cwd": "fresh handoff extraction root",
+      "exit_code": 0,
+      "tests": 12,
+      "log": "package-root-2.log"
+    }
+  ],
+  "unchanged_r1_and_provenance_files": [
+    "build_linux_cli.py",
+    "prepare_mac_routes.py",
+    "test_linux_build.py",
+    "test_mac_routes.py",
+    "evidence/actual-handoff-tests.log",
+    "evidence/actual-v8-routing.log",
+    "evidence/actual-zip-rejections.json",
+    "evidence/build-a-amd64.log",
+    "evidence/build-a-arm64.log",
+    "evidence/build-b-amd64.log",
+    "evidence/build-b-arm64.log",
+    "evidence/linux-reproducibility.json",
+    "provenance/TES-85-v8-Mac-DevCloud-user-guide-r2.md",
+    "provenance/TES-85-v8-result-receipt-r2.md"
+  ],
+  "changed_existing_entries": [
+    "MAC-ROUTING.md",
+    "MAC-USER-GUIDE-r3.md",
+    "README.md",
+    "REPORT.md",
+    "SHA256.json",
+    "VERSION.json"
+  ],
+  "added_entries": [
+    "helpers-r4-docs.patch",
+    "provenance/helpers-r3.patch",
+    "provenance/r3-REPORT.md"
+  ],
+  "removed_entries": [
+    "helpers-r3.patch"
+  ],
+  "platform_writes": 0,
+  "native_acceptance": "not_run",
+  "r2_independent_review": "pending",
+  "all_helpers_patch_apply_check": {
+    "baseline": "d4f0733f0",
+    "exit_code": 0
+  }
+}
