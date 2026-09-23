@@ -31,4 +31,14 @@ Windows 检查通过已初始化的同一个 Codex app-server 调用 `command/ex
 
 回归覆盖：实际容量报错与旧分类、不可重试错误、次数预算与延迟、沙箱成功/失败/错误 1385/取消/非法响应、无 Go 保留 bundle、Windows 文件锁、替换失败保留旧文件、daemon 版本差异时不停止活动任务。
 
+验证结果：
+
+- Node 打包与 daemon 启动助手测试：18/18 通过。
+- Go 分类、Codex 专项和服务端重试专项通过：`go test ./pkg/taskfailure ./pkg/agent ./internal/service -run 'Test(Classify|SelectedModelCapacity|NormalizeDaemonReason|Codex|CapacityRetryBudgetAndCooldown|TaskFailureClassifiers|ProviderNetworkRetry|Retry)' -count=1`。
+- Windows 模拟 app-server 集成测试确认：错误 1385 后不会调用 `thread/start` 或 `turn/start`；已有超时和取消场景的进程树清理测试通过。
+- 扩大运行整个 agent 包时仍有其他 Windows 用例失败，包括 Dim 子进程测试、ExplainExecError 的 POSIX 命令字符串预期、部分其他 CLI 的模拟可执行文件/参数文件缺失。本次没有扩大范围修复这些项目，也不宣称全量测试通过。
+- 没有进行新代码的真实模型端到端验证，也没有部署到正在运行的 daemon。模拟测试不消耗模型额度。
+
+仍需人工处理的情况：持续容量不足、真实模型不可用、缺失 Go/PATH、Windows 登录权限或文件锁不会被“自动修好”。容量重试耗尽后应明确失败；更换模型、修改登录策略或采用隔离较弱的 sandbox 模式仍须由用户选择。启动日志中的 `where` 不可用和重复 PATH 是环境问题，本次没有改写全局 PATH。
+
 参考：[OpenAI Windows 沙箱故障排查](https://learn.chatgpt.com/docs/windows/windows-sandbox#troubleshooting-and-faq)、[Codex command/exec](https://learn.chatgpt.com/docs/app-server#command-execution)。

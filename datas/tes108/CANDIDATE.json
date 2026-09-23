@@ -1,0 +1,12 @@
+{
+  "issue": "TES-108",
+  "sha": "4fc4d1ff2e9ab0688de33732f6c682ff6209cb64",
+  "tree": "c8f392ca72a405abd4cc77f828136fefcc3ead79",
+  "source_modified": false,
+  "new_source_candidate": false,
+  "reason": "No candidate-introduced source defect established; environment-only mitigations and precise blockers delivered.",
+  "apply_allowed": false,
+  "created_at": "2026-09-16T14:17:39.016617+00:00",
+  "toolchain_mitigation": "Prepend the installed GCC sibling bin directory to the test child PATH; do not alter system PATH.",
+  "source_patch": "candidate-to-itself.patch (zero bytes); original upstream-to-candidate patch and bundle included."
+}
