@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -822,9 +823,14 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("pprof server starting", "addr", profilingServer.Addr)
-		if err := profilingServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		listener, err := net.Listen("tcp", profilingServer.Addr)
+		if err != nil {
 			slog.Error("pprof server disabled after startup error", "error", err)
+			return
+		}
+		slog.Info("pprof server listening", "addr", listener.Addr().String())
+		if err := profilingServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			slog.Error("pprof server stopped after serve error", "error", err)
 		}
 	}()
 

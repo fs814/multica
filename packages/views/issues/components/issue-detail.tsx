@@ -82,6 +82,8 @@ import { useNewRunIds } from "./use-run-comment-motion";
 import { AgentRunComment, CommentCard } from "./comment-card";
 import { EMPTY_COMMENT_RUNS, buildCommentRunView, orderTimelineWithRuns, type CommentRun } from "./comment-runs";
 import { issueTasksOptions } from "@multica/core/issues/queries";
+import { runtimeListOptions } from "@multica/core/runtimes";
+import { resolveIssueMachine } from "./issue-machine";
 import { SourceContextBadge } from "./source-context-viewer";
 import { RevisionConflictCompare } from "./revision-conflict-compare";
 import { CommentInput } from "./comment-input";
@@ -1147,6 +1149,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
   // Workspace owners and admins moderate any comment authored by anyone
   // (mirrors backend `comment.go:507-512`). Computed here so per-comment
   // rendering doesn't have to re-derive it for every row.
@@ -1431,6 +1434,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   } = useIssueTimeline(id, user?.id);
 
   const { data: commentTasks } = useQuery(issueTasksOptions(id));
+  const issueMachine = issue ? resolveIssueMachine(issue, agents, runtimes, commentTasks ?? []) : null;
   const enteringRunIds = useNewRunIds(id, commentTasks);
   const previousCommentRuns = useRef(new Map<string, CommentRun[]>());
   const { runs: commentRuns, timeline: displayTimeline, standaloneRuns } = useMemo(() => {
@@ -2293,6 +2297,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
             <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} onUpdate={handleUpdateField} align="start" />
+          </PropRow>
+          <PropRow label={t(($) => $.detail.prop_machine)}>
+            <span className="px-2 text-caption" title={issueMachine?.source === "last_run" ? t(($) => $.detail.machine_last_run) : issueMachine?.source === "assigned" ? t(($) => $.detail.machine_assigned) : undefined}>
+              {issueMachine?.name ?? (issueMachine?.source === "unavailable" ? t(($) => $.detail.machine_unavailable) : t(($) => $.detail.machine_not_selected))}
+            </span>
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_project)}>
             <ProjectPicker

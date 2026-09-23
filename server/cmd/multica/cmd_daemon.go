@@ -94,6 +94,7 @@ var daemonDiskUsageCmd = &cobra.Command{
 func init() {
 	f := daemonStartCmd.Flags()
 	f.Bool("foreground", false, "Run in the foreground instead of background")
+	f.Bool("allow-offline", false, "Run local daemon endpoints without a Center; connect when profile settings and login become available")
 	f.String("daemon-id", "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
 	f.String("device-name", "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
 	f.String("runtime-name", "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
@@ -118,6 +119,7 @@ func init() {
 	// restart shares all the same flags as start
 	rf := daemonRestartCmd.Flags()
 	rf.Bool("foreground", false, "Run in the foreground instead of background")
+	rf.Bool("allow-offline", false, "Run local daemon endpoints without a Center; connect when profile settings and login become available")
 	rf.String("daemon-id", "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
 	rf.String("device-name", "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
 	rf.String("runtime-name", "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
@@ -578,8 +580,10 @@ func runDaemonBackground(cmd *cobra.Command) error {
 		return fmt.Errorf("%s is already running (pid %v). Use 'daemon restart' to restart it", label, int(pid))
 	}
 
-	if err := requireDaemonAuth(profile); err != nil {
-		return err
+	if offline, _ := cmd.Flags().GetBool("allow-offline"); !offline {
+		if err := requireDaemonAuth(profile); err != nil {
+			return err
+		}
 	}
 
 	// Resolve current executable so the foreground child reuses this binary.
@@ -857,6 +861,9 @@ func readLogTailSince(logPath string, sinceOffset int64, maxLines int) []string 
 // buildDaemonStartArgs constructs args for the background child process.
 func buildDaemonStartArgs(cmd *cobra.Command) []string {
 	args := []string{"daemon", "start", "--foreground"}
+	if offline, _ := cmd.Flags().GetBool("allow-offline"); offline {
+		args = append(args, "--allow-offline")
+	}
 
 	if v := flagString(cmd, "daemon-id"); v != "" {
 		args = append(args, "--daemon-id", v)
@@ -1072,11 +1079,38 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	}
 
 	overrides.NoTaskClaims, _ = cmd.Flags().GetBool("no-task-claims")
+	allowOffline, _ := cmd.Flags().GetBool("allow-offline")
+	overrides.AllowNoAgents = allowOffline
 	cfg, err := daemon.LoadConfig(overrides)
 	if err != nil {
 		return err
 	}
 	cfg.CLIVersion = version
+	cfg.AllowOffline = allowOffline
+	if allowOffline {
+		// No implicit localhost/public fallback while waiting for configuration.
+		cfg.ServerBaseURL = ""
+		configPath, err := cli.CLIConfigPathForProfile(profile)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			_, writeErr := file.WriteString("{}\n")
+			closeErr := file.Close()
+			if writeErr != nil {
+				return writeErr
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		} else if !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	}
 	// Set by the Electron Desktop app when it spawns the CLI so the server
 	// can mark those runtimes as "managed" and hide CLI self-update UI.
 	cfg.LaunchedBy = os.Getenv("MULTICA_LAUNCHED_BY")

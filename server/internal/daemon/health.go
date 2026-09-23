@@ -18,9 +18,12 @@ import (
 
 // HealthResponse is returned by the daemon's local health endpoint.
 type HealthResponse struct {
-	NoTaskClaims bool   `json:"no_task_claims"`
-	Status       string `json:"status"`
-	PID          int    `json:"pid"`
+	OfflineReason   string `json:"offline_reason,omitempty"`
+	TaskReady       bool   `json:"task_ready"`
+	CenterConnected bool   `json:"center_connected"`
+	NoTaskClaims    bool   `json:"no_task_claims"`
+	Status          string `json:"status"`
+	PID             int    `json:"pid"`
 	// OS is the daemon's runtime.GOOS. The desktop app compares it against its
 	// own host OS to detect a daemon it cannot manage — e.g. a Windows desktop
 	// reaching a Linux daemon inside WSL2 over localhost forwarding. The
@@ -320,11 +323,23 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 		// as ready — they gate on this status. Consumers that only know
 		// "running" (older CLI/desktop) safely treat "starting" as not-ready.
 		status := "starting"
+		serverURL := ""
+		offlineReason := ""
+		if offline := d.offline.Load(); offline != nil {
+			status = "running"
+			serverURL = offline.ServerURL
+			offlineReason = offline.Reason
+		} else {
+			serverURL = d.cfg.ServerBaseURL
+		}
 		if d.ready.Load() {
 			status = "running"
 		}
 
 		resp := HealthResponse{
+			OfflineReason:         offlineReason,
+			TaskReady:             d.ready.Load(),
+			CenterConnected:       d.centerConnected.Load(),
 			NoTaskClaims:          d.cfg.NoTaskClaims,
 			Status:                status,
 			PID:                   os.Getpid(),
@@ -334,7 +349,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			LaunchedBy:            d.cfg.LaunchedBy,
 			DaemonID:              d.cfg.DaemonID,
 			DeviceName:            d.cfg.DeviceName,
-			ServerURL:             d.cfg.ServerBaseURL,
+			ServerURL:             serverURL,
 			CLIVersion:            d.cfg.CLIVersion,
 			ActiveTaskCount:       d.activeTasks.Load(),
 			RunningTaskCount:      d.runningTasks.Load(),
@@ -385,6 +400,9 @@ func (d *Daemon) serveHealth(ctx context.Context, ln net.Listener, startedAt tim
 	mux.HandleFunc("/health", d.healthHandler(startedAt))
 	mux.HandleFunc("/shutdown", d.shutdownHandler())
 	mux.HandleFunc("/repo/checkout", d.repoCheckoutHandler())
+	mux.HandleFunc("/local/issues", d.localIssuesHandler())
+	mux.HandleFunc("/local/issues/", d.localIssueHandler())
+	mux.HandleFunc("/local/capabilities", d.localCapabilitiesHandler())
 
 	srv := &http.Server{Handler: mux}
 

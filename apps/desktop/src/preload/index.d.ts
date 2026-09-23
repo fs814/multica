@@ -19,6 +19,12 @@ import type {
 import type { TabSelectionShortcutKey } from "../shared/main-renderer-messages";
 
 interface DesktopAPI {
+  center: {
+    get: () => Promise<import('../shared/center-settings').CenterSettingsState>;
+    save: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
+    test: (url: string) => Promise<import('../shared/center-settings').CenterTestResult>;
+    connect: () => Promise<void>;
+  };
   /** App version + normalized OS, captured synchronously at preload time. */
   appInfo: {
     version: string;
@@ -129,6 +135,10 @@ type DaemonReauthResult =
   | { ok: false; reason: "transient"; message: string };
 
 interface DaemonAPI {
+  listLocalIssues: () => Promise<import("../shared/local-issue").LocalIssue[]>;
+  getLocalCapabilities: (provider: string) => Promise<import("../shared/local-issue").LocalCapabilities>;
+  getLocalIssue: (id: string) => Promise<import("../shared/local-issue").LocalIssue>;
+  createLocalIssue: (request: import("../shared/local-issue").CreateLocalIssueRequest) => Promise<import("../shared/local-issue").LocalIssue>;
   start: () => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   restart: () => Promise<{ success: boolean; error?: string }>;

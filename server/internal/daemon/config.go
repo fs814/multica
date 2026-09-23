@@ -100,6 +100,7 @@ var DefaultGCArtifactPatterns = []string{"node_modules", ".next", ".turbo"}
 
 // Config holds all daemon configuration.
 type Config struct {
+	AllowOffline                   bool // serve local control endpoints before Center configuration/authentication
 	NoTaskClaims                   bool // startup-only: keep control/memory channels, never claim business tasks
 	ServerBaseURL                  string
 	DaemonID                       string

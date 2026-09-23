@@ -38,6 +38,15 @@ if (import.meta.env.DEV && import.meta.env.VITE_REACT_GRAB) {
   document.head.appendChild(grab);
 }
 
+const config = window.desktopAPI.runtimeConfig;
+if (config.ok) {
+  const oldOrigin = localStorage.getItem('multica_center_origin');
+  if (oldOrigin !== config.config.apiUrl) {
+    localStorage.removeItem('multica_token');
+  }
+  localStorage.setItem('multica_center_origin', config.config.apiUrl);
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <AppCrashBoundary>
     <App />

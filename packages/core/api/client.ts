@@ -1505,11 +1505,11 @@ export class ApiClient {
   }
 
   // Agents
-  async listAgents(params?: { workspace_id?: string; include_archived?: boolean }): Promise<Agent[]> {
+  async listAgents(params?: { workspace_id?: string; include_archived?: boolean }, workspaceSlug?: string): Promise<Agent[]> {
     const search = new URLSearchParams();
     if (params?.workspace_id) search.set("workspace_id", params.workspace_id);
     if (params?.include_archived) search.set("include_archived", "true");
-    return this.fetch(`/api/agents?${search}`);
+    return this.fetch(`/api/agents?${search}`, { headers: workspaceHeader(workspaceSlug) });
   }
 
   async getAgent(id: string): Promise<Agent> {

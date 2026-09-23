@@ -378,6 +378,7 @@ type repoCacheBackend interface {
 
 // Daemon is the local agent runtime that polls for and executes tasks.
 type Daemon struct {
+	offline             atomic.Pointer[offlineState]
 	debugStopWaitBudget time.Duration // zero uses the production terminal handoff budget
 
 	cfg        Config
@@ -533,8 +534,10 @@ type Daemon struct {
 	pendingWorkInflight map[string]struct{}  // runtime_id -> hint-driven heartbeat in flight
 	pendingWorkLastRun  map[string]time.Time // runtime_id -> when the last hint-driven heartbeat started
 
-	cancelFunc context.CancelFunc // set by Run(); called by triggerRestart
-	rootCtx    context.Context    // set by Run(); used by long-running recoveries that must survive per-runtime ctx cancellation
+	cancelFunc      context.CancelFunc // set by Run(); called by triggerRestart
+	localIssueToken string
+	localIssuesMu   sync.Mutex
+	rootCtx         context.Context // set by Run(); used by long-running recoveries that must survive per-runtime ctx cancellation
 	// restartMu guards restartBinary. Two goroutines can reach triggerRestart —
 	// the server-triggered handleUpdate and the autoUpdateLoop — and
 	// trySelfReload reads RestartBinary() from the latter to avoid racing the
@@ -560,6 +563,7 @@ type Daemon struct {
 	// /health dimensions and must never replace activeTasks in safety barriers.
 	runningTasks      atomic.Int64
 	resourceWaitTasks atomic.Int64
+	centerConnected   atomic.Bool
 	ready             atomic.Bool // false until preflight completes; gates /health status (starting -> running)
 	// reloadPendingReason explains why a confirmed multica version change hasn't
 	// restarted the daemon yet (a task was running at the barrier check). Set
@@ -1967,6 +1971,7 @@ func (d *Daemon) clearWSHeartbeatAcks() {
 func (d *Daemon) Run(ctx context.Context) error {
 	// Wrap context so handleUpdate can cancel the daemon for restart.
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	d.cancelFunc = cancel
 	d.rootCtx = ctx
 
@@ -1975,6 +1980,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer healthLn.Close()
 
 	agentNames := make([]string, 0, len(d.agents()))
 	for name := range d.agents() {
@@ -2018,30 +2024,40 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := execenv.EnsureWorkspacesRootMarker(d.cfg.WorkspacesRoot); err != nil {
 		d.logger.Warn("workspaces root marker not written; CLI fail-closed guard limited to task workdirs", "error", err)
 	}
-
-	// Load auth token from CLI config.
-	if err := d.resolveAuth(); err != nil {
-		return err
+	if err := d.initLocalIssues(); err != nil {
+		return fmt.Errorf("initialize local issues: %w", err)
 	}
 
-	// Bind and serve the health port before the (potentially slow) preflight,
-	// so `daemon start` and the desktop see a live "starting" daemon instead
-	// of connection-refused while preflightAuth runs. preflightAuth's initial
-	// workspace sync detects every configured agent's version by exec'ing it,
-	// which on a cold cache with many agents takes ~20s. Liveness (port up) and
-	// readiness (status:"running") are reported separately: /health stays
-	// "starting" until d.ready is set after preflight, so a slow or *failing*
-	// preflight is never misreported as a started daemon. resolveAuth has
-	// already run, so a missing token still fails fast before we begin serving.
-	go d.serveHealth(ctx, healthLn, time.Now())
+	if d.cfg.AllowOffline {
+		d.offline.Store(&offlineState{Reason: "unconfigured"})
+		go d.serveHealth(ctx, healthLn, time.Now())
+		if err := d.connectWhenConfigured(ctx, time.Second); err != nil {
+			return err
+		}
+	} else {
+		if err := d.resolveAuth(); err != nil {
+			return err
+		}
 
-	// Renew the PAT before the first API call, then do the initial
-	// workspace sync. Both steps live in preflightAuth so the ordering
-	// invariant (renew first) is enforced at one site instead of
-	// scattered into Run, and tests can exercise the failure paths
-	// without the full Run setup.
-	if err := d.preflightAuth(ctx); err != nil {
-		return err
+		// Bind and serve the health port before the (potentially slow) preflight,
+		// so `daemon start` and the desktop see a live "starting" daemon instead
+		// of connection-refused while preflightAuth runs. preflightAuth's initial
+		// workspace sync detects every configured agent's version by exec'ing it,
+		// which on a cold cache with many agents takes ~20s. Liveness (port up) and
+		// readiness (status:"running") are reported separately: /health stays
+		// "starting" until d.ready is set after preflight, so a slow or *failing*
+		// preflight is never misreported as a started daemon. resolveAuth has
+		// already run, so a missing token still fails fast before we begin serving.
+		go d.serveHealth(ctx, healthLn, time.Now())
+
+		// Renew the PAT before the first API call, then do the initial
+		// workspace sync. Both steps live in preflightAuth so the ordering
+		// invariant (renew first) is enforced at one site instead of
+		// scattered into Run, and tests can exercise the failure paths
+		// without the full Run setup.
+		if err := d.preflightAuth(ctx); err != nil {
+			return err
+		}
 	}
 
 	// Deregister runtimes on shutdown (uses a fresh context since ctx will be cancelled).

@@ -1,5 +1,7 @@
+import { I18nProvider } from "@multica/core/i18n/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { CenterConnectionPanel, CenterSettingsAccess } from "./components/center-settings-tab";
 import { CoreProvider } from "@multica/core/platform";
 import { pickLocale, type SupportedLocale } from "@multica/core/i18n";
 import { useAuthStore } from "@multica/core/auth";
@@ -17,6 +19,8 @@ import { DesktopAuthRecoveryPage } from "./pages/auth-recovery";
 import { DesktopShell } from "./components/desktop-layout";
 import { UpdateNotification } from "./components/update-notification";
 import { IssueWindow } from "./components/issue-window";
+import { DesktopModePicker } from "./components/desktop-mode-picker";
+import { LocalDaemonMode } from "./components/local-daemon-mode";
 import { useTabStore } from "./stores/tab-store";
 import { useWindowOverlayStore } from "./stores/window-overlay-store";
 import { useOpenSettingsShortcut } from "./hooks/use-open-settings-shortcut";
@@ -103,6 +107,14 @@ function IssueWindowContent() {
   return user ? <IssueWindow context={context} /> : <DesktopLoginPage />;
 }
 
+// Only read Center auth after CoreProvider has registered its store. The
+// mode picker and offline local mode render without CoreProvider by design.
+function CenterIdentityBridge({ onChange }: { onChange: (userId: string | null) => void }) {
+  const userId = useAuthStore(state => state.user?.id ?? null);
+  useEffect(() => onChange(userId), [userId, onChange]);
+  return null;
+}
+
 function AppContent() {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
@@ -126,7 +138,9 @@ function AppContent() {
   // can pick the matching CLI profile (server_url from ~/.multica config).
   useEffect(() => {
     if (!runtimeConfig) return;
-    window.daemonAPI.setTargetApiUrl(runtimeConfig.apiUrl);
+    void window.daemonAPI.setTargetApiUrl(runtimeConfig.apiUrl).catch(error => {
+      console.warn("Could not connect local daemon to the selected center", error);
+    });
   }, [runtimeConfig]);
 
   // Listen for invite IDs delivered via deep link (multica://invite/<id>).
@@ -380,6 +394,14 @@ export default function App() {
   const { version, os } = window.desktopAPI.appInfo;
   const systemLocale = window.desktopAPI.systemLocale;
   const runtimeConfigResult = window.desktopAPI.runtimeConfig;
+  const [desktopMode, setDesktopMode] = useState<"choose" | "local" | "center">("choose");
+  const [centerUserId, setCenterUserId] = useState<string | null>(null);
+  const centerUrl = runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : null;
+  // The daemon can connect to Center in the background even while local
+  // issues are open.
+  useEffect(() => {
+    if (centerUrl) void window.daemonAPI.setTargetApiUrl(centerUrl).catch(console.warn);
+  }, [centerUrl]);
   // The fallback keeps renderer HMR safe while a main/preload rebuild is
   // restarting Electron; packaged builds always expose windowContext.
   const windowContext =
@@ -454,7 +476,7 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      {runtimeConfigResult.ok ? (
+      {runtimeConfigResult.ok && (windowContext.kind === "issue" || desktopMode === "center") ? (
         <CoreProvider
           apiBaseUrl={runtimeConfigResult.config.apiUrl}
           wsUrl={runtimeConfigResult.config.wsUrl}
@@ -470,6 +492,13 @@ export default function App() {
           localeAdapter={localeAdapter}
         >
           <DesktopAuthSessionBridge />
+          <CenterIdentityBridge onChange={setCenterUserId} />
+          {windowContext.kind === "main" && <CenterConnectionPanel />}
+          {windowContext.kind === "main" && (
+            <button type="button" className="fixed right-4 top-4 z-50 rounded-md border bg-background px-3 py-2 text-caption shadow-sm" onClick={() => setDesktopMode("choose")}>
+              Choose mode
+            </button>
+          )}
           {windowContext.kind === "main" && <DiagnosticRouteReporter />}
           {windowContext.kind === "main" && (
             <DesktopClientUsageReporter
@@ -483,7 +512,20 @@ export default function App() {
           )}
         </CoreProvider>
       ) : (
-        <BlockingRuntimeConfigError message={runtimeConfigResult.error.message} />
+        <I18nProvider locale={locale} resources={resources}>
+          {windowContext.kind === "issue" ? (
+            <><BlockingRuntimeConfigError message={runtimeConfigResult.ok ? "This issue requires Center" : runtimeConfigResult.error.message} /><CenterSettingsAccess /></>
+          ) : desktopMode === "local" ? (
+            <LocalDaemonMode centerConfigured={runtimeConfigResult.ok} centerUserId={centerUserId} onOpenCenter={() => setDesktopMode("center")} onBack={() => setDesktopMode("choose")} />
+          ) : (
+            <DesktopModePicker
+              centerConfigured={runtimeConfigResult.ok}
+              centerError={runtimeConfigResult.ok || runtimeConfigResult.error.code === "center_unconfigured" ? undefined : runtimeConfigResult.error.message}
+              onLocal={() => setDesktopMode("local")}
+              onCenter={() => setDesktopMode("center")}
+            />
+          )}
+        </I18nProvider>
       )}
       <Toaster />
       {windowContext.kind === "main" && <UpdateNotification />}

@@ -15,7 +15,7 @@ import type {
   DaemonPrefs,
   LocalRuntimeProbe,
 } from "../shared/daemon-types";
-import { daemonStatusAlive } from "../shared/daemon-types";
+import { daemonStatusAlive, daemonAcceptsInitialCenter } from "../shared/daemon-types";
 import { ensureManagedCli, managedCliPath } from "./cli-bootstrap";
 import { decideVersionAction } from "./version-decision";
 import {
@@ -78,6 +78,7 @@ interface ActiveProfile {
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 let disposeLogTail: (() => void) | null = null;
 let currentState: DaemonStatus["state"] = "installing_cli";
+let cliSetupState: "installing_cli" | "cli_not_found" | null = "installing_cli";
 let getMainWindow: () => BrowserWindow | null = () => null;
 let statusPollInProgress = false;
 let cachedCliBinary: string | null | undefined = undefined;
@@ -161,7 +162,11 @@ function sendStatus(status: DaemonStatus): void {
 }
 
 interface HealthPayload {
+  offline_reason?: string;
+  task_ready?: boolean;
   status?: string;
+  center_connected?: boolean;
+  profile?: string;
   pid?: number;
   /** Daemon's runtime.GOOS. Absent on daemons older than the #3916 fix. */
   os?: string;
@@ -254,23 +259,32 @@ async function writeProfileConfig(
 }
 
 /**
- * Returns the Desktop-owned profile for the current target API URL. Creates
- * the profile's config.json on demand with `server_url` pinned to the target.
+ * Resolves an explicitly pinned local node even before Center selection.
+ * Otherwise derives a Desktop-owned profile from the renderer's target URL.
  *
- * Returns `null` until the renderer reports its `apiUrl`. There is no profile
- * to act on in that window, and callers must do nothing rather than reach for
- * the user's default CLI profile at `~/.multica/` — neither its files nor its
- * health port.
+ * Returns `null` when neither identity is known. Callers must never fall back
+ * to the user's default CLI profile, its files, or its health port.
  */
 async function resolveActiveProfile(): Promise<ActiveProfile | null> {
   const target = targetApiBaseUrl;
-  if (!target) return null;
+  const localProfile = process.env.MULTICA_DESKTOP_DAEMON_PROFILE;
+  if (!target && localProfile === undefined) return null;
 
-  const name = deriveProfileName(target);
+  const name = deriveProfileName(target ?? "", localProfile);
+  // A launcher's local node exists independently of Center selection. Merely
+  // probing it must not replace its configuration with the dev API default.
+  if (!target || (localProfile !== undefined && process.env.MULTICA_DESKTOP_CENTER !== "1")) {
+    return { name, port: healthPortForProfile(name) };
+  }
   const cfg = await readProfileConfig(name);
 
   if (cfg.server_url !== target) {
+    // Credentials and workspace IDs belong to a center, not just a local profile.
+    delete cfg.token;
+    delete cfg.workspace_id;
+    await removeProfileUserId(name);
     cfg.server_url = target;
+    cfg.app_url = target;
     await writeProfileConfig(name, cfg);
     console.log(`[daemon] initialized profile "${name}" → ${target}`);
   }
@@ -308,21 +322,20 @@ function observeDaemonBoundary(status: DaemonStatus): void {
 }
 
 async function fetchHealth(): Promise<DaemonStatus> {
-  // While the CLI is being downloaded or has permanently failed, short-circuit
-  // polling — there's nothing to probe yet and /health calls would just return
-  // "stopped", which would overwrite the correct setup state in the UI.
-  if (currentState === "installing_cli" || currentState === "cli_not_found") {
-    return { state: currentState };
-  }
-
   const active = await ensureActiveProfile();
   // No profile yet means no daemon of ours to probe. Reporting "stopped" is the
   // honest answer; probing the default port would surface the user's own CLI
   // daemon as if it were Desktop's.
-  if (!active) return { state: "stopped" };
+  if (!active) return { state: cliSetupState ?? "stopped" };
   const data = await fetchHealthAtPort(active.port);
+  if (data && data.profile !== active.name) return { state: "stopped", profile: active.name };
 
   if (!data || data.status !== "running") {
+    // CLI setup controls starting a process, not detecting one launched by
+    // run_multica.sh. Keep setup failures visible only when no live node exists.
+    if (!daemonStatusAlive(data?.status) && cliSetupState) {
+      return { state: cliSetupState, profile: active.name };
+    }
     // A start that never reaches "running" is the symptom; an expired/invalid
     // login is the most common cause and the one with no other signal (the
     // daemon exits before it can serve /health, so we can't read the reason
@@ -387,6 +400,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
   if (
     targetApiBaseUrl &&
     data.server_url &&
+    !daemonAcceptsInitialCenter(data) &&
     !urlsMatch(data.server_url, targetApiBaseUrl)
   ) {
     invalidateActiveProfile();
@@ -395,6 +409,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
 
   return {
     state: "running",
+    centerConnected: typeof data.center_connected === "boolean" ? data.center_connected : undefined,
     pid: data.pid,
     uptime: data.uptime,
     daemonId: data.daemon_id,
@@ -924,7 +939,8 @@ async function probeLocalRuntimes(): Promise<LocalRuntimeProbe> {
 // applied by fix-path in main/index.ts — as a top-level const it would
 // snapshot process.env at import time, before that block runs.
 function desktopSpawnEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
+  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop",
+    ...(targetApiBaseUrl ? { MULTICA_SERVER_URL: targetApiBaseUrl, MULTICA_APP_URL: targetApiBaseUrl } : {}) };
 }
 
 function scheduleStatusRefresh(): void {
@@ -1222,15 +1238,10 @@ function startPolling(): void {
  * user-triggered `daemon:retry-install`.
  */
 async function bootstrapCli(): Promise<void> {
+  cliSetupState = "installing_cli";
   const bin = await resolveCliBinary();
-  if (!bin) {
-    currentState = "cli_not_found";
-    sendStatus({ state: "cli_not_found" });
-    return;
-  }
-  currentState = "stopped";
-  sendStatus({ state: "stopped" });
-  startPolling();
+  cliSetupState = bin ? null : "cli_not_found";
+  await pollOnce();
 }
 
 function stopPolling(): void {
@@ -1257,14 +1268,97 @@ function stopLogTail(): void {
   disposeLogTail = null;
 }
 
+export async function switchCenterTarget(url: string, profile: string): Promise<void> {
+  await lifecycleOperations.runForeground(async () => {
+    const wasDesired = desiredDaemonRunning;
+    try {
+      setDesiredDaemonRunning(false, true);
+      const previous = await ensureActiveProfile();
+      const health = await fetchHealthAtPort(healthPortForProfile(profile));
+      if (daemonStatusAlive(health?.status)) {
+        if (health?.profile !== profile || isDaemonExternallyManaged(health.os, normalizeHostOS(process.platform))) {
+          throw new Error('This daemon is managed elsewhere; stop it with its own launcher first');
+        }
+        if ((health.active_task_count ?? 0) > 0 && !urlsMatch(health.server_url ?? '', url)) {
+          throw new Error('Wait for running tasks to finish before changing the center');
+        }
+        if (!urlsMatch(health.server_url ?? '', url) && !daemonAcceptsInitialCenter(health)) {
+          // Select the existing local profile before stopping it. Never reach the default CLI profile.
+          activeProfile = { name: profile, port: healthPortForProfile(profile) };
+          const stopped = await stopDaemon();
+          if (!stopped.success) { activeProfile = previous; throw new Error(stopped.error); }
+        }
+      }
+      process.env.MULTICA_DESKTOP_DAEMON_PROFILE = profile;
+      targetApiBaseUrl = url;
+      invalidateActiveProfile();
+      const active = await ensureActiveProfile();
+      const config = active ? await readProfileConfig(active.name) : {};
+      if (config.token) {
+        setDesiredDaemonRunning(true, true);
+        const started = await startDaemon();
+        if (!started.success) console.warn("[daemon] center connection attempt failed; retry from the panel");
+      }
+    } catch (error) {
+      setDesiredDaemonRunning(wasDesired);
+      throw error;
+    }
+  });
+}
+
 export function setupDaemonManager(
   windowGetter: () => BrowserWindow | null,
 ): void {
   getMainWindow = windowGetter;
 
+  // The renderer never sees the daemon's bearer token or an arbitrary URL.
+  // Resolve the Desktop-owned profile afresh and check /health ownership
+  // before forwarding any local issue request to its loopback API.
+  async function localIssueRequest(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+    const active = await ensureActiveProfile();
+    if (!active) throw new Error("Local daemon profile is not configured");
+    const health = await fetchHealthAtPort(active.port);
+    if (!health || health.profile !== active.name || health.status !== "running") {
+      throw new Error("Local daemon is not running for this Desktop profile");
+    }
+    const token = (await readFile(join(profileDir(active.name), "local-issues", "api-token"), "utf-8")).trim();
+    if (!/^[a-f0-9]{64}$/.test(token)) throw new Error("Local issue token is invalid");
+    const response = await fetch(`http://127.0.0.1:${active.port}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error((await response.text()).trim() || `Local daemon returned ${response.status}`);
+    return response.json();
+  }
+
+  ipcMain.handle("daemon:local-issues:list", () => localIssueRequest("GET", "/local/issues"));
+  ipcMain.handle("daemon:local-capabilities:get", (_event, provider: string) => {
+    if (typeof provider !== "string" || !/^[a-z0-9-]{0,40}$/.test(provider)) throw new Error("Invalid local agent");
+    return localIssueRequest("GET", `/local/capabilities?provider=${encodeURIComponent(provider)}`);
+  });
+  ipcMain.handle("daemon:local-issues:get", (_event, id: string) => {
+    if (typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id)) throw new Error("Invalid local issue ID");
+    return localIssueRequest("GET", `/local/issues/${id}`);
+  });
+  ipcMain.handle("daemon:local-issues:create", (_event, raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid local issue");
+    const value = raw as Record<string, unknown>;
+    const { title, description, directory, provider, machine } = value;
+    if (typeof title !== "string" || typeof description !== "string" || typeof directory !== "string" ||
+      typeof provider !== "string" || (machine !== undefined && machine !== "local")) throw new Error("Invalid local issue");
+    return localIssueRequest("POST", "/local/issues", { title, description, directory, provider, machine: "local" });
+  });
+
   ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {
     const normalized = url || null;
     if (targetApiBaseUrl !== normalized) {
+      if (normalized && process.env.MULTICA_DESKTOP_CENTER === "1") {
+        await switchCenterTarget(normalized, deriveProfileName(normalized, process.env.MULTICA_DESKTOP_DAEMON_PROFILE));
+        await pollOnce();
+        return;
+      }
       console.log(`[daemon] target API URL set to ${normalized ?? "(none)"}`);
       setDesiredDaemonRunning(false);
       targetApiBaseUrl = normalized;
@@ -1387,6 +1481,8 @@ export function setupDaemonManager(
   // until the managed binary is on disk (instant on subsequent launches).
   currentState = "installing_cli";
   sendStatus({ state: "installing_cli" });
+  // Local health monitoring must not wait for a download or a Center login.
+  startPolling();
   void lifecycleOperations.runBackground(() => bootstrapCli());
 
   let isQuitting = false;

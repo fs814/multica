@@ -15,6 +15,8 @@ export type DaemonState =
 
 export interface DaemonStatus {
   state: DaemonState;
+  /** True only while the authenticated task WebSocket is connected. */
+  centerConnected?: boolean;
   pid?: number;
   uptime?: string;
   daemonId?: string;
@@ -83,6 +85,16 @@ export function formatUptime(uptime?: string): string {
  */
 export function daemonStatusAlive(status: string | undefined): boolean {
   return status === "running" || status === "starting";
+}
+
+// Only an explicitly offline, idle daemon can accept initial configuration
+// without a restart. Missing/malformed fields from older CLIs fail closed.
+export function daemonAcceptsInitialCenter(health: {
+  status?: unknown; offline_reason?: unknown; task_ready?: unknown; active_task_count?: unknown;
+}): boolean {
+  return health.status === "running" && health.task_ready === false &&
+    health.active_task_count === 0 && typeof health.offline_reason === "string" &&
+    ["unconfigured", "unauthenticated", "unreachable"].includes(health.offline_reason);
 }
 
 /**

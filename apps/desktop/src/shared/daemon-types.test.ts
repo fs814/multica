@@ -29,3 +29,17 @@ describe("daemonStateDescription", () => {
     );
   });
 });
+import { daemonAcceptsInitialCenter } from "./daemon-types";
+
+describe("daemonAcceptsInitialCenter", () => {
+  it("allows initial configuration only for a confirmed idle offline daemon", () => {
+    const health = { status: "running", task_ready: false, active_task_count: 0, offline_reason: "unconfigured" };
+    expect(daemonAcceptsInitialCenter(health)).toBe(true);
+    expect(daemonAcceptsInitialCenter({ ...health, offline_reason: "unauthenticated" })).toBe(true);
+    expect(daemonAcceptsInitialCenter({ ...health, offline_reason: "unreachable" })).toBe(true);
+    for (const change of [{ task_ready: true }, { active_task_count: 1 }, { task_ready: undefined },
+      { active_task_count: undefined }, { status: "stopped" }, { offline_reason: "connecting" }, { offline_reason: true }]) {
+      expect(daemonAcceptsInitialCenter({ ...health, ...change })).toBe(false);
+    }
+  });
+});

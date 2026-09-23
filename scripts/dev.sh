@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CENTER_ONLY="${MULTICA_CENTER_ONLY:-0}"
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+
+# Refuse a shared Next output directory before setup or database writes.
+if [ "$CENTER_ONLY" = "1" ]; then
+  node scripts/center-services.mjs --preflight
+fi
 
 # ---------- Check prerequisites ----------
 missing=()
@@ -61,6 +68,10 @@ echo "✓ Ready. Starting services..."
 echo "  Backend:  http://localhost:${PORT:-8080}"
 echo "  Frontend: http://localhost:${FRONTEND_PORT:-3000}"
 echo ""
+
+if [ "$CENTER_ONLY" = "1" ]; then
+  exec node scripts/center-services.mjs
+fi
 
 trap 'kill 0' EXIT
 (cd server && go run ./cmd/server) &

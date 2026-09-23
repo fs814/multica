@@ -7,6 +7,7 @@ export interface RuntimeConfig {
 
 export interface RuntimeConfigError {
   message: string;
+  code?: "center_unconfigured";
 }
 
 export type RuntimeConfigResult =

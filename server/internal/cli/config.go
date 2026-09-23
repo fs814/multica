@@ -316,7 +316,7 @@ func LoadCLIConfigForProfile(profile string) (CLIConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return CLIConfig{}, nil
+			return applyCenterSettings(CLIConfig{}, profile)
 		}
 		return CLIConfig{}, fmt.Errorf("read CLI config: %w", err)
 	}
@@ -324,7 +324,7 @@ func LoadCLIConfigForProfile(profile string) (CLIConfig, error) {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return CLIConfig{}, fmt.Errorf("parse CLI config: %w", err)
 	}
-	return cfg, nil
+	return applyCenterSettings(cfg, profile)
 }
 
 // SaveCLIConfig writes the CLI config to disk atomically (default profile).

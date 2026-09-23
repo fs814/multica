@@ -50,6 +50,17 @@ export class WSClient {
   private onReconnectCallbacks = new Set<() => void>();
   private anyHandlers = new Set<(msg: WSMessage) => void>();
   private logger: Logger;
+  private connectionListeners = new Set<() => void>();
+  private connected = false;
+  getConnected = () => this.connected;
+  subscribeConnection = (listener: () => void) => {
+    this.connectionListeners.add(listener);
+    return () => { this.connectionListeners.delete(listener); };
+  };
+  private setConnected(value: boolean) {
+    this.connected = value;
+    for (const listener of this.connectionListeners) listener();
+  }
 
   constructor(
     url: string,
@@ -71,6 +82,7 @@ export class WSClient {
   }
 
   connect() {
+    this.setConnected(false);
     this.badFrameLogged = false;
     const url = new URL(this.baseUrl);
     // Token is never sent as a URL query parameter — it would be logged by
@@ -146,6 +158,7 @@ export class WSClient {
     };
 
     this.ws.onclose = () => {
+      this.setConnected(false);
       this.scheduleReconnect();
     };
 
@@ -180,6 +193,7 @@ export class WSClient {
   }
 
   private onAuthenticated() {
+    this.setConnected(true);
     this.logger.info("connected");
     const recoveredConnection = this.hasConnectedBefore || this.reconnectAttempt > 0;
     this.reconnectAttempt = 0;
@@ -196,6 +210,7 @@ export class WSClient {
   }
 
   disconnect() {
+    this.setConnected(false);
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

@@ -818,3 +818,21 @@ func TestHealthHandlerReportsProfileIdentity(t *testing.T) {
 		}
 	})
 }
+
+func TestHealthCenterConnectionIsSeparateFromReadiness(t *testing.T) {
+	d := &Daemon{}
+	d.ready.Store(true)
+	handler := d.healthHandler(time.Now())
+	for _, connected := range []bool{false, true, false, true} {
+		d.centerConnected.Store(connected)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+		var response HealthResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response.Status != "running" || response.CenterConnected != connected {
+			t.Fatalf("readiness must not imply center connection: %+v", response)
+		}
+	}
+}

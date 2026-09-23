@@ -151,6 +151,15 @@ checkout.
 
 ## Starting without business task claims
 
+An independent operator can use `daemon start --foreground --allow-offline`
+to start the real local daemon before configuring a Center or signing in.
+Its health and shutdown endpoints remain available; health reports
+`status: running`, `task_ready: false`, `center_connected: false`, and an
+`offline_reason`. No tasks are claimed until saved profile/Center configuration
+and credentials become usable. Startup retries an unavailable Center. This mode
+does not invent a server address or log in automatically. Normal startup without
+the flag retains its existing authentication checks.
+
 An independent human operator can start or restart a daemon with
 `--no-task-claims` to keep runtime registration, heartbeat and project memory
 init/import/readback while disabling every business claim transport, including

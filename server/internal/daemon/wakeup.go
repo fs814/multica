@@ -135,6 +135,8 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 	if err != nil {
 		return 0, err
 	}
+	d.centerConnected.Store(true)
+	defer d.centerConnected.Store(false)
 	connectedAt := time.Now()
 	uptime := func() time.Duration { return time.Since(connectedAt) }
 	defer conn.Close()

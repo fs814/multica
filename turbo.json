@@ -6,6 +6,8 @@
   // incompatibility behind a green check.
   "globalDependencies": [".github/workflows/ci.yml"],
   "globalEnv": [
+    "REMOTE_API_URL",
+    "CORS_ALLOWED_ORIGINS",
     "DATABASE_URL",
     "PORT",
     "FRONTEND_PORT",

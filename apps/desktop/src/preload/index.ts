@@ -120,6 +120,12 @@ const desktopAPI = {
   },
   /** Validated runtime endpoint config, or a blocking config error. */
   runtimeConfig,
+  center: {
+    get: () => ipcRenderer.invoke('center:get'),
+    save: (url: string) => ipcRenderer.invoke('center:save', url),
+    test: (url: string) => ipcRenderer.invoke('center:test', url),
+    connect: () => ipcRenderer.invoke('center:connect'),
+  },
   /** Identifies whether this renderer owns the main tabbed window or a
    *  dedicated issue window, parsed from validated launch arguments. */
   windowContext,
@@ -259,6 +265,14 @@ const daemonAPI = {
     ipcRenderer.invoke("daemon:restart"),
   getStatus: (): Promise<DaemonStatus> =>
     ipcRenderer.invoke("daemon:get-status"),
+  listLocalIssues: (): Promise<import("../shared/local-issue").LocalIssue[]> =>
+    ipcRenderer.invoke("daemon:local-issues:list"),
+  getLocalCapabilities: (provider: string): Promise<import("../shared/local-issue").LocalCapabilities> =>
+    ipcRenderer.invoke("daemon:local-capabilities:get", provider),
+  getLocalIssue: (id: string): Promise<import("../shared/local-issue").LocalIssue> =>
+    ipcRenderer.invoke("daemon:local-issues:get", id),
+  createLocalIssue: (request: import("../shared/local-issue").CreateLocalIssueRequest): Promise<import("../shared/local-issue").LocalIssue> =>
+    ipcRenderer.invoke("daemon:local-issues:create", request),
   probeRuntimes: (): Promise<LocalRuntimeProbe> =>
     ipcRenderer.invoke("daemon:probe-runtimes"),
   getHostName: (): Promise<string> =>
