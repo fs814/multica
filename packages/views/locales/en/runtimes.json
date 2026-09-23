@@ -465,5 +465,27 @@
     "table_cache_r": "Cache R",
     "table_cache_w": "Cache W",
     "no_data": "No usage data yet"
+  },
+  "execution": {
+    "human": "Machine: not applicable",
+    "unbound": "No runtime bound",
+    "unavailable": "Machine unknown or not visible",
+    "leader": "Leader execution node",
+    "summary": "Agents by machine",
+    "binding_note": "Current bindings. Runs start with the leader; members require explicit delegation.",
+    "knot_label": "Knot requested tools",
+    "knot_unverified": "Saved target only; environment overrides may apply. Actual tool location has not been verified.",
+    "health": {
+      "online": "online",
+      "recently_lost": "recently disconnected",
+      "offline": "offline",
+      "long_offline": "long offline"
+    },
+    "knot": {
+      "local": "local client (strict)",
+      "remote": "platform selection (unverified)",
+      "client": "specified client (unverified)",
+      "invalid": "invalid target"
+    }
   }
 }

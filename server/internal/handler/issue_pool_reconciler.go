@@ -326,8 +326,8 @@ func (h *Handler) reconcileIssuePools(ctx context.Context) {
 	_, _ = h.DB.Exec(ctx, `UPDATE issue_pool_item SET status='deferred',failure_code='claim_expired',
 		failure_detail='{"message":"manual review claim expired"}'::jsonb,completed_at=now(),updated_at=now()
 		WHERE status='claimed' AND claim_expires_at IS NOT NULL AND claim_expires_at < now()`)
-	rows, err := h.DB.Query(ctx, `SELECT DISTINCT cycle.id,cycle.autopilot_id,cycle.workspace_id
-		FROM issue_pool_cycle cycle LEFT JOIN issue_pool_item item ON item.cycle_id=cycle.id
+	rows, err := h.DB.Query(ctx, `SELECT cycle.id,cycle.autopilot_id,cycle.workspace_id
+		FROM issue_pool_cycle cycle
 		WHERE cycle.status NOT IN ('completed','partial','failed','cancelled')
 		ORDER BY cycle.updated_at LIMIT 100`)
 	if err == nil {

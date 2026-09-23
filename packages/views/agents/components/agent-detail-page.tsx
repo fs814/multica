@@ -1,5 +1,7 @@
 "use client";
 
+import { ExecutionLocation } from "../../runtimes/components/execution-location";
+
 import { useState } from "react";
 import {
   AlertCircle,
@@ -553,6 +555,7 @@ function DetailHeader({
                       : t(($) => $.pickers.runtime_none)}
                   </span>
                 </span>
+                <ExecutionLocation agent={agent} />
                 <VisibilityBadge value={agent.visibility} />
                 <span className="inline-flex items-center gap-1.5">
                   <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />

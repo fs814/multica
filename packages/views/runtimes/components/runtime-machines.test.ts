@@ -284,7 +284,7 @@ describe("runtime machine grouping", () => {
     );
 
     expect(machines).toHaveLength(2);
-    const cloud = machines.find((m) => m.id === "cloud:device:My Laptop");
+    const cloud = machines.find((m) => m.id === "cloud:runtime:cloud-1");
     expect(cloud).toMatchObject({
       title: "My Laptop",
       section: "cloud",

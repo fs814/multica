@@ -1,5 +1,8 @@
 "use client";
 
+import { SquadMachines } from "./squad-machines";
+import { ExecutionLocation } from "../../runtimes/components/execution-location";
+
 import { useMemo, useState } from "react";
 import {
   ArrowDown,
@@ -180,6 +183,7 @@ function NameCell({ squad }: { squad: Squad }) {
         <span className="block min-w-0 truncate text-body font-medium">
           {squad.name}
         </span>
+        <SquadMachines squadId={squad.id} leaderId={squad.leader_id} compact />
         {squad.description ? (
           <span className="block min-w-0 truncate text-caption text-muted-foreground">
             {squad.description}
@@ -202,6 +206,7 @@ function LeaderCell({
       <ActorAvatar actorType="agent" actorId={leaderId} size="sm" />
       <span className="min-w-0 truncate text-caption text-muted-foreground">
         {leader?.name ?? leaderId.slice(0, 8)}
+        <ExecutionLocation agentId={leaderId} />
       </span>
     </ListGridCell>
   );

@@ -147,3 +147,18 @@ export function withKnotClientUuid(
   const prev = parseKnotRuntimeConfig(existing);
   return mergeKnotBlock(existing, { ...prev, clientUuid: clientUuid.trim() });
 }
+
+// This is the saved requested target; custom_env may override it at dispatch.
+// It never establishes the actual execution location of Knot file tools.
+export function knotToolTarget(raw: unknown): "local" | "remote" | "client" | "invalid" {
+  if (raw != null && (typeof raw !== "object" || Array.isArray(raw))) return "invalid";
+  if (raw && typeof raw === "object" && "knot" in raw && raw.knot != null) {
+    const knot = raw.knot;
+    if (typeof knot !== "object" || Array.isArray(knot)) return "invalid";
+    if ("client_uuid" in knot && knot.client_uuid != null && typeof knot.client_uuid !== "string") return "invalid";
+  }
+  const value = parseKnotRuntimeConfig(raw).clientUuid;
+  if (!value) return "local";
+  if (value.toLowerCase() === "remote") return "remote";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value) ? "client" : "invalid";
+}

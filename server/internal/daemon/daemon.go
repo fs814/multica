@@ -8343,7 +8343,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// KNOT_CLIENT_UUID in custom_env still outranks it in the backend. Only
 		// knot-http honors it — the CLI transport has no agent_client_uuid.
 		if task.Agent != nil {
-			if clientUUID := decodeKnotClientUUID(task.Agent.RuntimeConfig, d.logger); clientUUID != "" {
+			clientUUID, err := decodeKnotClientUUID(task.Agent.RuntimeConfig, d.logger)
+			if err != nil {
+				return TaskResult{}, err
+			}
+			if clientUUID != "" {
 				agentEnv[agent.KnotClientUUIDEnv] = clientUUID
 			}
 		}

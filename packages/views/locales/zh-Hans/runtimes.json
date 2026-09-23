@@ -449,5 +449,27 @@
     "table_cache_r": "缓存读",
     "table_cache_w": "缓存写",
     "no_data": "还没有使用数据"
+  },
+  "execution": {
+    "human": "机器：不适用",
+    "unbound": "未绑定运行时",
+    "unavailable": "机器未知或不可见",
+    "leader": "队长执行节点",
+    "summary": "按机器汇总智能体",
+    "binding_note": "当前绑定。运行先启动队长，成员需显式委派。",
+    "knot_label": "Knot 请求的工具目标",
+    "knot_unverified": "仅为已保存的请求目标，可能被环境配置覆盖。工具的实际执行位置尚未验证。",
+    "health": {
+      "online": "在线",
+      "recently_lost": "刚断开",
+      "offline": "离线",
+      "long_offline": "长期离线"
+    },
+    "knot": {
+      "local": "本机客户端（严格模式）",
+      "remote": "平台选择（未验证）",
+      "client": "指定客户端（未验证）",
+      "invalid": "目标无效"
+    }
   }
 }

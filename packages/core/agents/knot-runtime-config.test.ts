@@ -1,6 +1,8 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
   knotRuntimeConfigEquals,
+  knotToolTarget,
   parseKnotRuntimeConfig,
   serializeKnotRuntimeConfig,
   withKnotAgentId,
@@ -106,5 +108,16 @@ describe("withKnotClientUuid", () => {
     expect(withKnotClientUuid(existing, "")).toEqual({
       knot: { agent_id: AGENT_ID },
     });
+  });
+});
+
+describe("requested Knot tool target", () => {
+  it("distinguishes strict local, platform selection, explicit client and invalid targets", () => {
+    expect(knotToolTarget({})).toBe("local");
+    expect(knotToolTarget({ knot: { client_uuid: "Remote" } })).toBe("remote");
+    expect(knotToolTarget({ knot: { client_uuid: CLIENT_UUID } })).toBe("client");
+    expect(knotToolTarget({ knot: { client_uuid: "typo" } })).toBe("invalid");
+    expect(knotToolTarget({ knot: { client_uuid: 123 } })).toBe("invalid");
+    expect(knotToolTarget([])).toBe("invalid");
   });
 });

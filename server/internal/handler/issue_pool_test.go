@@ -450,11 +450,9 @@ func TestIssuePoolApprovalRunsOriginalIssueAndRecoversLostLink(t *testing.T) {
 	// was not observed. Replaying the item finds the idempotent Run and backfills
 	// the same id without creating a second run.
 	dbfx.Exec(t, `UPDATE issue_pool_item SET workflow_run_id=NULL,status='dispatching',updated_at=now()-interval '2 minutes' WHERE id=$1`, cycle.Items[0].ID)
-	ap, err := testHandler.Queries.GetAutopilot(context.Background(), parseUUID(autopilotID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	testHandler.dispatchApprovedIssuePoolItems(context.Background(), ap, parseUUID(cycle.ID), parseUUID(testUserID))
+	// Exercise periodic discovery as well as replay; direct dispatch hid SQL errors.
+	dbfx.Exec(t, `UPDATE issue_pool_cycle SET status='running' WHERE id=$1`, cycle.ID)
+	testHandler.reconcileIssuePools(context.Background())
 	var repairedRunID string
 	dbfx.QueryRow(t, `SELECT workflow_run_id::text FROM issue_pool_item WHERE id=$1`, cycle.Items[0].ID).Scan(&repairedRunID)
 	if repairedRunID != runID {
