@@ -382,3 +382,9 @@ State-changing (require an explicit instruction — do not run speculatively):
   unknown provider-level literal is — model-specific gaps fail at run time.
 - "`set` and `add` are interchangeable for skills." `set` replaces all
   bindings; using it when you meant `add` silently removes capabilities.
+
+## Execution locations
+
+Agent and squad machine labels describe current runtime bindings, not the node of an earlier run. Use the run's recorded runtime for historical execution evidence. Squad work starts with its leader; members run only after explicit delegation. Machine names and short daemon IDs are display information, not invocation grants. A missing or private runtime is shown as unknown/not visible without disclosing its machine identity.
+
+For `knot-http`, distinguish the Multica runtime from the requested Knot file-tool target. Omitted `runtime_config.knot.client_uuid` requires successful local client UUID discovery; missing local discovery or an invalid selector fails before HTTP dispatch. `remote` explicitly lets Knot select a client; a UUID requests that client. `KNOT_CLIENT_UUID` in custom_env overrides a valid saved selector, so the UI's saved target is not proof of the effective or actual tool location. Do not infer remote file writes from a local empty diff; verify a canary on the selected client. No credentials or custom_env values are included in location displays or squad rosters.

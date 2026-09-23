@@ -483,3 +483,9 @@ describe("AgentDetailPage DM button", () => {
     expect(mockModalOpen).not.toHaveBeenCalled();
   });
 });
+
+// Location rendering has its canonical suite beside ExecutionLocation. Keep
+// these tests focused on list ordering and direct-detail cache behavior.
+vi.mock("../../runtimes/components/execution-location", () => ({
+  ExecutionLocation: () => <span data-testid="execution-location" />,
+}));

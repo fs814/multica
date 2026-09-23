@@ -1,5 +1,8 @@
 "use client";
 
+import { SquadMachines } from "./squad-machines";
+import { ExecutionLocation } from "../../runtimes/components/execution-location";
+
 import { useQuery } from "@tanstack/react-query";
 import type { SquadMemberPreview } from "@multica/core/types";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -98,6 +101,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
         </p>
       )}
 
+      <SquadMachines squadId={squad.id} leaderId={squad.leader_id} />
       {memberCount > 0 && (
         <MembersList
           members={memberPreview}
@@ -167,7 +171,7 @@ function MembersList({
                 showStatusDot={m.member_type === "agent"}
                 className="shrink-0"
               />
-              <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{name}</span><ExecutionLocation agentId={m.member_id} human={m.member_type === "member"} /></span>
               {isLeader && (
                 <span className="max-w-[4rem] shrink-0 truncate rounded-md bg-amber-100 px-1 py-0.5 text-micro font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                   {t(($) => $.members_tab.leader_chip)}

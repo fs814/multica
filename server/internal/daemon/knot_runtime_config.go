@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -83,41 +84,25 @@ func decodeKnotRuntimeConfig(raw json.RawMessage, logger *slog.Logger) string {
 	return agentID
 }
 
-// decodeKnotClientUUID extracts the per-agent client-uuid selector from an
-// agent's runtime_config, or "" when none is configured. The value chooses
-// which registered machine runs the agent's tools — see knotRuntimeConfig.
-//
-// Accepts the "remote" sentinel (dispatch to the agent's own machine) or a
-// UUIDv4 (a specific machine). Like the agent id it fails soft: an unrecognized
-// value logs a warning and returns "", so the backend falls back to pinning the
-// local host rather than dispatching the run to a machine that does not exist.
-// This is knot-http-only (the CLI transport has no agent_client_uuid), but the
-// decoder is transport-agnostic; the caller gates it on provider == "knot-http".
-func decodeKnotClientUUID(raw json.RawMessage, logger *slog.Logger) string {
+// decodeKnotClientUUID validates the tool target before dispatch. Invalid
+// configuration must never silently select another execution location.
+func decodeKnotClientUUID(raw json.RawMessage, logger *slog.Logger) (string, error) {
 	if len(raw) == 0 {
-		return ""
+		return "", nil
 	}
 	var cfg knotRuntimeConfig
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		if logger != nil {
-			logger.Warn("knot runtime_config: parse failed; ignoring client_uuid and pinning the local host", "error", err)
-		}
-		return ""
+		return "", fmt.Errorf("knot runtime_config: invalid client target configuration")
 	}
-	clientUUID := strings.TrimSpace(cfg.Knot.ClientUUID)
-	if clientUUID == "" {
-		return ""
+	value := strings.TrimSpace(cfg.Knot.ClientUUID)
+	if value == "" {
+		return "", nil
 	}
-	if strings.EqualFold(clientUUID, "remote") {
-		// Normalize so the backend's case-insensitive sentinel check is trivial.
-		return "remote"
+	if strings.EqualFold(value, "remote") {
+		return "remote", nil
 	}
-	if !agent.LooksLikeKnotClientUUID(clientUUID) {
-		if logger != nil {
-			logger.Warn("knot runtime_config: client_uuid is neither \"remote\" nor a UUIDv4; pinning the local host instead",
-				"client_uuid", clientUUID)
-		}
-		return ""
+	if !agent.LooksLikeKnotClientUUID(value) {
+		return "", fmt.Errorf("knot runtime_config: client_uuid must be remote or a UUID")
 	}
-	return clientUUID
+	return value, nil
 }

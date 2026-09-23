@@ -1,5 +1,7 @@
 "use client";
 
+import { ExecutionLocation } from "../../runtimes/components/execution-location";
+
 import { useQuery } from "@tanstack/react-query";
 import type { Agent, AgentRuntime } from "@multica/core/types";
 import { useAgentPresenceDetail } from "@multica/core/agents";
@@ -122,6 +124,7 @@ export function AgentProfileCard({ agentId }: AgentProfileCardProps) {
           agent running?" without opening the detail page. */}
       <div className="flex flex-col gap-1.5 text-caption">
         <RuntimeRow agent={agent} runtime={runtime} />
+      <ExecutionLocation agent={agent} />
         <ModelRow model={agent.model} thinkingLevel={agent.thinking_level} />
         {agent.skills.length > 0 && (
           <SkillsRow skills={agent.skills.map((s) => s.name)} />

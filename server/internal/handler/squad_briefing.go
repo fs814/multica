@@ -193,11 +193,11 @@ func squadOperatingProtocolFor(ownsIssueStatus bool) string {
 // Archived agent members are skipped — there's no point asking the leader
 // to delegate to a retired agent. Members whose underlying record can't be
 // loaded (deleted user/agent races, FK weirdness) are also skipped silently.
-func buildSquadLeaderBriefing(ctx context.Context, q *db.Queries, squad db.Squad, ownsIssueStatus bool) string {
+func buildSquadLeaderBriefing(ctx context.Context, q *db.Queries, squad db.Squad, ownsIssueStatus bool, viewerID pgtype.UUID) string {
 	var sb strings.Builder
 	sb.WriteString(squadOperatingProtocolFor(ownsIssueStatus))
 	sb.WriteString("\n\n")
-	sb.WriteString(buildSquadRoster(ctx, q, squad))
+	sb.WriteString(buildSquadRoster(ctx, q, squad, viewerID))
 
 	if trimmed := strings.TrimSpace(squad.Instructions); trimmed != "" {
 		sb.WriteString("\n\n## Squad Instructions (")
@@ -210,13 +210,24 @@ func buildSquadLeaderBriefing(ctx context.Context, q *db.Queries, squad db.Squad
 
 // buildSquadRoster renders the "## Squad Roster" section: a leader self-row
 // plus one row per non-archived member, with literal mention markdown.
-func buildSquadRoster(ctx context.Context, q *db.Queries, squad db.Squad) string {
+func buildSquadRoster(ctx context.Context, q *db.Queries, squad db.Squad, viewerID pgtype.UUID) string {
 	var sb strings.Builder
 	sb.WriteString("## Squad Roster\n\n")
+	sb.WriteString("Execution nodes below are current bindings, not historical run locations. Only the leader starts automatically; explicitly delegate to members. Visibility does not grant permission to invoke. Knot tool targets are independent and require separate verification.\n\n")
+	agents, _ := q.ListSquadRosterAgents(ctx, db.ListSquadRosterAgentsParams{WorkspaceID: squad.WorkspaceID, LeaderID: squad.LeaderID, SquadID: squad.ID})
+	agentsByID := make(map[string]db.Agent, len(agents))
+	for _, ag := range agents {
+		agentsByID[util.UUIDToString(ag.ID)] = ag
+	}
+	runtimes, _ := q.ListVisibleAgentRuntimes(ctx, db.ListVisibleAgentRuntimesParams{WorkspaceID: squad.WorkspaceID, OwnerID: viewerID})
+	locations := make(map[string]string, len(agents))
+	for _, ag := range agents {
+		locations[util.UUIDToString(ag.ID)] = squadExecutionLocation(ag, runtimes, squad.WorkspaceID, viewerID)
+	}
 
 	// Leader self-row. Leaders are always agents (FK enforced in schema).
 	leaderName := "Leader"
-	if leader, err := q.GetAgent(ctx, squad.LeaderID); err == nil {
+	if leader, ok := agentsByID[util.UUIDToString(squad.LeaderID)]; ok {
 		leaderName = leader.Name
 	}
 	sb.WriteString("Leader (you):\n")
@@ -224,7 +235,9 @@ func buildSquadRoster(ctx context.Context, q *db.Queries, squad db.Squad) string
 	sb.WriteString(leaderName)
 	sb.WriteString(" — agent — `")
 	sb.WriteString(formatMention(leaderName, "agent", util.UUIDToString(squad.LeaderID)))
-	sb.WriteString("`\n")
+	sb.WriteString("` — ")
+	sb.WriteString(locations[util.UUIDToString(squad.LeaderID)])
+	sb.WriteString("\n")
 
 	members, err := q.ListSquadMembers(ctx, squad.ID)
 	if err != nil {
@@ -240,7 +253,7 @@ func buildSquadRoster(ctx context.Context, q *db.Queries, squad db.Squad) string
 		if m.MemberType == "agent" && util.UUIDToString(m.MemberID) == util.UUIDToString(squad.LeaderID) {
 			continue
 		}
-		row := renderMemberRow(ctx, q, m, skillNamesByAgentID, skillsLoaded)
+		row := renderMemberRow(ctx, q, m, skillNamesByAgentID, skillsLoaded, agentsByID, locations)
 		if row != "" {
 			rows = append(rows, row)
 		}
@@ -292,13 +305,13 @@ func loadSquadMemberSkillNames(ctx context.Context, q *db.Queries, members []db.
 
 // renderMemberRow renders a single roster row, returning "" if the member
 // can't be resolved or should be skipped (e.g. archived agent).
-func renderMemberRow(ctx context.Context, q *db.Queries, m db.SquadMember, skillNamesByAgentID map[string][]string, skillsLoaded bool) string {
+func renderMemberRow(ctx context.Context, q *db.Queries, m db.SquadMember, skillNamesByAgentID map[string][]string, skillsLoaded bool, agentsByID map[string]db.Agent, locations map[string]string) string {
 	id := util.UUIDToString(m.MemberID)
 	role := strings.TrimSpace(m.Role)
 	switch m.MemberType {
 	case "agent":
-		ag, err := q.GetAgent(ctx, m.MemberID)
-		if err != nil {
+		ag, ok := agentsByID[id]
+		if !ok {
 			return ""
 		}
 		if ag.ArchivedAt.Valid {
@@ -306,7 +319,7 @@ func renderMemberRow(ctx context.Context, q *db.Queries, m db.SquadMember, skill
 		}
 		// Agents carry skills; surfacing them lets the leader delegate by
 		// capability instead of guessing from the free-text role label.
-		return formatRosterRow(ag.Name, "agent", role, agentSkillsRosterSegment(skillNamesByAgentID, skillsLoaded, id), formatMention(ag.Name, "agent", id))
+		return formatRosterRow(ag.Name, "agent", role, agentSkillsRosterSegment(skillNamesByAgentID, skillsLoaded, id)+" — "+locations[id], formatMention(ag.Name, "agent", id))
 	case "member":
 		user, err := q.GetUser(ctx, m.MemberID)
 		if err != nil {
@@ -316,7 +329,7 @@ func renderMemberRow(ctx context.Context, q *db.Queries, m db.SquadMember, skill
 		// the product — see util.MentionRe and frontend mention payloads).
 		// Humans have no Multica skills, so no skills segment is rendered.
 		userID := util.UUIDToString(m.MemberID)
-		return formatRosterRow(user.Name, "member (human)", role, "", formatMention(user.Name, "member", userID))
+		return formatRosterRow(user.Name, "member (human)", role, "execution node: not applicable", formatMention(user.Name, "member", userID))
 	default:
 		return ""
 	}
