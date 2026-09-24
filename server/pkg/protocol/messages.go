@@ -49,6 +49,23 @@ const (
 	// nothing extra, so the stub retires itself as daemons update.
 	DaemonCapabilityPlatformSkillV1 = "platform-skill-v1"
 
+	// DaemonCapabilityCheckoutKeepsWorkV1 advertises that the daemon's
+	// `multica repo checkout` keeps an existing checkout that holds work
+	// (uncommitted changes, untracked files, unpushed commits) instead of
+	// resetting it (MUL-7284).
+	//
+	// The server hands an automatic retry that must start a fresh session its
+	// parent's workdir only when this is present (MUL-7034). That session has no
+	// memory of the work in the directory and will fetch its repositories again.
+	// An older daemon's checkout resets an existing checkout and deletes that
+	// work, so such a daemon keeps getting a fresh directory and the parent's
+	// stays untouched on disk.
+	DaemonCapabilityCheckoutKeepsWorkV1 = "checkout-keeps-work-v1"
+	// DaemonCapabilityTaskSteerV1 advertises lossless human-comment delivery to
+	// an already-running Codex or Claude turn. Servers must fall back to the
+	// existing follow-up path when this capability is absent.
+	DaemonCapabilityTaskSteerV1 = "task-steer-v1"
+
 	// AppCapabilityChatDraftRestoreV1 is advertised (X-Client-Capabilities) by
 	// app clients that understand the durable draft-restore recovery path:
 	// chat:cancel_finalized as an invalidation hint plus the draft-restores
@@ -138,6 +155,7 @@ const (
 	PendingWorkKindModelList        = "model_list"
 	PendingWorkKindLocalSkills      = "local_skills"
 	PendingWorkKindLocalSkillImport = "local_skill_import"
+	PendingWorkKindTaskSteer        = "task_steer"
 	PendingWorkKindCLIList          = "cli_list"
 	PendingWorkKindCLIRun           = "cli_run"
 )
@@ -188,6 +206,8 @@ type ChatQuickActionsPayload struct {
 
 // TaskMessagePayload represents a single agent execution message (tool call, text, etc.)
 type TaskMessagePayload struct {
+	// CallID is an opaque tool-call identity scoped to one backend execution.
+	CallID  string         `json:"call_id,omitempty"`
 	TaskID  string         `json:"task_id"`
 	IssueID string         `json:"issue_id,omitempty"`
 	Seq     int            `json:"seq"`

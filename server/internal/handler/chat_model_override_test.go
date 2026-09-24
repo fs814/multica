@@ -16,8 +16,8 @@ func createChatSessionWithModelForTest(t *testing.T, agentID, model string) stri
 
 	var sessionID string
 	if err := testPool.QueryRow(context.Background(), `
-		INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, status, model)
-		VALUES ($1, $2, $3, 'Model override chat', 'active', NULLIF($4, ''))
+		INSERT INTO chat_session (workspace_id, agent_id, creator_id, title, status, model, explicitly_created_at)
+		VALUES ($1, $2, $3, 'Model override chat', 'active', NULLIF($4, ''), now())
 		RETURNING id
 	`, testWorkspaceID, agentID, testUserID, model).Scan(&sessionID); err != nil {
 		t.Fatalf("create chat session: %v", err)

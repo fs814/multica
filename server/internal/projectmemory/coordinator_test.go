@@ -48,7 +48,7 @@ func coordinatorFixture(t *testing.T) (Coordinator, *testutil.Fixture, Store, Bi
 		t.Fatal(err)
 	}
 	for _, prefix := range []string{"517_", "518_", "519_", "520_", "521_", "522_"} {
-		names, err := filepath.Glob("../../migrations/" + prefix + "*.up.sql")
+		names, err := filepath.Glob("../../migrations/" + prefix + "project_memory*.up.sql")
 		if err != nil || len(names) != 1 {
 			t.Fatalf("migration %s: %v", prefix, err)
 		}

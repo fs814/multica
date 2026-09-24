@@ -46,7 +46,7 @@ func (h *Handler) ClaimWorkflowDebugTask(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	for _, task := range candidates {
-		resp, _, _, _, failure := h.buildClaimedTaskResponse(r, &task, runtime, runtimeID, uuidToString(runtime.WorkspaceID))
+		resp, _, _, _, _, failure := h.buildClaimedTaskResponse(r, &task, runtime, runtimeID, uuidToString(runtime.WorkspaceID))
 		if failure != nil {
 			continue
 		}

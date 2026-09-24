@@ -43,9 +43,10 @@ type debugDeliveryState struct {
 }
 type debugDeliveryContextKey struct{}
 
-// persistDebugDelivery fsyncs both the replacement file and its directory. A
-// terminal callback is never sent before its retry record is durable. No auth
-// token is stored here; replay uses the daemon's current authenticated client.
+// persistDebugDelivery flushes the replacement file and, where supported, its
+// directory using the terminal report queue's platform policy. Windows does not
+// guarantee directory-entry survival after power loss. No auth token is stored
+// here; replay uses the daemon's current authenticated client.
 func persistDebugDelivery(s *debugDeliveryState) error {
 	raw, err := json.Marshal(s.data)
 	if err != nil {
@@ -73,12 +74,7 @@ func persistDebugDelivery(s *debugDeliveryState) error {
 	if err = os.Rename(name, s.file); err != nil {
 		return err
 	}
-	dir, err := os.Open(filepath.Dir(s.file))
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return syncTerminalReportDir(filepath.Dir(s.file))
 }
 func (c *Client) configureDebugDelivery(root string) {
 	if root == "" {

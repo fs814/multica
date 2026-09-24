@@ -157,7 +157,6 @@ export function AgentDetailInspector({
     <div className="space-y-8">
       <SettingsSection
         title={t(($) => $.inspector.section_profile)}
-        description={t(($) => $.inspector.section_profile_hint)}
         action={
           <SettingsSaveState
             status={profileAutoSave.status}
@@ -170,7 +169,6 @@ export function AgentDetailInspector({
         <SettingsCard>
           <SettingsRow
             label={t(($) => $.inspector.avatar_label)}
-            description={t(($) => $.inspector.avatar_hint)}
             size="none"
           >
             <div className="flex justify-start sm:justify-end">
@@ -240,7 +238,6 @@ export function AgentDetailInspector({
 
       <SettingsSection
         title={t(($) => $.inspector.section_execution)}
-        description={t(($) => $.inspector.section_execution_hint)}
       >
         <SettingsCard>
           <SettingsRow

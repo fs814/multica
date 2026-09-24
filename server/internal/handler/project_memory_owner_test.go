@@ -51,7 +51,10 @@ func TestReviewMemoryForeignDaemonHTTP(t *testing.T) {
  CREATE TABLE agent_runtime(id uuid,workspace_id uuid,daemon_id text,name text DEFAULT '',runtime_mode text DEFAULT '',provider text DEFAULT '',status text DEFAULT '',device_info text DEFAULT '',metadata jsonb DEFAULT '{}',last_seen_at timestamptz,created_at timestamptz,updated_at timestamptz,owner_id uuid,legacy_daemon_id text,visibility text DEFAULT '',profile_id uuid,custom_name text);
  CREATE TABLE daemon_token(id uuid,token_hash text,workspace_id uuid,daemon_id text,expires_at timestamptz,created_at timestamptz);`)
 	for _, prefix := range []string{"517_", "518_", "519_", "520_", "521_", "522_"} {
-		names, _ := filepath.Glob("../../migrations/" + prefix + "*.up.sql")
+		names, err := filepath.Glob("../../migrations/" + prefix + "project_memory*.up.sql")
+		if err != nil || len(names) != 1 {
+			t.Fatalf("migration %s: matches=%d error=%v", prefix, len(names), err)
+		}
 		raw, err := os.ReadFile(names[0])
 		if err != nil {
 			t.Fatal(err)
@@ -90,7 +93,7 @@ func TestReviewMemoryForeignDaemonHTTP(t *testing.T) {
 			t.Fatal(err)
 		}
 		routes := chi.NewRouter()
-		routes.Use(middleware.Auth(h.Queries, nil, nil))
+		routes.Use(middleware.Auth(h.Queries, nil, nil, nil))
 		routes.Use(middleware.RequireWorkspaceMember(h.Queries))
 		routes.Get("/api/projects/{id}/memory", h.ResolveProjectMemory)
 		routes.Post("/api/projects/{id}/memory/operations", h.SubmitProjectMemory)

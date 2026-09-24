@@ -1224,7 +1224,7 @@ func (h *Handler) RegenerateChatQuickActions(w http.ResponseWriter, r *http.Requ
 		case errors.Is(err, service.ErrChatQuickActionsNoTurn):
 			writeError(w, http.StatusConflict, "no assistant reply to refresh yet")
 		case errors.Is(err, service.ErrChatQuickActionsUnavailable):
-			writeError(w, http.StatusServiceUnavailable, "suggestions are not available on this deployment")
+			writeFeatureDisabled(w, "suggestions_not_available", "suggestions are not available on this deployment")
 		default:
 			writeError(w, http.StatusInternalServerError, "failed to regenerate quick actions")
 		}
@@ -1947,7 +1947,6 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
 	resp := CancelTaskByUserResponse{
 		AgentTaskResponse: taskToResponse(cancelled.Task, workspaceID),
 	}

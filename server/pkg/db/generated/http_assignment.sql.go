@@ -38,7 +38,7 @@ UPDATE issue
 SET status = $1, updated_at = now()
 FROM eligible
 WHERE issue.id = eligible.id
-RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.revision, issue.last_activity_at, eligible.status AS previous_status
+RETURNING issue.id, issue.workspace_id, issue.title, issue.description, issue.status, issue.priority, issue.assignee_type, issue.assignee_id, issue.creator_type, issue.creator_id, issue.parent_issue_id, issue.acceptance_criteria, issue.context_refs, issue.position, issue.due_date, issue.created_at, issue.updated_at, issue.number, issue.project_id, issue.origin_type, issue.origin_id, issue.first_executed_at, issue.start_date, issue.metadata, issue.stage, issue.properties, issue.revision, issue.last_activity_at, issue.triage_state, eligible.status AS previous_status
 `
 
 type AdvanceHTTPAssignmentIssueStatusParams struct {
@@ -93,6 +93,7 @@ func (q *Queries) AdvanceHTTPAssignmentIssueStatus(ctx context.Context, arg Adva
 		&i.Issue.Properties,
 		&i.Issue.Revision,
 		&i.Issue.LastActivityAt,
+		&i.Issue.TriageState,
 		&i.PreviousStatus,
 	)
 	return i, err

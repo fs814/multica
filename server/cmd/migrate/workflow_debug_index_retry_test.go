@@ -35,7 +35,7 @@ func workflowDebugIndexCases(t *testing.T) ([]concurrentIndexRetryCase, []concur
 	var retries []concurrentIndexRetryCase
 	var definitions []concurrentIndexDefinitionCase
 	for _, number := range []string{"502", "503", "504", "505", "506", "507", "508", "509", "510", "511", "512", "513", "514", "516"} {
-		names, err := filepath.Glob(filepath.Join("..", "..", "migrations", number+"_*.up.sql"))
+		names, err := filepath.Glob(filepath.Join("..", "..", "migrations", number+"_workflow_*.up.sql"))
 		if err != nil || len(names) != 1 {
 			t.Fatalf("migration %s: %v", number, err)
 		}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { issueStatusListOptions, buildIssueStatusCatalog } from "@multica/core/issue-statuses/queries";
 import {
   parseTabSubject,
   resolveTabPresentation,
@@ -27,8 +28,10 @@ import { runtimeDisplayName } from "@multica/core/runtimes";
 import { chatSessionsOptions } from "@multica/core/chat/queries";
 import {
   inboxListOptions,
-  archivedInboxListOptions,
+  archivedInboxPagesOptions,
+  archivedInboxLookupOptions,
 } from "@multica/core/inbox/queries";
+import { useInboxFilters } from "@multica/core/inbox/filter-store";
 import { cn } from "@multica/ui/lib/utils";
 import { StatusIcon } from "../issues/components";
 import { ProjectIcon } from "../projects/components/project-icon";
@@ -83,10 +86,16 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
   // an archived selection has to resolve against the archived cache — the same
   // list the InboxPage populates when `?view=archived` is active.
   const inboxList = useQuery({ ...inboxListOptions(wsId), enabled: false }).data;
-  const archivedInboxList = useQuery({
-    ...archivedInboxListOptions(wsId),
+  const inboxFilters = useInboxFilters(wsId);
+  const archivedPages = useInfiniteQuery({ ...archivedInboxPagesOptions(wsId, inboxFilters), enabled: false }).data;
+  const archivedLookup = useQuery({
+    ...archivedInboxLookupOptions(wsId, subject.kind === "inbox" ? subject.selectedKey ?? "" : ""),
     enabled: false,
   }).data;
+  const archivedInboxList = useMemo(() => [
+    ...(archivedPages?.pages.flatMap((page) => page.items) ?? []),
+    ...(archivedLookup?.items ?? []),
+  ], [archivedPages, archivedLookup]);
   const activeInboxList =
     subject.kind === "inbox" && subject.archived ? archivedInboxList : inboxList;
   const inboxItem =
@@ -307,6 +316,8 @@ export function useTabPresentation(
   const ws = useCurrentWorkspace();
   const wsId = ws?.id ?? "";
   const data = useTabEntityData(subject, wsId);
+  const statuses = useQuery({ ...issueStatusListOptions(wsId), enabled: false }).data;
+  const catalog = useMemo(() => buildIssueStatusCatalog(statuses), [statuses]);
   const { visual, title: titleSpec } = resolveTabPresentation(subject, data);
   // A selected notification whose identity has not resolved from cache yet is
   // pending in exactly the sense a not-yet-loaded issue is — keep the tab's
@@ -330,7 +341,12 @@ export function useTabPresentation(
         }
       : visual;
 
-  return { visual: safeVisual, title };
+  return {
+    visual: safeVisual.kind === "issue-status" && safeVisual.status && catalog.entryOf(safeVisual.status)?.is_system === false
+      ? { ...safeVisual, color: catalog.colorOf(safeVisual.status), icon: catalog.iconOf(safeVisual.status) }
+      : safeVisual,
+    title,
+  };
 }
 
 /**
@@ -359,6 +375,8 @@ export function ResourceLeadingVisual({
         <StatusIcon
           status={visual.status ?? ""}
           category={visual.category}
+          color={visual.color}
+          icon={visual.icon}
           className="size-3.5"
         />
       );

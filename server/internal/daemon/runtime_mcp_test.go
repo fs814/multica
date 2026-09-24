@@ -56,7 +56,7 @@ func TestListRuntimeLocalMcpServersClaudeMissingConfig(t *testing.T) {
 
 func TestListRuntimeLocalMcpServersOmpReadsNativeConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	configDir := filepath.Join(home, ".omp", "agent")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestMergeRuntimeAndAgentMcpConfigNullKeepsNativeInheritance(t *testing.T) {
 
 func TestCodeArtsMcpConfigLoadsJSONCAndAgentWins(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	t.Setenv("USERPROFILE", home)
 	configDir := filepath.Join(home, ".codeartsdoer")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {

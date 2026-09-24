@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/attributionbackfill"
 	"github.com/multica-ai/multica/server/internal/chatoriginbackfill"
@@ -158,6 +159,31 @@ var concurrentIndexCleanups = map[string]string{
 	"519_project_memory_scope_key":                              "project_memory_scope_key",
 	"520_project_memory_task_key":                               "project_memory_task_key",
 	"521_project_memory_request_key":                            "project_memory_request_key",
+	"510_wakeup_id":                                             "issue_wakeup_id_idx",
+	"511_wakeup_issue":                                          "issue_wakeup_issue_idx",
+	"512_wakeup_due":                                            "issue_wakeup_due_idx",
+	"513_wakeup_receipt_id":                                     "issue_wakeup_receipt_id_idx",
+	"514_wakeup_receipt_key":                                    "issue_wakeup_receipt_key_idx",
+	"515_wakeup_receipt_pending":                                "issue_wakeup_receipt_pending_idx",
+	"519_wakeup_event_issue":                                    "idx_wakeup_event_issue",
+	"521_wakeup_workspace_summary":                              "idx_wakeup_workspace_enabled",
+	"522_wakeup_run_lookup":                                     "agent_task_wakeup_lookup_idx",
+	"524_wakeup_workspace_history":                              "issue_wakeup_workspace_history_idx",
+	"525_wakeup_active_runs":                                    "agent_task_wakeup_active_idx",
+	"526_wakeup_terminal_runs":                                  "agent_task_wakeup_terminal_idx",
+	"527_wakeup_receipt_expiry":                                 "issue_wakeup_receipt_expiry_idx",
+	"529_wakeup_pending_event":                                  "issue_wakeup_pending_event_idx",
+	"508_comment_agent_delivery_pending_index":                  "idx_comment_agent_delivery_task_pending",
+	"503_channel_reply_delivery_turn_index":                     "idx_channel_reply_delivery_turn",
+	"504_channel_reply_delivery_installation_index":             "idx_channel_reply_delivery_installation",
+	"505_channel_reply_delivery_binding_index":                  "idx_channel_reply_delivery_binding",
+	"495_issue_to_label_label_id_index":                         "issue_to_label_label_idx",
+	"496_chat_session_agent_id_index":                           "idx_chat_session_agent_id",
+	"497_agent_task_queue_delegated_failure_evidence_index":     "idx_agent_task_queue_delegated_failure_evidence",
+	"498_chat_session_runtime_id_index":                         "idx_chat_session_runtime_id",
+	"486_maintenance_job_id_index":                              "idx_maintenance_job_id",
+	"487_maintenance_job_idempotency_index":                     "idx_maintenance_job_idempotency",
+	"488_maintenance_job_active_index":                          "idx_maintenance_job_active",
 	"035_task_queue_issue_id_index":                             "idx_agent_task_queue_issue_id",
 	"067_task_queue_claim_candidate_index":                      "idx_agent_task_queue_claim_candidates",
 	"074_task_usage_updated_at_index":                           "idx_task_usage_updated_at",
@@ -373,6 +399,11 @@ var concurrentIndexCleanups = map[string]string{
 	"455_issue_pool_item_active_issue_index":          "issue_pool_item_active_issue_key",
 	"456_issue_pool_cycle_autopilot_index":            "issue_pool_cycle_autopilot_created_index",
 	"457_issue_pool_item_cycle_index":                 "issue_pool_item_cycle_index",
+	"472_agent_task_queue_chat_session_index":         "idx_agent_task_queue_chat_session",
+	"474_dingtalk_bot_identity_workspace_index":       "idx_dingtalk_bot_identity_workspace",
+	"480_instance_telemetry_state_singleton_index":    "instance_telemetry_state_singleton_uidx",
+	"482_agent_task_queue_telemetry_started_index":    "idx_agent_task_queue_telemetry_started",
+	"484_issue_triage_state_index":                    "idx_issue_triage_state",
 }
 
 // concurrentDownIndexCleanups covers every migration whose down direction
@@ -407,12 +438,13 @@ var concurrentDownIndexCleanups = map[string]string{
 	// index its up direction dropped, so they carry the same interrupted-build
 	// hazard as any upstream rollback and are covered by
 	// TestEveryConcurrentDownBuildHasCleanup.
-	"481_issue_pool_legacy_active_index_drop":       "issue_pool_item_active_issue_v2_key",
-	"482_issue_pool_active_v2_index_drop":           "idx_issue_pool_item_active_issue_v2",
-	"483_issue_pool_legacy_reconcile_index_drop":    "issue_pool_item_reconcile_index",
-	"484_issue_pool_legacy_cycle_run_index_drop":    "issue_pool_cycle_autopilot_run_key",
-	"487_issue_pool_redundant_outbox_id_index_drop": "idx_issue_pool_outbox_id",
-	"488_issue_pool_outbox_pkey_candidate_cleanup":  "issue_pool_notification_outbox_pkey_candidate",
+	"481_issue_pool_legacy_active_index_drop":           "issue_pool_item_active_issue_v2_key",
+	"482_issue_pool_active_v2_index_drop":               "idx_issue_pool_item_active_issue_v2",
+	"483_issue_pool_legacy_reconcile_index_drop":        "issue_pool_item_reconcile_index",
+	"484_issue_pool_legacy_cycle_run_index_drop":        "issue_pool_cycle_autopilot_run_key",
+	"487_issue_pool_redundant_outbox_id_index_drop":     "idx_issue_pool_outbox_id",
+	"488_issue_pool_outbox_pkey_candidate_cleanup":      "issue_pool_notification_outbox_pkey_candidate",
+	"473_drop_agent_task_queue_chat_with_session_index": "idx_agent_task_queue_chat_with_session_created_at",
 }
 
 var preMigrationHooks = func() map[string]preMigrationHook {
@@ -541,6 +573,9 @@ var upMigrationConditions = map[string]migrationCondition{
 	"519_project_memory_scope_key":   createProjectMemoryIndexUnlessExact("project_memory_scope_key", "project_memory_scope", "workspace_id, scope_kind, scope_id"),
 	"520_project_memory_task_key":    createProjectMemoryIndexUnlessExact("project_memory_task_key", "project_memory_task", "task_id"),
 	"521_project_memory_request_key": createProjectMemoryIndexUnlessExact("project_memory_request_key", "project_memory_request", "id"),
+	// Preserve applied history; pending 469 is superseded by the bounded expand
+	// migration. SaaS backfills separately; self-host converges in 491.
+	"469_issue_status_lifecycle_categories": skipMigration("superseded by 478 expansion and 491 convergence (MUL-7365)"),
 	// Current search no longer consumes an issue-description GIN. Fresh installs
 	// should not build the historical fallback only to retire it at migration 464.
 	"139_issue_description_trgm_index": skipMigration("issue description search indexes are retired by migration 464"),
@@ -887,7 +922,13 @@ func main() {
 	}
 
 	startupSettings := dbstartup.SettingsFromEnv()
-	pool, err := dbstartup.NewPool(context.Background(), dbURL, startupSettings.ConnectTimeout)
+	poolConfig, err := dbstartup.ParsePoolConfig(dbURL, startupSettings.ConnectTimeout)
+	if err != nil {
+		slog.Error("unable to connect to database", "error", err)
+		os.Exit(1)
+	}
+	poolConfig.ConnConfig.OnNotice = logMigrationNotice
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
 		slog.Error("unable to connect to database", "error", err)
 		os.Exit(1)
@@ -948,6 +989,33 @@ func main() {
 	}
 
 	fmt.Println("Done.")
+}
+
+// migrationReportPrefix marks a notice a migration raises on purpose to say
+// what it changed, e.g.
+//
+//	RAISE NOTICE 'migration report: renamed % row(s)', n;
+//
+// Only these reach the migration log. The server's own notices cannot be told
+// apart from a deliberate RAISE by condition code — "does not exist, skipping"
+// and the rename notice of ADD CONSTRAINT ... USING INDEX both carry SQLSTATE
+// 00000 — so the marker is explicit.
+const migrationReportPrefix = "migration report: "
+
+// migrationReport returns the text of a notice raised with
+// migrationReportPrefix, and false for every other notice.
+func migrationReport(notice *pgconn.Notice) (string, bool) {
+	return strings.CutPrefix(notice.Message, migrationReportPrefix)
+}
+
+// logMigrationNotice forwards migration reports to the migration log. pgx
+// drops server notices unless a handler is set, so without it the per-row
+// report a data-repair migration prints (e.g. 476) never reached whoever ran
+// the deploy.
+func logMigrationNotice(_ *pgconn.PgConn, notice *pgconn.Notice) {
+	if report, ok := migrationReport(notice); ok {
+		slog.Info("migration report", "message", report)
+	}
 }
 
 // runMigrations applies (direction="up") or rolls back (direction="down")

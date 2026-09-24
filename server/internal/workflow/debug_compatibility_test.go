@@ -68,7 +68,7 @@ func TestDebugRowsFenceEveryDownMigration(t *testing.T) {
 	checked := 0
 	for _, path := range paths {
 		name := filepath.Base(path)
-		if name < "501_" || name > "516_z" {
+		if name < "501_" || name > "516_z" || !strings.Contains(name, "_workflow_") {
 			continue
 		}
 		checked++
