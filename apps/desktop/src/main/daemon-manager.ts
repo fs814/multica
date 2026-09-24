@@ -8,6 +8,8 @@ import {
 } from "fs/promises";
 import { existsSync } from "fs";
 import { startDaemonLogTail } from "./daemon-log-tail";
+import { defaultLocalIssueDirectory, resolveLocalIssueDirectory } from "./local-issue-directory";
+import { desktopDevCliPath } from "./dev-cli-path";
 import { join } from "path";
 import { homedir, hostname } from "os";
 import type {
@@ -510,6 +512,15 @@ async function resolveCliBinary(): Promise<string | null> {
   if (cliResolvePromise) return cliResolvePromise;
 
   cliResolvePromise = (async () => {
+    const development = desktopDevCliPath(app.isPackaged, process.env.MULTICA_DESKTOP_DEV_CLI);
+    if (development) {
+      const version = await probeCliBinary(development, "bundled");
+      if (!version) throw new Error(`Desktop development CLI is invalid: ${development}`);
+      console.log(`[daemon] using current checkout development CLI at ${development}`);
+      cachedCliBinary = development;
+      cachedCliBinaryVersion = version;
+      return development;
+    }
     const bundled = bundledCliPath();
     if (existsSync(bundled)) {
       const version = await probeCliBinary(bundled, "bundled");
@@ -1334,6 +1345,11 @@ export function setupDaemonManager(
   }
 
   ipcMain.handle("daemon:local-issues:list", () => localIssueRequest("GET", "/local/issues"));
+  ipcMain.handle("daemon:local-issues:default-directory", async () => {
+    const active = await ensureActiveProfile();
+    if (!active) throw new Error("Local daemon profile is not configured");
+    return defaultLocalIssueDirectory(profileDir(active.name));
+  });
   ipcMain.handle("daemon:local-capabilities:get", (_event, provider: string) => {
     if (typeof provider !== "string" || !/^[a-z0-9-]{0,40}$/.test(provider)) throw new Error("Invalid local agent");
     return localIssueRequest("GET", `/local/capabilities?provider=${encodeURIComponent(provider)}`);
@@ -1342,13 +1358,16 @@ export function setupDaemonManager(
     if (typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id)) throw new Error("Invalid local issue ID");
     return localIssueRequest("GET", `/local/issues/${id}`);
   });
-  ipcMain.handle("daemon:local-issues:create", (_event, raw: unknown) => {
+  ipcMain.handle("daemon:local-issues:create", async (_event, raw: unknown) => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid local issue");
     const value = raw as Record<string, unknown>;
     const { title, description, directory, provider, machine } = value;
     if (typeof title !== "string" || typeof description !== "string" || typeof directory !== "string" ||
       typeof provider !== "string" || (machine !== undefined && machine !== "local")) throw new Error("Invalid local issue");
-    return localIssueRequest("POST", "/local/issues", { title, description, directory, provider, machine: "local" });
+    const active = await ensureActiveProfile();
+    if (!active) throw new Error("Local daemon profile is not configured");
+    const resolvedDirectory = await resolveLocalIssueDirectory(directory, profileDir(active.name));
+    return localIssueRequest("POST", "/local/issues", { title, description, directory: resolvedDirectory, provider, machine: "local" });
   });
 
   ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {

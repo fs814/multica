@@ -2,6 +2,51 @@
 
 Product contracts the runtime brief does not fully encode.
 
+The Web/Desktop create dialog exposes a machine picker with agents and squads.
+Agents are grouped by their bound runtime machine; squads by their leader's
+machine. Requests keep `assignee_type=agent|squad` and `assignee_id`, not a
+separate machine override. Choosing a squad preserves its squad identity.
+Within each machine, agents and squads appear in separate sections (agents
+first), each sorted by name. The Local issues remote selector also separates
+and sorts agents and squads instead of interleaving a leader with its squads.
+Changing this selection never rebinds an agent's runtime.
+Offline targets must reconnect before their runs can start. In agent-create
+mode, the picker selects the machine of the agent creating the issue; later
+execution follows the resulting issue's assignee.
+
+The Remote only toggle is an explicit local/remote dispatch choice. Off defaults
+to Desktop local-issue IPC: the user picks an installed CLI and may specify a
+working directory. Empty directories use `<daemon profile>/local-workspace`,
+shown in the Desktop form and provisioned only at submission. Explicit user
+paths are not created automatically. A running local daemon is required, but Center connectivity,
+local runtime registration, and a Center agent/squad binding are not. Remembered
+remote actors do not participate in local execution. Both manual and agent-create
+forms create local issues through this path, with results under Local issues.
+The local interface supports title/description/directory/provider only; forms
+reject Center-only properties or attachments rather than silently dropping them.
+The workspace create dialog also offers an explicit local agent/squad selector.
+In local mode the execution machine is always displayed as `Local`, independently
+of any remembered assignee. A separate Agent / squad picker remains visible
+when local bound execution is selected, showing the selected agent/squad name
+or guidance when no local bindings exist; it is not a machine selector.
+It lists only agents bound to the exact local daemon ID and squads led by them,
+in separate name-sorted groups. This opt-in retains Center issue identity and
+collaboration rather than reducing a named agent or squad to a bare CLI.
+All squad agent members must be verifiably bound here, and bindings/permissions
+are refreshed before submission. Failures never fall back to direct CLI or
+remote execution. These runs use project resource directories or the daemon's
+managed run directory; the direct CLI directory input does not override Center
+project resources. Center connectivity is required for this option. Remembered
+remote assignees do not opt the user into it.
+On excludes local targets and blocks every submission path when the current
+target is local, missing, or cannot be verified against the Desktop daemon
+identity. Neither mode silently switches targets or falls back
+to the other mode. In Local issues, the toggle switches between the local IPC
+create path and Center creation; remote discovery includes squads and creation
+uses an explicit workspace header without changing ambient workspace state on
+failure. This is a dispatch guard, not a transitive execution policy: later
+squad delegation and issue reassignment still follow their runtime bindings.
+
 - [PR linking and close intent are two distinct contracts](#pr-linking-and-close-intent-are-two-distinct-contracts)
 - [Reading a linked PR's real state](#reading-a-linked-prs-real-state)
 - [Custom properties: typed workflow state](#custom-properties-typed-workflow-state)

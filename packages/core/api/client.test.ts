@@ -2156,6 +2156,18 @@ describe("ApiClient explicit workspace targeting", () => {
     expect(slugHeaderOf(fetchMock)).toBe("proxima-centauri");
   });
 
+  it("targets the requested workspace when listing squads", async () => {
+    const fetchMock = stubOk([]);
+    await expect(new ApiClient("https://api.example.test").listSquads("remote-workspace")).resolves.toEqual([]);
+    expect(slugHeaderOf(fetchMock)).toBe("remote-workspace");
+  });
+
+  it("keeps malformed cross-workspace squad responses behind the schema boundary", async () => {
+    const fetchMock = stubOk({ squads: "invalid" });
+    await expect(new ApiClient("https://api.example.test").listSquads("remote-workspace")).resolves.toEqual([]);
+    expect(slugHeaderOf(fetchMock)).toBe("remote-workspace");
+  });
+
   it("omits the header when no slug is given, leaving the ambient one", async () => {
     const fetchMock = stubOk([]);
     await new ApiClient("https://api.example.test").listRuntimes({

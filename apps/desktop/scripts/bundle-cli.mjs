@@ -19,6 +19,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldKeepBundledCli, replaceBundledCli } from "./bundle-cli-files.mjs";
+import { devCliSourceDigest } from "./dev-cli.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
@@ -72,7 +73,10 @@ const allowLockedDestination = process.argv.includes("--allow-locked-destination
 const goos = PLATFORM_TO_GOOS[targetPlatform];
 const goarch = targetArch === "x64" ? "amd64" : targetArch;
 const binName = binaryNameForPlatform(targetPlatform);
-const srcBinary = join(serverDir, "bin", `${goos}-${goarch}`, binName);
+const devOutputIndex = process.argv.indexOf("--dev-output");
+const devOutput = devOutputIndex < 0 ? null : process.argv[devOutputIndex + 1];
+if (devOutputIndex >= 0 && (!devOutput || devOutput.startsWith("--"))) throw new Error("--dev-output requires a path");
+const srcBinary = devOutput ? resolve(devOutput) : join(serverDir, "bin", `${goos}-${goarch}`, binName);
 const destDir = join(repoRoot, "apps", "desktop", "resources", "bin");
 const destBinary = join(destDir, binName);
 
@@ -109,9 +113,11 @@ async function exists(p) {
 
 const goAvailable = hasGo();
 if (goAvailable) {
-  const version =
+  const baseVersion =
     git("describe", "--tags", "--match", "v[0-9]*", "--always", "--dirty") ||
     "dev";
+  const sourceDigest = devOutput ? devCliSourceDigest(serverDir) : null;
+  const version = sourceDigest ? `${baseVersion}+source.${sourceDigest}` : baseVersion;
   const commit = git("rev-parse", "--short", "HEAD") || "unknown";
   const date = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const ldflags = `-X main.version=${version} -X main.commit=${commit} -X main.date=${date}`;
@@ -119,7 +125,7 @@ if (goAvailable) {
   console.log(
     `[bundle-cli] go build → ${srcBinary} (${goos}/${goarch}, version=${version} commit=${commit})`,
   );
-  await mkdir(join(serverDir, "bin", `${goos}-${goarch}`), { recursive: true });
+  await mkdir(dirname(srcBinary), { recursive: true });
   execFileSync(
     "go",
     [
@@ -141,12 +147,25 @@ if (goAvailable) {
       },
     },
   );
+  if (sourceDigest && devCliSourceDigest(serverDir) !== sourceDigest) {
+    throw new Error("Go source changed during Desktop CLI compilation; rerun the launcher.");
+  }
 } else {
+  if (devOutput) throw new Error("Go is required to build this checkout's Desktop development CLI.");
   console.warn(
     "[bundle-cli] `go` not found in PATH — skipping CLI build. " +
       "Desktop will use whatever is already in resources/bin/, or fall back " +
       "to auto-installing the latest release at runtime.",
   );
+}
+
+if (devOutput) {
+  await chmod(srcBinary, 0o755);
+  if (process.platform === "darwin") {
+    execFileSync("codesign", ["-s", "-", "--force", srcBinary], { stdio: "pipe" });
+  }
+  console.log(`[bundle-cli] development CLI ready: ${srcBinary}; running binaries preserved`);
+  process.exit(0);
 }
 
 // Without a build, an old server/bin binary must never replace a newer (and

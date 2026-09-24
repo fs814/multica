@@ -1,19 +1,13 @@
 import { useEffect, useState } from "react";
-import { api } from "@multica/core/api";
+import { useQuery } from "@tanstack/react-query";
+import { remoteIssueTargetsOptions, useCreateRemoteIssue } from "@multica/core/issues";
 import { setCurrentWorkspace } from "@multica/core/platform";
 import { DragStrip } from "@multica/views/platform";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
+import { Switch } from "@multica/ui/components/ui/switch";
 import type { LocalCapabilities, LocalIssue } from "../../../shared/local-issue";
 import { CenterSettingsTab, LocalDaemonConnection } from "./center-settings-tab";
-
-interface RemoteChoice {
-  id: string;
-  label: string;
-  workspaceId: string;
-  workspaceSlug: string;
-  agentId: string;
-}
 
 /** Local issue list and optional creation form for an offline daemon. */
 export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, onBack, embedded = false }: {
@@ -25,11 +19,12 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
 }) {
   const [issues, setIssues] = useState<LocalIssue[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [remoteChoices, setRemoteChoices] = useState<RemoteChoice[]>([]);
-  const [machine, setMachine] = useState("local");
+  const [remoteOnly, setRemoteOnly] = useState(false);
+  const [machine, setMachine] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
+  const [defaultDirectory, setDefaultDirectory] = useState("");
   const [provider, setProvider] = useState("");
   const [agents, setAgents] = useState<string[]>([]);
   const agentsKey = agents.join(",");
@@ -40,6 +35,13 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
   const [error, setError] = useState("");
   const [showIssueForm, setShowIssueForm] = useState(false);
   const [showCenterSettings, setShowCenterSettings] = useState(false);
+  const remoteQuery = useQuery({
+    ...remoteIssueTargetsOptions(centerUserId, daemonId),
+    enabled: remoteOnly && centerAvailable && !!centerUserId && !!daemonId,
+  });
+  const remoteChoices = remoteQuery.data ?? [];
+  const createRemote = useCreateRemoteIssue();
+  const remoteReady = centerAvailable && !!centerUserId && !!daemonId && !remoteQuery.isPending && !remoteQuery.isError;
 
   useEffect(() => {
     let live = true;
@@ -50,16 +52,16 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
         setDaemonRunning(status.state === "running");
         setAgents(status.agents ?? []);
         setDaemonId(status.daemonId);
+        const defaultPath = await window.daemonAPI.getLocalIssueDefaultDirectory?.();
+        if (live && defaultPath) setDefaultDirectory(defaultPath);
         if (status.state !== "running") {
           setIssues([]);
-          setError("");
           return;
         }
         const next = await window.daemonAPI.listLocalIssues();
         if (live) {
           setIssues(next);
           setSelectedIssueId(current => current && next.some(issue => issue.id === current) ? current : next[0]?.id ?? null);
-          setError("");
         }
       } catch (cause) {
         if (live) setError(cause instanceof Error ? cause.message : String(cause));
@@ -79,53 +81,26 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
     return () => { live = false; };
   }, [agentsKey, provider]);
 
-  useEffect(() => {
-    if (!centerAvailable || !centerUserId) { setRemoteChoices([]); return; }
-    let live = true;
-    void (async () => {
-      try {
-        const workspaces = await api.listWorkspaces();
-        const choices: RemoteChoice[] = [];
-        for (const workspace of workspaces) {
-          const [runtimes, workspaceAgents] = await Promise.all([
-            api.listRuntimes({ workspace_id: workspace.id }, workspace.slug),
-            api.listAgents({ workspace_id: workspace.id }, workspace.slug),
-          ]);
-          for (const runtime of runtimes) {
-            if (!runtime.daemon_id || runtime.daemon_id === daemonId || runtime.status !== "online") continue;
-            for (const agent of workspaceAgents) {
-              if (agent.runtime_id !== runtime.id) continue;
-              choices.push({ id: `${workspace.id}:${runtime.id}:${agent.id}`,
-                label: `${workspace.name} · ${runtime.custom_name || runtime.name} · ${agent.name}`,
-                workspaceId: workspace.id, workspaceSlug: workspace.slug, agentId: agent.id });
-            }
-          }
-        }
-        if (live) setRemoteChoices(choices);
-      } catch {
-        // Remote discovery is optional; Center being offline must not prevent
-        // an issue from running on the local daemon.
-        if (live) setRemoteChoices([]);
-      }
-    })();
-    return () => { live = false; };
-  }, [centerAvailable, centerUserId, daemonId]);
-
   async function createIssue() {
     setError("");
     setBusy(true);
     try {
-      if (machine === "local") {
+      if (!remoteOnly) {
+        if (!daemonRunning) throw new Error("Local daemon is not running");
         const issue = await window.daemonAPI.createLocalIssue({ title, description, directory, provider, machine: "local" });
         setIssues(current => [issue, ...current]);
         setSelectedIssueId(issue.id);
       } else {
-        const choice = remoteChoices.find(item => item.id === machine);
+        if (!remoteReady) throw new Error("Remote execution is unavailable; local execution will not be used");
+        // Revalidate discovery before dispatch. Failure never enters the local path.
+        const refreshed = await remoteQuery.refetch();
+        if (refreshed.isError) throw new Error("Could not refresh remote targets; local execution will not be used");
+        const choice = refreshed.data?.find(item => item.id === machine);
         if (!choice) throw new Error("Selected remote machine is no longer available");
         // Center's existing agent-to-runtime binding is authoritative for
         // machine routing. No local issue data is sent for the default path.
+        await createRemote.mutateAsync({ workspaceSlug: choice.workspaceSlug, data: { title, description, status: "todo", assignee_type: choice.assigneeType, assignee_id: choice.assigneeId } });
         setCurrentWorkspace(choice.workspaceSlug, choice.workspaceId);
-        await api.createIssue({ title, description, status: "todo", assignee_type: "agent", assignee_id: choice.agentId });
         onOpenCenter();
       }
       setTitle("");
@@ -147,7 +122,7 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
         <div className="flex gap-2">
           {onBack && <Button variant="outline" onClick={onBack}>Choose mode</Button>}
           {centerAvailable && <Button variant="outline" onClick={onOpenCenter}>Open Center</Button>}
-          <Button disabled={!daemonRunning} onClick={() => setShowIssueForm(value => !value)} aria-expanded={showIssueForm}>
+          <Button disabled={!daemonRunning && !centerAvailable} onClick={() => setShowIssueForm(value => !value)} aria-expanded={showIssueForm}>
             {showIssueForm ? "Cancel" : "New issue"}
           </Button>
         </div>
@@ -183,15 +158,23 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
         <h2 className="font-semibold">New issue</h2>
         <Input aria-label="Issue title" placeholder="What needs to be done?" value={title} onChange={event => setTitle(event.target.value)} />
         <textarea aria-label="Issue description" className="min-h-24 w-full rounded-md border bg-background p-2" placeholder="Details (optional)" value={description} onChange={event => setDescription(event.target.value)} />
-        <label className="block space-y-1"><span className="text-caption">Machine</span>
-          <select aria-label="Issue machine" className="w-full rounded-md border bg-background p-2" value={machine} onChange={event => setMachine(event.target.value)}>
-            <option value="local">This machine (local)</option>
-            {remoteChoices.map(choice => <option key={choice.id} value={choice.id}>{choice.label}</option>)}
+        <label className="flex items-center gap-2 text-caption"><Switch checked={remoteOnly} disabled={busy} onCheckedChange={value => { setRemoteOnly(value); setMachine(""); setError(""); }} />Remote only</label>
+        {remoteOnly && <label className="block space-y-1"><span className="text-caption">Remote agent or squad</span>
+          <select aria-label="Issue machine" disabled={busy || !remoteReady} className="w-full rounded-md border bg-background p-2" value={machine} onChange={event => setMachine(event.target.value)}>
+            <option value="">Select a remote target</option>
+            {(["agent", "squad"] as const).map(type => {
+              const choices = remoteChoices.filter(choice => choice.assigneeType === type)
+                .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) || a.id.localeCompare(b.id));
+              if (choices.length === 0) return null;
+              return <optgroup key={type} label={type === "agent" ? "Agents" : "Squads"}>
+                {choices.map(choice => <option key={choice.id} value={choice.id}>{choice.label} · {type === "squad" ? "Squad" : "Agent"}</option>)}
+              </optgroup>;
+            })}
           </select>
-        </label>
-        {machine === "local" ? <>
-          <div className="flex gap-2"><Input aria-label="Local working directory" placeholder="Choose a local project directory" value={directory} onChange={event => setDirectory(event.target.value)} />
-            <Button variant="outline" onClick={() => void window.desktopAPI.pickDirectory(directory || undefined).then(result => { if (result.ok && result.path) setDirectory(result.path); })}>Browse</Button></div>
+        </label>}
+        {!remoteOnly ? <>
+          <div className="flex gap-2"><Input aria-label="Local working directory" placeholder={defaultDirectory || "Choose a local project directory"} value={directory} onChange={event => setDirectory(event.target.value)} />
+            <Button variant="outline" onClick={() => void window.desktopAPI.pickDirectory(directory || defaultDirectory || undefined).then(result => { if (result.ok && result.path) setDirectory(result.path); })}>Browse</Button></div>
           <label className="block space-y-1"><span className="text-caption">Local agent</span>
             <select aria-label="Local agent" className="w-full rounded-md border bg-background p-2" value={provider} onChange={event => setProvider(event.target.value)}>
               <option value="">Default {agents.includes("codex") ? "(codex)" : ""}</option>
@@ -202,8 +185,15 @@ export function LocalIssuesHome({ centerAvailable, centerUserId, onOpenCenter, o
             Detected local skills: {capabilities.skills.map(skill => skill.name).join(", ") || "none"}. Local MCP servers: {capabilities.mcp_servers.filter(server => server.enabled).map(server => server.name).join(", ") || "none"}.
             Project-specific settings may also be loaded by the agent.
           </p>}
-        </> : <p className="text-caption text-muted-foreground">This issue is sent to Center and assigned to the selected machine’s agent.</p>}
-        <Button disabled={busy || !title.trim() || (machine === "local" && !directory)} onClick={() => void createIssue()}>{busy ? "Creating…" : "Create issue"}</Button>
+        </> : <div className="text-caption text-muted-foreground">
+          <p>This issue is sent only to the selected remote agent or squad. No local fallback. Squads start on their leader’s machine; delegation follows each member’s runtime binding.</p>
+          {!centerAvailable || !centerUserId ? <p role="alert">Connect and sign in to Center first.</p>
+            : !daemonId ? <p role="alert">Waiting for this machine’s daemon identity before selecting remote targets.</p>
+              : remoteQuery.isError ? <p role="alert">Could not load remote targets. <button type="button" className="underline" onClick={() => void remoteQuery.refetch()}>Retry</button></p>
+                : remoteQuery.isPending ? <p>Loading remote targets...</p>
+                  : remoteChoices.length === 0 ? <p>No remote agents or squads are available.</p> : null}
+        </div>}
+        <Button disabled={busy || !title.trim() || (remoteOnly ? !remoteReady || !remoteChoices.some(choice => choice.id === machine) : !daemonRunning || !(directory.trim() || defaultDirectory))} onClick={() => void createIssue()}>{busy ? "Creating…" : "Create issue"}</Button>
       </section>}
       {error && <p role="alert" className="text-destructive">{error}</p>}
       {!embedded && <div><Button variant="outline" onClick={() => setShowCenterSettings(value => !value)} aria-expanded={showCenterSettings}>Center settings</Button>

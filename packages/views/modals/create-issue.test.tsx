@@ -31,6 +31,15 @@ function I18nWrapper({ children }: { children: ReactNode }) {
 }
 
 const mockPush = vi.hoisted(() => vi.fn());
+const mockCreateLocalIssue = vi.hoisted(() => vi.fn());
+const machineGuard = vi.hoisted(() => ({ executionBlocked: false, localExecution: false, validateBoundTarget: vi.fn(), localRunner: { create: mockCreateLocalIssue } }));
+// Machine discovery and permissions are covered in issue-machine-picker.test.tsx.
+vi.mock("./issue-machine-picker", () => ({
+  useIssueMachineTarget: (selection: { assigneeId?: string }) => ({ ...selection, ...machineGuard }),
+  IssueMachinePicker: ({ onSelect, target }: { onSelect: (type: "agent", id: string) => void; target: { assigneeId?: string } }) => (
+    <button type="button" onClick={() => onSelect("agent", "machine-agent")}>Machine target: {target.assigneeId ?? "none"}</button>
+  ),
+}));
 const mockCreateIssue = vi.hoisted(() => vi.fn());
 const mockCreateCommentSubIssue = vi.hoisted(() => vi.fn());
 const mockAttachLabel = vi.hoisted(() => vi.fn());
@@ -625,6 +634,10 @@ function renderModal(element: React.ReactElement) {
 describe("CreateIssueModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    machineGuard.executionBlocked = false;
+    machineGuard.localExecution = false;
+    machineGuard.validateBoundTarget.mockReset();
+    mockCreateLocalIssue.mockResolvedValue({ id: "local-1", title: "OS version" });
     mockQuickCreateStore.keepOpen = false;
     mockCreateSettingsStore.manualCreateFields = DEFAULT_MANUAL_FIELDS;
     mockSetKeepOpen.mockImplementation((v: boolean) => {
@@ -706,6 +719,71 @@ describe("CreateIssueModal", () => {
     mockSetIssueProperty.mockResolvedValue({
       properties: { "property-tier": "option-enterprise" },
     });
+  });
+
+  it("submits the agent selected through the machine picker even when assignee fields are hidden", async () => {
+    mockCreateSettingsStore.manualCreateFields = DEFAULT_MANUAL_FIELDS.filter((field) => field !== "assignee");
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Machine target: none" }));
+    expect(mockSetManual).toHaveBeenCalledWith({ assigneeType: "agent", assigneeId: "machine-agent" });
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "Run on this machine" } });
+    await userEvent.click(screen.getByRole("button", { name: "Create Issue" }));
+    await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledWith(expect.objectContaining({ assignee_type: "agent", assignee_id: "machine-agent" })));
+  });
+
+  it("blocks both button and shortcut submission when the remote target is invalid", async () => {
+    machineGuard.executionBlocked = true;
+    renderModal(<ManualCreatePanel onClose={vi.fn()} isExpanded={false} setIsExpanded={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "Remote only" } });
+    expect(screen.getByRole("button", { name: "Create Issue" })).toBeDisabled();
+    fireEvent.keyDown(screen.getByPlaceholderText("Issue title"), { key: "Enter", metaKey: true });
+    await act(async () => {});
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+  });
+
+  it("creates directly through the local daemon without a Center assignee or Center mutation", async () => {
+    machineGuard.localExecution = true;
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "OS version" } });
+    await userEvent.click(screen.getByRole("button", { name: "Create Issue" }));
+    await waitFor(() => expect(mockCreateLocalIssue).toHaveBeenCalledWith("OS version", ""));
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(mockCreateCommentSubIssue).not.toHaveBeenCalled();
+    expect(mockSetLastAssignee).not.toHaveBeenCalled();
+  });
+
+  it("does not create or clear the draft if the local bound target changes", async () => {
+    machineGuard.validateBoundTarget.mockRejectedValue(new Error("Local binding changed"));
+    renderModal(<CreateIssueModal onClose={vi.fn()} />);
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "Local agent work" } });
+    await userEvent.click(screen.getByRole("button", { name: "Create Issue" }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Local binding changed"));
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(mockCreateLocalIssue).not.toHaveBeenCalled();
+    expect(mockClearDraft).not.toHaveBeenCalled();
+  });
+
+  it("keeps the draft and never falls back to Center on local creation failure", async () => {
+    machineGuard.localExecution = true;
+    mockCreateLocalIssue.mockRejectedValue(new Error("Local daemon unavailable"));
+    const onClose = vi.fn();
+    renderModal(<CreateIssueModal onClose={onClose} />);
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "OS version" } });
+    await userEvent.click(screen.getByRole("button", { name: "Create Issue" }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Local daemon unavailable"));
+    expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(mockClearDraft).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does not silently discard Center-only properties when creating locally", async () => {
+    machineGuard.localExecution = true;
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ project_id: "project-1" }} />);
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), { target: { value: "OS version" } });
+    await userEvent.click(screen.getByRole("button", { name: "Create Issue" }));
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith(enModals.create_issue.machine.local_unsupported));
+    expect(mockCreateLocalIssue).not.toHaveBeenCalled();
+    expect(mockCreateIssue).not.toHaveBeenCalled();
   });
 
   it("uses the same compact attachment control as agent mode", () => {

@@ -1130,7 +1130,7 @@ export class ApiClient {
     return issue;
   }
 
-  async createIssue(data: CreateIssueRequest): Promise<Issue> {
+  async createIssue(data: CreateIssueRequest, workspaceSlug?: string): Promise<Issue> {
     // Parse through a schema (not a raw cast): the create modal keys its
     // label-attach compatibility fallback off `labels` being absent vs a
     // validated Label[], so an unvalidated wrong shape must not slip through.
@@ -1143,6 +1143,7 @@ export class ApiClient {
     const raw = await this.fetch<unknown>("/api/issues", {
       method: "POST",
       body: JSON.stringify(data),
+      headers: workspaceHeader(workspaceSlug),
     });
     const issue = parseWithFallback<Issue | null>(raw, CreateIssueResponseSchema, null, {
       endpoint: "POST /api/issues",
@@ -4204,8 +4205,8 @@ export class ApiClient {
   }
 
   // Squads
-  async listSquads(): Promise<Squad[]> {
-    const raw = await this.fetch<unknown>(`/api/squads`);
+  async listSquads(workspaceSlug?: string): Promise<Squad[]> {
+    const raw = await this.fetch<unknown>(`/api/squads`, { headers: workspaceHeader(workspaceSlug) });
     return parseWithFallback(raw, SquadListSchema, EMPTY_SQUAD_LIST, {
       endpoint: "GET /api/squads",
     }) as Squad[];

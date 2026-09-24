@@ -8,6 +8,7 @@ export interface LocalDaemonStatus {
   daemonId: string | null;
   deviceName: string | null;
   running: boolean;
+  agents?: string[];
 }
 
 interface DaemonStatusLike {
@@ -21,6 +22,7 @@ interface DaemonStatusLike {
     | "auth_expired";
   daemonId?: string;
   deviceName?: string;
+  agents?: string[];
 }
 
 interface DaemonAPILike {
@@ -39,6 +41,7 @@ function toStatus(s: DaemonStatusLike | undefined): LocalDaemonStatus {
     daemonId: s.daemonId ?? null,
     deviceName: s.deviceName ?? null,
     running: s.state === "running",
+    agents: s.agents ?? [],
   };
 }
 

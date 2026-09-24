@@ -267,6 +267,8 @@ const daemonAPI = {
     ipcRenderer.invoke("daemon:get-status"),
   listLocalIssues: (): Promise<import("../shared/local-issue").LocalIssue[]> =>
     ipcRenderer.invoke("daemon:local-issues:list"),
+  getLocalIssueDefaultDirectory: (): Promise<string> =>
+    ipcRenderer.invoke("daemon:local-issues:default-directory"),
   getLocalCapabilities: (provider: string): Promise<import("../shared/local-issue").LocalCapabilities> =>
     ipcRenderer.invoke("daemon:local-capabilities:get", provider),
   getLocalIssue: (id: string): Promise<import("../shared/local-issue").LocalIssue> =>

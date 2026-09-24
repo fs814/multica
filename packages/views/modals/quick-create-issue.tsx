@@ -85,6 +85,7 @@ import { useT } from "../i18n";
 import { matchesPinyin } from "../editor/extensions/pinyin-match";
 import { SourceContextPreviewCard, useSourceContextFailureMessage } from "./source-context-preview";
 import { useIssueLimitUpgradePrompt } from "./use-issue-limit-upgrade-prompt";
+import { IssueMachinePicker, useIssueMachineTarget } from "./issue-machine-picker";
 
 type ActorSelection =
   | { type: "agent"; id: string }
@@ -415,13 +416,18 @@ export function AgentCreatePanel({
   // refocus an editor that is about to unmount with the dialog.
   const refocusAfterAcceptRef = useRef(false);
 
+  const machineTarget = useIssueMachineTarget({ assigneeType: actor?.type, assigneeId: actor?.id }, data?.remote_only === true, {
+    directory: typeof data?.local_directory === "string" ? data.local_directory : undefined,
+    useAssignee: data?.local_assignee === true,
+    provider: typeof data?.local_provider === "string" ? data.local_provider : undefined,
+  });
   const composer = useComposerSubmit({
     editorRef,
     uploadGate: gate,
     onSubmit: async (md): Promise<boolean> => {
       // The button already disables on !actor / versionBlocked, but the
       // ⌘+Enter path bypasses it — re-guard here and keep the draft in place.
-      if (!actor || versionBlocked || (anchorCommentId && !sourcePreview)) return false;
+      if ((!machineTarget.localExecution && (!actor || versionBlocked)) || machineTarget.executionBlocked || (anchorCommentId && !sourcePreview)) return false;
       // Flush the prompt editor's pending debounce before snapshotting — see
       // ManualCreatePanel.
       const pendingPrompt = editorRef.current?.flushPendingUpdate?.();
@@ -432,6 +438,18 @@ export function AgentCreatePanel({
         .map((a) => a.id);
       setError(null);
       try {
+        if (machineTarget.localExecution) {
+          if (anchorCommentId || pendingAttachments.length || projectId || parentIssueId || priority !== "none" || dueDate) {
+            setError(t(($) => $.create_issue.machine.local_unsupported));
+            return false;
+          }
+          const localTitle = Array.from(md.trim().split("\n")[0] ?? md.trim()).slice(0, 60).join("");
+          const localIssue = await machineTarget.localRunner.create(localTitle, md);
+          toast.success(t(($) => $.create_issue.machine.local_created, { id: localIssue.id }));
+          return true;
+        }
+        if (!actor) return false;
+        await machineTarget.validateBoundTarget();
         if (anchorCommentId && sourcePreview) {
           await api.createCommentSubIssue(anchorCommentId, {
             mode: "agent",
@@ -593,6 +611,10 @@ export function AgentCreatePanel({
     setLastMode("manual");
     setActiveMode("manual");
     const carry: Record<string, unknown> = {};
+    if (machineTarget.remoteOnly) carry.remote_only = true;
+    if (machineTarget.localRunner?.directory) carry.local_directory = machineTarget.localRunner.directory;
+    if (machineTarget.useLocalAssignee) carry.local_assignee = true;
+    if (machineTarget.localRunner?.provider) carry.local_provider = machineTarget.localRunner.provider;
     if (parentIssueId) carry.parent_issue_id = parentIssueId;
     if (parentIssueIdentifier) carry.parent_issue_identifier = parentIssueIdentifier;
     onSwitchMode?.(Object.keys(carry).length > 0 ? carry : null);
@@ -651,7 +673,7 @@ export function AgentCreatePanel({
             route to their leader agent on the backend; the leader runs the
             quick-create flow with the squad's Operating Protocol layered
             on top, so a squad pick is "ask this squad to file the issue". */}
-        <div className="px-5 pt-1 pb-2 shrink-0">
+        {!machineTarget.localExecution && !machineTarget.useLocalAssignee && <div className="px-5 pt-1 pb-2 shrink-0">
           <ActorPicker
             actor={actor}
             visibleAgents={visibleAgents}
@@ -665,9 +687,9 @@ export function AgentCreatePanel({
             }}
             t={t}
           />
-        </div>
+        </div>}
 
-        {selectedAgent && versionBlocked && (
+        {!machineTarget.localExecution && selectedAgent && versionBlocked && (
           <div className="mx-5 mb-2 shrink-0 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-caption text-amber-700 dark:text-amber-300">
             {versionCheck.state === "missing"
               ? t(($) => $.create_issue.agent.version_missing, { min: versionCheck.min })
@@ -735,7 +757,16 @@ export function AgentCreatePanel({
             avoids "where did this end up?" surprise. We deliberately keep
             it non-editable: changing the parent is a `Set parent` action on
             the parent itself, not a knob in the quick-create flow. */}
-        <div className="flex items-center gap-1.5 px-4 pb-2 shrink-0 flex-wrap">
+        <div className="flex max-h-[45dvh] items-center gap-1.5 overflow-y-auto px-4 pb-2 shrink-0 flex-wrap">
+          <IssueMachinePicker
+            mode="agent"
+            target={machineTarget}
+            onSelect={(type, id) => {
+              setActor({ type, id });
+              setAgent({ actorType: type, actorId: id });
+              setError(null);
+            }}
+          />
           {(visibleFields.includes("project") ||
             projectId !== null ||
             fieldPickerOpen === "project") && (
@@ -894,12 +925,12 @@ export function AgentCreatePanel({
           <Button
             size="sm"
             onClick={submit}
-            disabled={!hasContent || !actor || submitting || versionBlocked || gate.uploading || (!!anchorCommentId && !sourcePreview)}
+            disabled={!hasContent || (!machineTarget.localExecution && (!actor || versionBlocked)) || submitting || machineTarget.executionBlocked || gate.uploading || (!!anchorCommentId && !sourcePreview)}
             aria-disabled={gate.uploading || undefined}
             // Sending is a busy state too, not just uploading.
             aria-busy={gate.uploading || submitting || undefined}
             title={
-              versionBlocked
+              !machineTarget.localExecution && versionBlocked
                 ? t(($) => $.create_issue.agent.version_blocked_tooltip, { min: versionCheck.min })
                 : undefined
             }

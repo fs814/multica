@@ -141,6 +141,17 @@ const mockRuntimesData = vi.hoisted(
 // the same or the two records drift apart only in tests.
 let mockUploadIdSeq = 0;
 
+const mockCreateLocalIssue = vi.hoisted(() => vi.fn());
+const mockNoAgents = vi.hoisted(() => ({ value: false }));
+const machineGuard = vi.hoisted(() => ({ executionBlocked: false, localExecution: false, validateBoundTarget: vi.fn(), localRunner: { create: mockCreateLocalIssue } }));
+// Discovery and permission behavior lives in issue-machine-picker.test.tsx.
+vi.mock("./issue-machine-picker", () => ({
+  useIssueMachineTarget: () => machineGuard,
+  IssueMachinePicker: ({ onSelect }: { onSelect: (type: "agent", id: string) => void }) => (
+    <button type="button" onClick={() => onSelect("agent", "machine-agent")}>Pick creation machine</button>
+  ),
+}));
+
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
     // Workspace-scoped query keys carry the wsId as `queryKey[1]`; the
@@ -153,7 +164,10 @@ vi.mock("@tanstack/react-query", () => ({
         return { data: [{ user_id: "user-1", role: "admin" }] };
       case "agents":
         return {
-          data: [{ id: "agent-1", name: "Bohan", archived_at: null, runtime_id: "runtime-1" }],
+          data: mockNoAgents.value ? [] : [
+            { id: "agent-1", name: "Bohan", archived_at: null, runtime_id: "runtime-1" },
+            { id: "machine-agent", name: "Machine agent", archived_at: null, runtime_id: "runtime-1" },
+          ],
         };
       case "runtimes":
         return { data: mockRuntimesData.list };
@@ -509,6 +523,11 @@ function renderPanel(props: React.ComponentProps<typeof AgentCreatePanel>) {
 
 describe("AgentCreatePanel", () => {
   beforeEach(() => {
+    machineGuard.executionBlocked = false;
+    machineGuard.localExecution = false;
+    machineGuard.validateBoundTarget.mockReset();
+    mockNoAgents.value = false;
+    mockCreateLocalIssue.mockResolvedValue({ id: "local-1", title: "OS version" });
     vi.clearAllMocks();
     mockQuickCreateStore.lastActorType = null;
     mockQuickCreateStore.lastActorId = null;
@@ -556,6 +575,58 @@ describe("AgentCreatePanel", () => {
     mockSetKeepOpen.mockImplementation((value: boolean) => {
       mockQuickCreateStore.keepOpen = value;
     });
+  });
+
+  it("submits and persists the agent selected through the creation machine picker", async () => {
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+    await userEvent.click(screen.getByRole("button", { name: "Pick creation machine" }));
+    expect(mockSetAgent).toHaveBeenCalledWith({ actorType: "agent", actorId: "machine-agent" });
+    await userEvent.click(screen.getByRole("button", { name: /^Create$/i }));
+    await waitFor(() => expect(mockQuickCreateIssue).toHaveBeenCalledWith(expect.objectContaining({ agent_id: "machine-agent" })));
+  });
+
+  it("blocks quick create when the remote target is invalid", async () => {
+    machineGuard.executionBlocked = true;
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+    expect(screen.getByRole("button", { name: /^Create$/i })).toBeDisabled();
+    const editor = screen.getByPlaceholderText('Tell the agent what to do, e.g. "let Bohan fix the inbox loading slowness in the Web project"');
+    fireEvent.keyDown(editor, { key: "Enter", metaKey: true });
+    expect(mockQuickCreateIssue).not.toHaveBeenCalled();
+  });
+
+  it("runs the local prompt without submitting to the remote quick-create agent", async () => {
+    machineGuard.localExecution = true;
+    mockNoAgents.value = true;
+    mockRuntimesData.list = [{ id: "runtime-1", metadata: { cli_version: "0.0.1" } }];
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+    expect(screen.getByRole("button", { name: /^Create$/i })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: /^Create$/i }));
+    await waitFor(() => expect(mockCreateLocalIssue).toHaveBeenCalledWith("Persisted draft prompt", "Persisted draft prompt"));
+    expect(mockQuickCreateIssue).not.toHaveBeenCalled();
+    expect(mockCreateCommentSubIssue).not.toHaveBeenCalled();
+    expect(mockSetLastActor).not.toHaveBeenCalled();
+  });
+
+  it("checks the bound local target before submitting quick create", async () => {
+    machineGuard.validateBoundTarget.mockRejectedValue(new Error("Local binding changed"));
+    renderPanel({ onClose: vi.fn(), isExpanded: false, setIsExpanded: vi.fn() });
+    await userEvent.click(screen.getByRole("button", { name: /^Create$/i }));
+    await screen.findByText("Local binding changed");
+    expect(mockQuickCreateIssue).not.toHaveBeenCalled();
+    expect(mockCreateLocalIssue).not.toHaveBeenCalled();
+    expect(mockClearDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to Center when local prompt creation fails", async () => {
+    machineGuard.localExecution = true;
+    mockCreateLocalIssue.mockRejectedValue(new Error("Local API unavailable"));
+    const onClose = vi.fn();
+    renderPanel({ onClose, isExpanded: false, setIsExpanded: vi.fn() });
+    await userEvent.click(screen.getByRole("button", { name: /^Create$/i }));
+    await screen.findByText("Local API unavailable");
+    expect(mockQuickCreateIssue).not.toHaveBeenCalled();
+    expect(mockClearDraft).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("loads the persisted prompt draft when no transient prompt is provided", () => {

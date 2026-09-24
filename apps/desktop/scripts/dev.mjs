@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { envWithLocalBins } from "./package.mjs";
+import { createDevCliPath } from "./dev-cli.mjs";
 import {
   applyWorktreeDevEnv,
   repoRootFromScriptDir,
@@ -40,7 +41,11 @@ function run(command, args, { shell = false, env = process.env } = {}) {
 }
 
 const node = process.execPath;
-run(node, [join(here, "bundle-cli.mjs")]);
+// A surviving daemon may still lock the previous executable on Windows.
+// Build a distinct immutable executable, never replace or stop that process.
+const devCli = createDevCliPath(repoRootFromScriptDir(here));
+run(node, [join(here, "bundle-cli.mjs"), "--dev-output", devCli]);
+process.env.MULTICA_DESKTOP_DEV_CLI = devCli;
 run(node, [join(here, "brand-dev-electron.mjs")]);
 
 const isWin = process.platform === "win32";

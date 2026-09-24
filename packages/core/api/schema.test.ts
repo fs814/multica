@@ -244,6 +244,19 @@ describe("ApiClient schema fallback", () => {
       expect(issue.labels).toBeUndefined();
     });
 
+    it("uses an explicit remote workspace without changing ambient workspace state", async () => {
+      stubFetchJson(validIssue, 201);
+      await new ApiClient("https://api.example.test").createIssue({ title: "Created", assignee_type: "squad", assignee_id: "squad-1" }, "remote-workspace");
+      const init = vi.mocked(fetch).mock.calls[0]?.[1];
+      expect(init?.headers).toMatchObject({ "X-Workspace-Slug": "remote-workspace" });
+      expect(JSON.parse(String(init?.body))).toMatchObject({ assignee_type: "squad", assignee_id: "squad-1" });
+    });
+
+    it("still rejects malformed creation responses when a remote workspace is specified", async () => {
+      stubFetchJson({ id: "broken" }, 201);
+      await expect(new ApiClient("https://api.example.test").createIssue({ title: "Created" }, "remote-workspace")).rejects.toThrow();
+    });
+
     it("validates a well-formed labels array", async () => {
       stubFetchJson({ ...validIssue, labels: [label] }, 201);
       const client = new ApiClient("https://api.example.test");

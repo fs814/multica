@@ -3,6 +3,15 @@
 A runtime is the execution target behind an agent. A daemon owns local runtime
 processes and claims queued tasks from the server.
 
+Desktop development launches build a fresh CLI into an isolated
+`.multica/desktop-cli/build-*` directory and pass its absolute path through
+`MULTICA_DESKTOP_DEV_CLI`. The packaged app ignores this development override.
+Running executables are never overwritten, so a surviving Windows daemon does
+not block reopening Desktop. The CLI version includes a Go/embedded-source
+fingerprint; existing Desktop version reconciliation can distinguish dirty
+builds and defer an update while runs are active. Old build directories are
+retained because a daemon may still be executing from them.
+
 - [Core model](#core-model)
 - [CLI](#cli)
 - [Task CLI boundary](#task-cli-boundary)
@@ -114,9 +123,11 @@ sandbox logon rights. An agent-scoped `-c windows.sandbox=unelevated` override
 requires explicit user approval; never silently lower isolation or edit all
 agents. A running daemon is not proof that its task commands can execute.
 
-For local development, `node scripts/ensure-local-daemon.mjs` builds a stopped
-daemon from the checkout and warns when a running daemon has a different version.
-Do not stop active work merely to clear that warning. Check runtime heartbeat,
+For local development, `node scripts/ensure-local-daemon.mjs` installs the
+checkout's build product onto the profile's running path, replacing a daemon
+that serves a different build only while no task is active, and warns instead
+when work is in flight. Do not stop active work merely to clear that warning.
+Check runtime heartbeat,
 run status and actual tool results; `completed` alone is not goal completion.
 
 Check in this order:

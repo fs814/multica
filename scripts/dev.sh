@@ -79,8 +79,20 @@ pnpm dev:web &
 # The owner daemon services project Memory as well as agent tasks. Reuse the
 # Desktop profile and any running owner; login remains an explicit user action.
 if [ "${MULTICA_DEV_DAEMON:-1}" = "1" ]; then
-  if ! node scripts/ensure-local-daemon.mjs; then
-    echo "==> API/web remain available; follow the daemon login/start instructions above."
+  # `|| daemon_status=$?` keeps `set -e` from tearing down the trap (and with it
+  # the API/web just started) when the helper fails.
+  daemon_status=0
+  node scripts/ensure-local-daemon.mjs || daemon_status=$?
+  # Exit code 2 means the helper found the profile down and left it down (a
+  # failed upgrade, or one it could not recover). That is NOT the same thing as
+  # "your daemon was left alone", and saying so would be a lie.
+  if [ "$daemon_status" -eq 2 ]; then
+    echo ""
+    echo "==> WARNING: no daemon is running profile ${MULTICA_PROFILE:-desktop-localhost-${PORT:-8080}} right now."
+    echo "    Agent tasks and project Memory are NOT being served. API/web are unaffected."
+    echo "    Resolve the error above, then start it: node scripts/ensure-local-daemon.mjs"
+  elif [ "$daemon_status" -ne 0 ]; then
+    echo "==> Your running daemon was left untouched; API/web remain available. Follow the daemon login/start instructions above."
   fi
 fi
 wait

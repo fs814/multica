@@ -135,6 +135,7 @@ type DaemonReauthResult =
   | { ok: false; reason: "transient"; message: string };
 
 interface DaemonAPI {
+  getLocalIssueDefaultDirectory: () => Promise<string>;
   listLocalIssues: () => Promise<import("../shared/local-issue").LocalIssue[]>;
   getLocalCapabilities: (provider: string) => Promise<import("../shared/local-issue").LocalCapabilities>;
   getLocalIssue: (id: string) => Promise<import("../shared/local-issue").LocalIssue>;

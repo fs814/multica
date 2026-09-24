@@ -99,6 +99,7 @@ import { IssuePickerModal } from "./issue-picker-modal";
 import { useT } from "../i18n";
 import { SourceContextPreviewCard, useSourceContextFailureMessage } from "./source-context-preview";
 import { useIssueLimitUpgradePrompt } from "./use-issue-limit-upgrade-prompt";
+import { IssueMachinePicker, useIssueMachineTarget } from "./issue-machine-picker";
 
 // ---------------------------------------------------------------------------
 // ManualCreatePanel — manual-mode body of the create-issue dialog. Renders
@@ -469,11 +470,17 @@ export function ManualCreatePanel({
   }, []);
   const submittedDraftRef = useRef<IssueCreateDraft | null>(null);
 
+  const machineTarget = useIssueMachineTarget({ assigneeType, assigneeId }, data?.remote_only === true, {
+    directory: typeof data?.local_directory === "string" ? data.local_directory : undefined,
+    useAssignee: data?.local_assignee === true,
+    provider: typeof data?.local_provider === "string" ? data.local_provider : undefined,
+  });
   const composer = useComposerSubmit({
     editorRef: descEditorRef,
     uploadGate: gate,
     normalize: () => title.trim(),
     onSubmit: async (): Promise<boolean> => {
+      if (machineTarget.executionBlocked) return false;
       // Flush the description editor's pending debounce into the store BEFORE
       // snapshotting, so a late flush of pre-submit typing cannot masquerade
       // as an edit made during the request.
@@ -482,9 +489,19 @@ export function ManualCreatePanel({
       submittedDraftRef.current = useIssueDraftStore.getState().draft;
       try {
       const description = descEditorRef.current?.getMarkdown()?.trim() || undefined;
+      if (machineTarget.localExecution) {
+        if (anchorCommentId || draftAttachments.length || projectId || parentIssueId || childIssues.length || labelIds.length || Object.keys(propertyValues).length || startDate || dueDate || priority !== "none" || status !== "todo") {
+          toast.error(t(($) => $.create_issue.machine.local_unsupported));
+          return false;
+        }
+        const localIssue = await machineTarget.localRunner.create(title.trim(), description ?? "");
+        toast.custom(() => <div className="rounded-lg border bg-popover p-4 text-body">{t(($) => $.create_issue.machine.local_created, { id: localIssue.id })}</div>);
+        return true;
+      }
       const activeAttachmentIds = draftAttachments
         .filter((a) => contentReferencesAttachment(description ?? "", a))
         .map((a) => a.id);
+      await machineTarget.validateBoundTarget();
       let issue: Issue;
       if (anchorCommentId && sourcePreview) {
         issue = await createCommentSubIssueMutation.mutateAsync({
@@ -738,7 +755,7 @@ export function ManualCreatePanel({
     onAccepted: () => {
       // These preferences derive from the SUBMITTED values, not the live
       // draft — an issue was created, so record them regardless of the guard.
-      setLastAssignee(assigneeType, assigneeId);
+      if (!machineTarget.localExecution) setLastAssignee(assigneeType, assigneeId);
       setLastMode("manual");
       // Success may only consume the draft it submitted (MUL-5181 P0): any
       // edit after the submit snapshot — typing while the request is in
@@ -818,6 +835,10 @@ export function ManualCreatePanel({
     const carryParentIdentifier =
       parentIssue?.identifier ?? (data?.parent_issue_identifier as string | undefined);
     const carry: Record<string, unknown> = {};
+    if (machineTarget.remoteOnly) carry.remote_only = true;
+    if (machineTarget.localRunner?.directory) carry.local_directory = machineTarget.localRunner.directory;
+    if (machineTarget.useLocalAssignee) carry.local_assignee = true;
+    if (machineTarget.localRunner?.provider) carry.local_provider = machineTarget.localRunner.provider;
     if (parentIssueId) carry.parent_issue_id = parentIssueId;
     if (carryParentIdentifier) carry.parent_issue_identifier = carryParentIdentifier;
     onSwitchMode?.(Object.keys(carry).length > 0 ? carry : null);
@@ -847,7 +868,7 @@ export function ManualCreatePanel({
       // for a missing title — a native-disabled button is not focusable, so
       // keyboard and screen-reader users could never reach the tooltip that
       // explains why nothing happens. `handleSubmit` is the real gate either way.
-      disabled={submitBusy}
+      disabled={submitBusy || machineTarget.executionBlocked}
       aria-disabled={submitState === "missing_title" || submitState === "source_unavailable" || undefined}
       aria-busy={submitBusy || undefined}
       // The Button base only dims/blocks on native `disabled`, so aria-disabled
@@ -973,11 +994,11 @@ export function ManualCreatePanel({
 
             {/* Pre-trigger preview — a passive caption above the toolbar; reveals
                 when an agent assignee will pick the issue up. */}
-            <CreateRunHint assigneeType={assigneeType} assigneeId={assigneeId} status={status} />
+            {!machineTarget.localExecution && <CreateRunHint assigneeType={assigneeType} assigneeId={assigneeId} status={status} />}
 
             {/* Property toolbar — each field renders per the Settings → Preferences → Issue creation
                 selection (see showField above). */}
-            <div className="flex items-center gap-1.5 px-4 py-2 shrink-0 flex-wrap">
+            <div className="flex max-h-[45dvh] items-center gap-1.5 overflow-y-auto px-4 py-2 shrink-0 flex-wrap">
               {/* Status */}
               {showField.status && (
                 <StatusPicker
@@ -1002,8 +1023,13 @@ export function ManualCreatePanel({
                 />
               )}
 
+              <IssueMachinePicker
+                target={machineTarget}
+                onSelect={updateAssignee}
+              />
+
               {/* Assignee */}
-              {showField.assignee && (
+              {showField.assignee && !machineTarget.localExecution && !machineTarget.useLocalAssignee && (
                 <AssigneePicker
                   assigneeType={assigneeType ?? null}
                   assigneeId={assigneeId ?? null}
@@ -1422,12 +1448,12 @@ export function manualDialogContentClass(isExpanded: boolean) {
     // Phone gutter — see the matching note in create-issue-dialog.tsx: the
     // `!important` widths below also override DialogContent's
     // `max-w-[calc(100%-2rem)]`, leaving the card edge to edge on a phone
-    // (MUL-6236). `!h-96` stays a hard height; it already fits the shortest
-    // phone we support.
+    // (MUL-6236). Bound height to the viewport while leaving room for local
+    // execution fields and a usable description editor.
     "!w-full !max-w-[calc(100vw-1.5rem)]",
     isExpanded
       ? "!h-5/6 !-translate-y-1/2 sm:!max-w-4xl"
-      : "!h-96 !-translate-y-1/2 sm:!max-w-2xl",
+      : "!h-[min(42rem,85dvh)] !-translate-y-1/2 sm:!max-w-2xl",
   );
 }
 

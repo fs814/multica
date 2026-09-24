@@ -4,6 +4,7 @@ export * from "./queries";
 export * from "./mutations";
 export * from "./ws-updaters";
 export * from "./workdir";
+export * from "./remote-targets";
 export * from "./config";
 export * from "./stores";
 
