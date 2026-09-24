@@ -349,6 +349,18 @@ deleted_task_tokens AS (
     DELETE FROM task_token
     WHERE workspace_id = $1
 ),
+deleted_project_memory_requests AS (
+    DELETE FROM project_memory_request WHERE workspace_id = $1
+),
+deleted_project_memory_tasks AS (
+    DELETE FROM project_memory_task WHERE workspace_id = $1
+),
+deleted_project_memory_scopes AS (
+    DELETE FROM project_memory_scope WHERE workspace_id = $1
+),
+deleted_project_memory_bindings AS (
+    DELETE FROM project_memory_binding WHERE workspace_id = $1
+),
 deleted_hourly_dirty AS (
     DELETE FROM task_usage_hourly_dirty WHERE workspace_id = $1
 ),

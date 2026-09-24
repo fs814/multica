@@ -69,6 +69,8 @@ func memoryFakeProvider() {
 			result = map[string]string{"sessionId": "memory-fixture-session"}
 		case "thread/start":
 			result = map[string]any{"thread": map[string]string{"id": "memory-fixture-thread"}}
+		case "command/exec":
+			result = map[string]any{"exitCode": 0, "stdout": "", "stderr": ""}
 		case "session/load", "thread/resume":
 			report["unexpected_resume"] = true
 		case "session/prompt", "turn/start":

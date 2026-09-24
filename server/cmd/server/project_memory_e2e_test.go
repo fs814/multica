@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -254,6 +255,24 @@ func TestProjectMemoryProductClaimProviderCleanup(t *testing.T) {
 				t.Fatal("unset task read an old snapshot")
 			}
 			if provider == "codex" {
+				methods, _ := observed["methods"].([]any)
+				positions := map[string]int{}
+				for i, method := range methods {
+					if name, ok := method.(string); ok {
+						positions[name] = i
+					}
+				}
+				thread, threadOK := positions["thread/start"]
+				turn, turnOK := positions["turn/start"]
+				if !threadOK || !turnOK || thread >= turn {
+					t.Fatalf("Codex thread/turn protocol not completed: %s", record)
+				}
+				if runtime.GOOS == "windows" {
+					preflight, ok := positions["command/exec"]
+					if !ok || preflight >= thread {
+						t.Fatalf("Windows preflight did not precede model work: %s", record)
+					}
+				}
 				config, _ := observed["codex_config"].(string)
 				var cfg struct {
 					Features struct{ Memories bool }

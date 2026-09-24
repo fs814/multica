@@ -96,11 +96,18 @@ func (sort resolvedIssueTableSort) cursorPredicate(w http.ResponseWriter, cursor
 			return "", false
 		}
 	case "timestamptz":
-		if _, err := time.Parse(time.RFC3339Nano, *cursor.SortValue); err != nil {
-			if _, postgresErr := time.Parse("2006-01-02 15:04:05.999999999Z07", *cursor.SortValue); postgresErr != nil {
-				writeError(w, http.StatusBadRequest, "invalid cursor")
-				return "", false
+		valid := false
+		// Accept already issued PostgreSQL text cursors as well as RFC3339.
+		// PostgreSQL offsets may include minutes or historical offset seconds.
+		for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999Z07", "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999Z07:00:00"} {
+			if _, err := time.Parse(layout, *cursor.SortValue); err == nil {
+				valid = true
+				break
 			}
+		}
+		if !valid {
+			writeError(w, http.StatusBadRequest, "invalid cursor")
+			return "", false
 		}
 	case "date":
 		if _, err := time.Parse("2006-01-02", *cursor.SortValue); err != nil {
@@ -376,13 +383,18 @@ func (h *Handler) ListIssueTableRows(w http.ResponseWriter, r *http.Request) {
   EXISTS (SELECT 1 FROM promoted_parents p WHERE p.id = i.id)
 )`, groupPredicate)
 	}
+	sortKey := "(" + resolvedSort.expression + ")::text"
+	if resolvedSort.castType == "timestamptz" {
+		// Issue a stable UTC cursor regardless of the database TimeZone/DateStyle.
+		sortKey = "to_char(" + resolvedSort.expression + " AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')"
+	}
 	cte := fmt.Sprintf(`%spage AS MATERIALIZED (
-  SELECT i.*, (%s)::text AS table_sort_key
+  SELECT i.*, %s AS table_sort_key
   FROM %s i
   WHERE (%s) AND %s
   ORDER BY %s
   LIMIT %s
-)`, ctePrefix, resolvedSort.expression, pageSource, pagePredicate, cursorPredicate, resolvedSort.orderBy(), limitRef)
+)`, ctePrefix, sortKey, pageSource, pagePredicate, cursorPredicate, resolvedSort.orderBy(), limitRef)
 	childCountExpr := "0::bigint"
 	if request.Hierarchy.Enabled {
 		childCountExpr = "(SELECT COUNT(*)::bigint FROM membership child WHERE child.parent_issue_id = i.id)"
