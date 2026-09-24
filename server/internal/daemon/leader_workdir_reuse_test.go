@@ -925,46 +925,162 @@ func TestLockReusablePriorEnvRootSurvivesRetargetAfterValidation(t *testing.T) {
 	}
 }
 
-// TestLockReusablePriorEnvRootRejectsIdentitySwap is the other half, and the
-// reason comparing canonical path STRINGS is not sufficient. Here the
-// validated root is moved aside and a brand new, equally well-provenanced
-// directory is created at exactly the same path. Every name-based check still
-// agrees — the canonical path is character-for-character what validation
-// returned — but it is a different directory. Accepting it would leave the
-// daemon holding a lock on the old inode while Reuse ran in the new one, i.e.
-// unprotected in a directory another execution may own. Only comparing
-// identity (os.SameFile) can tell them apart.
+// directoryIdentityForTest freezes identity before a rename. On Windows a path
+// Stat may defer reading the file ID until SameFile, after the path has changed.
+func directoryIdentityForTest(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, statErr := f.Stat()
+	closeErr := f.Close()
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	return info
+}
+
+// An equally provenanced directory at the same path is still a different
+// environment. It must not inherit the validated environment's session.
 func TestLockReusablePriorEnvRootRejectsIdentitySwap(t *testing.T) {
-	root := t.TempDir()
+	for _, mode := range []string{"unchanged", "valid-replacement", "wrong-owner"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			workDir := filepath.Join(root, "ws-leader", "aaaa56789abc", "workdir")
+			writeLeaderTaskMarker(t, workDir, "agent-leader", "issue-leader")
+			writeLeaderManagedEnvProvenance(t, workDir, "ws-leader", "issue-leader", "agent-leader")
+			envRoot := filepath.Dir(workDir)
+			original := directoryIdentityForTest(t, envRoot)
+			task := leaderReuseTestTask("task-swap")
+			task.PriorWorkDir = workDir
+			d := &Daemon{logger: discardLogger()}
+			d.cfg.WorkspacesRoot = root
+			if _, ok := shouldReusePriorWorkdir(task, nil, root); !ok {
+				t.Fatal("fixture not eligible for reuse")
+			}
+			reached := false
+			reuseLockTestHook = func() {
+				reached = true
+				if mode == "unchanged" {
+					return
+				}
+				if err := os.Rename(envRoot, envRoot+"-moved"); err != nil {
+					t.Fatal(err)
+				}
+				owner := "agent-leader"
+				if mode == "wrong-owner" {
+					owner = "agent-other"
+				}
+				writeLeaderTaskMarker(t, workDir, owner, "issue-leader")
+				writeLeaderManagedEnvProvenance(t, workDir, "ws-leader", "issue-leader", owner)
+				if os.SameFile(original, directoryIdentityForTest(t, envRoot)) {
+					t.Fatal("replacement retained original identity")
+				}
+				if !os.SameFile(original, directoryIdentityForTest(t, envRoot+"-moved")) {
+					t.Fatal("moved directory lost original identity")
+				}
+				if _, ok := shouldReusePriorWorkdir(task, nil, root); ok != (mode == "valid-replacement") {
+					t.Fatal("unexpected replacement provenance eligibility")
+				}
+				t.Logf("pre-claim hook reached: %s has a distinct directory identity", mode)
+			}
+			t.Cleanup(func() { reuseLockTestHook = nil })
+			claim, used, locked, ok, err := d.lockReusablePriorEnvRoot(context.Background(), task, nil, "")
+			if claim != nil {
+				defer claim.Release()
+			}
+			if err != nil || !reached {
+				t.Fatalf("err=%v hook reached=%v", err, reached)
+			}
+			if mode == "unchanged" {
+				if !ok || claim == nil || locked == nil || !os.SameFile(original, locked) || !sameDir(t, used, workDir) {
+					t.Fatal("unchanged environment was not claimed")
+				}
+				claim.Release()
+			} else if ok || claim != nil || used != "" || locked != nil {
+				t.Fatal("accepted reuse after the validated directory was replaced at the same path")
+			}
+			// Both success and rejection must release their handles and exclusion lock.
+			ws, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ws.Close()
+			rel, err := filepath.Rel(root, envRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			probe, _, err := execenvLockForTest(ws, rel, envRoot)
+			if err != nil || probe == nil {
+				t.Fatalf("claim was not released: %v", err)
+			}
+			probe.Release()
+			if err := os.Rename(envRoot, envRoot+"-released"); err != nil {
+				t.Fatalf("directory handle leaked: %v", err)
+			}
+		})
+	}
+}
 
-	workDir := filepath.Join(root, "ws-leader", "aaaa56789abc", "workdir")
-	writeLeaderTaskMarker(t, workDir, "agent-leader", "issue-leader")
-	writeLeaderManagedEnvProvenance(t, workDir, "ws-leader", "issue-leader", "agent-leader")
-	envRoot := filepath.Dir(workDir)
-
-	task := leaderReuseTestTask("task-swap")
-	task.PriorWorkDir = workDir
-
-	d := &Daemon{logger: discardLogger()}
-	d.cfg.WorkspacesRoot = root
-
-	// After validation, swap in a different directory at the SAME path, just
-	// as legitimate: same workspace, agent and issue.
+func TestRunTaskDeclinesReuseWhenValidatedDirectoryIsReplacedBeforeClaim(t *testing.T) {
+	d, argsFile, cleanup := newLeaderReuseTestDaemon(t)
+	defer cleanup()
+	first, err := d.runTask(context.Background(), leaderReuseTestTask("task-first"), "claude", 0, d.logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.WorkDir == "" || first.SessionID == "" {
+		t.Fatal("first task produced no resumable environment")
+	}
+	envRoot := filepath.Dir(first.WorkDir)
+	original := directoryIdentityForTest(t, envRoot)
+	second := leaderReuseTestTask("task-second")
+	second.PriorWorkDir, second.PriorSessionID = first.WorkDir, first.SessionID
+	if _, ok := shouldReusePriorWorkdir(second, nil, d.cfg.WorkspacesRoot); !ok {
+		t.Fatal("fixture not eligible for reuse")
+	}
+	reached := false
 	reuseLockTestHook = func() {
+		reached = true
 		if err := os.Rename(envRoot, envRoot+"-moved"); err != nil {
-			t.Fatalf("move the validated root aside: %v", err)
+			t.Fatal(err)
 		}
-		writeLeaderTaskMarker(t, workDir, "agent-leader", "issue-leader")
-		writeLeaderManagedEnvProvenance(t, workDir, "ws-leader", "issue-leader", "agent-leader")
+		writeLeaderTaskMarker(t, first.WorkDir, "agent-leader", "issue-leader")
+		writeLeaderManagedEnvProvenance(t, first.WorkDir, "ws-leader", "issue-leader", "agent-leader")
+		if os.SameFile(original, directoryIdentityForTest(t, envRoot)) {
+			t.Fatal("replacement retained original identity")
+		}
+		if _, ok := shouldReusePriorWorkdir(second, nil, d.cfg.WorkspacesRoot); !ok {
+			t.Fatal("replacement must pass provenance checks")
+		}
 	}
 	t.Cleanup(func() { reuseLockTestHook = nil })
-
-	claim, used, _, ok, _ := d.lockReusablePriorEnvRoot(context.Background(), task, nil, "")
-	if claim != nil {
-		claim.Release()
+	result, err := d.runTask(context.Background(), second, "claude", 0, d.logger)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if ok {
-		t.Fatalf("accepted reuse after the validated directory was replaced at the same path (would use %s)", used)
+	if !reached || result.WorkDir == "" {
+		t.Fatal("replacement hook or execution was not reached")
+	}
+	used := directoryIdentityForTest(t, filepath.Dir(result.WorkDir))
+	if os.SameFile(original, used) || os.SameFile(directoryIdentityForTest(t, envRoot), used) {
+		t.Error("task did not start in a fresh environment after identity replacement")
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(args), "--resume") {
+		t.Errorf("resumed old session after identity replacement: %s", args)
+	}
+	t.Logf("real runTask with fake Claude: original identity=%v replacement identity=%v resumed=%v",
+		os.SameFile(original, used), os.SameFile(directoryIdentityForTest(t, envRoot), used), strings.Contains(string(args), "--resume"))
+	if err := os.Rename(envRoot, envRoot+"-released"); err != nil {
+		t.Fatalf("rejected claim handle leaked: %v", err)
 	}
 }
 
@@ -1020,10 +1136,7 @@ func TestLockReusablePriorEnvRootSurvivesWorkspacesRootSwap(t *testing.T) {
 	if _, eligible := shouldReusePriorWorkdir(task, nil, root); !eligible {
 		t.Fatal("fixture is not eligible for reuse; the root-swap path would not run")
 	}
-	originalInfo, err := os.Stat(filepath.Dir(workDir))
-	if err != nil {
-		t.Fatalf("stat original env root: %v", err)
-	}
+	originalInfo := directoryIdentityForTest(t, filepath.Dir(workDir))
 	// Prove renaming is permitted before the product pins the root. Otherwise
 	// an unrelated filesystem restriction could masquerade as Windows protection.
 	moved := root + "-moved"
@@ -1145,14 +1258,24 @@ func TestLockEnvRootForReuseTakesIdentityAndLockFromOneHandle(t *testing.T) {
 func TestRunTaskDeclinesReuseWhenTheClaimedDirectoryIsSwappedBeforeUse(t *testing.T) {
 	d, argsFile, cleanup := newLeaderReuseTestDaemon(t)
 	defer cleanup()
-	_ = argsFile
 
 	first := leaderReuseTestTask("task-first")
 	firstResult, err := d.runTask(context.Background(), first, "claude", 0, d.logger)
 	if err != nil {
 		t.Fatalf("first runTask: %v", err)
 	}
+	if firstResult.WorkDir == "" || firstResult.SessionID == "" {
+		t.Fatal("first task produced no resumable environment")
+	}
 	envRoot := filepath.Dir(firstResult.WorkDir)
+	original := directoryIdentityForTest(t, envRoot)
+	moved := envRoot + "-moved"
+	if err := os.Rename(envRoot, moved); err != nil {
+		t.Fatalf("rename before claim: %v", err)
+	}
+	if err := os.Rename(moved, envRoot); err != nil {
+		t.Fatal(err)
+	}
 
 	// Swap the claimed directory for an equally valid one after the claim is
 	// settled and before Reuse opens it by name.
@@ -1169,11 +1292,25 @@ func TestRunTaskDeclinesReuseWhenTheClaimedDirectoryIsSwappedBeforeUse(t *testin
 		replacementWorkDir := filepath.Join(replacement, "workdir")
 		writeLeaderTaskMarker(t, replacementWorkDir, "agent-leader", "issue-leader")
 		writeLeaderManagedEnvProvenance(t, replacementWorkDir, "ws-leader", "issue-leader", "agent-leader")
-		if err := os.Rename(envRoot, envRoot+"-moved"); err != nil {
+		err := os.Rename(envRoot, moved)
+		if runtime.GOOS == "windows" {
+			if err == nil {
+				t.Fatal("claimed directory rename unexpectedly succeeded")
+			}
+			if !os.SameFile(original, directoryIdentityForTest(t, envRoot)) {
+				t.Fatal("claimed directory identity changed")
+			}
+			t.Logf("before-use hook reached: claim blocked rename: %v", err)
+			return
+		}
+		if err != nil {
 			t.Fatalf("move claimed dir aside: %v", err)
 		}
 		if err := os.Rename(replacement, envRoot); err != nil {
 			t.Fatalf("install replacement: %v", err)
+		}
+		if os.SameFile(original, directoryIdentityForTest(t, envRoot)) {
+			t.Fatal("replacement retained original identity")
 		}
 	}
 	t.Cleanup(func() { reuseBeforeUseTestHook = nil })
@@ -1181,6 +1318,9 @@ func TestRunTaskDeclinesReuseWhenTheClaimedDirectoryIsSwappedBeforeUse(t *testin
 	second := leaderReuseTestTask("task-second")
 	second.PriorSessionID = firstResult.SessionID
 	second.PriorWorkDir = firstResult.WorkDir
+	if _, ok := shouldReusePriorWorkdir(second, nil, d.cfg.WorkspacesRoot); !ok {
+		t.Fatal("fixture not eligible for reuse")
+	}
 	secondResult, err := d.runTask(context.Background(), second, "claude", 0, d.logger)
 	if err != nil {
 		t.Fatalf("second runTask: %v", err)
@@ -1188,12 +1328,34 @@ func TestRunTaskDeclinesReuseWhenTheClaimedDirectoryIsSwappedBeforeUse(t *testin
 	if !swapped {
 		t.Fatal("the swap hook never ran; the test proved nothing")
 	}
-	// envRoot's NAME now resolves to the replacement, so a run that reused it
-	// lands there. Compare the env root the second task actually ran in.
-	if sameDir(t, filepath.Dir(secondResult.WorkDir), envRoot) {
-		t.Fatal("ran in the substituted directory instead of declining to a fresh environment")
-	}
 	if secondResult.WorkDir == "" {
 		t.Fatal("second task produced no environment at all")
+	}
+	used := directoryIdentityForTest(t, filepath.Dir(secondResult.WorkDir))
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if !os.SameFile(original, used) || !sameDir(t, secondResult.WorkDir, firstResult.WorkDir) {
+			t.Fatal("blocked replacement did not retain original environment")
+		}
+		if !strings.Contains(string(args), "--resume\nsession-leader-reuse\n") {
+			t.Fatalf("unchanged environment lost its session: %s", args)
+		}
+		if err := os.Rename(envRoot, moved); err != nil {
+			t.Fatalf("rename after claim release: %v", err)
+		}
+		if !os.SameFile(original, directoryIdentityForTest(t, moved)) {
+			t.Fatal("released directory identity changed")
+		}
+		t.Log("same directory renamed before claim and after release; task ran in original identity")
+	} else {
+		if os.SameFile(original, used) || os.SameFile(directoryIdentityForTest(t, envRoot), used) {
+			t.Fatal("ran in original or substituted directory instead of a fresh environment")
+		}
+		if strings.Contains(string(args), "--resume") {
+			t.Fatalf("resumed session after claimed directory replacement: %s", args)
+		}
 	}
 }

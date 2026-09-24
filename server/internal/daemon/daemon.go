@@ -7482,8 +7482,17 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	// later step is checked against THIS, not against whatever the name
 	// resolves to next: a path string cannot tell "the directory I validated"
 	// apart from "a different directory now answering to that name".
-	validatedInfo, err := os.Stat(priorRoot)
+	// File.Stat reads identity from the handle immediately. On Windows,
+	// os.Stat can defer reading the file ID until SameFile, when the same path
+	// may already name a replacement. Open relative to the pinned workspaces
+	// root so this read cannot escape the validated tree.
+	validatedDir, err := wsRoot.Open(rel)
 	if err != nil {
+		return nil, "", nil, false, nil
+	}
+	validatedInfo, err := validatedDir.Stat()
+	closeErr := validatedDir.Close()
+	if err != nil || closeErr != nil || !validatedInfo.IsDir() {
 		return nil, "", nil, false, nil
 	}
 
