@@ -162,6 +162,8 @@ function sendStatus(status: DaemonStatus): void {
 
 interface HealthPayload {
   status?: string;
+  center_connected?: boolean;
+  profile?: string;
   pid?: number;
   /** Daemon's runtime.GOOS. Absent on daemons older than the #3916 fix. */
   os?: string;
@@ -266,11 +268,16 @@ async function resolveActiveProfile(): Promise<ActiveProfile | null> {
   const target = targetApiBaseUrl;
   if (!target) return null;
 
-  const name = deriveProfileName(target);
+  const name = deriveProfileName(target, process.env.MULTICA_DESKTOP_DAEMON_PROFILE);
   const cfg = await readProfileConfig(name);
 
   if (cfg.server_url !== target) {
+    // Credentials and workspace IDs belong to a center, not just a local profile.
+    delete cfg.token;
+    delete cfg.workspace_id;
+    await removeProfileUserId(name);
     cfg.server_url = target;
+    cfg.app_url = target;
     await writeProfileConfig(name, cfg);
     console.log(`[daemon] initialized profile "${name}" → ${target}`);
   }
@@ -321,6 +328,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
   // daemon as if it were Desktop's.
   if (!active) return { state: "stopped" };
   const data = await fetchHealthAtPort(active.port);
+  if (data && data.profile !== active.name) return { state: "stopped", profile: active.name };
 
   if (!data || data.status !== "running") {
     // A start that never reaches "running" is the symptom; an expired/invalid
@@ -395,6 +403,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
 
   return {
     state: "running",
+    centerConnected: typeof data.center_connected === "boolean" ? data.center_connected : undefined,
     pid: data.pid,
     uptime: data.uptime,
     daemonId: data.daemon_id,
@@ -924,7 +933,8 @@ async function probeLocalRuntimes(): Promise<LocalRuntimeProbe> {
 // applied by fix-path in main/index.ts — as a top-level const it would
 // snapshot process.env at import time, before that block runs.
 function desktopSpawnEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
+  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop",
+    ...(targetApiBaseUrl ? { MULTICA_SERVER_URL: targetApiBaseUrl, MULTICA_APP_URL: targetApiBaseUrl } : {}) };
 }
 
 function scheduleStatusRefresh(): void {
@@ -1257,6 +1267,44 @@ function stopLogTail(): void {
   disposeLogTail = null;
 }
 
+export async function switchCenterTarget(url: string, profile: string): Promise<void> {
+  await lifecycleOperations.runForeground(async () => {
+    const wasDesired = desiredDaemonRunning;
+    try {
+      setDesiredDaemonRunning(false, true);
+      const previous = await ensureActiveProfile();
+      const health = await fetchHealthAtPort(healthPortForProfile(profile));
+      if (daemonStatusAlive(health?.status)) {
+        if (health?.profile !== profile || isDaemonExternallyManaged(health.os, normalizeHostOS(process.platform))) {
+          throw new Error('This daemon is managed elsewhere; stop it with its own launcher first');
+        }
+        if ((health.active_task_count ?? 0) > 0 && !urlsMatch(health.server_url ?? '', url)) {
+          throw new Error('Wait for running tasks to finish before changing the center');
+        }
+        if (!urlsMatch(health.server_url ?? '', url)) {
+          // Select the existing local profile before stopping it. Never reach the default CLI profile.
+          activeProfile = { name: profile, port: healthPortForProfile(profile) };
+          const stopped = await stopDaemon();
+          if (!stopped.success) { activeProfile = previous; throw new Error(stopped.error); }
+        }
+      }
+      process.env.MULTICA_DESKTOP_DAEMON_PROFILE = profile;
+      targetApiBaseUrl = url;
+      invalidateActiveProfile();
+      const active = await ensureActiveProfile();
+      const config = active ? await readProfileConfig(active.name) : {};
+      if (config.token) {
+        setDesiredDaemonRunning(true, true);
+        const started = await startDaemon();
+        if (!started.success) console.warn("[daemon] center connection attempt failed; retry from the panel");
+      }
+    } catch (error) {
+      setDesiredDaemonRunning(wasDesired);
+      throw error;
+    }
+  });
+}
+
 export function setupDaemonManager(
   windowGetter: () => BrowserWindow | null,
 ): void {
@@ -1265,6 +1313,11 @@ export function setupDaemonManager(
   ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {
     const normalized = url || null;
     if (targetApiBaseUrl !== normalized) {
+      if (normalized && process.env.MULTICA_DESKTOP_CENTER === "1") {
+        await switchCenterTarget(normalized, deriveProfileName(normalized, process.env.MULTICA_DESKTOP_DAEMON_PROFILE));
+        await pollOnce();
+        return;
+      }
       console.log(`[daemon] target API URL set to ${normalized ?? "(none)"}`);
       setDesiredDaemonRunning(false);
       targetApiBaseUrl = normalized;

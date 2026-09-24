@@ -15,6 +15,8 @@ export type DaemonState =
 
 export interface DaemonStatus {
   state: DaemonState;
+  /** True only while the authenticated task WebSocket is connected. */
+  centerConnected?: boolean;
   pid?: number;
   uptime?: string;
   daemonId?: string;

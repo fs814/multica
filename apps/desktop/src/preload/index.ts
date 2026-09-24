@@ -120,6 +120,12 @@ const desktopAPI = {
   },
   /** Validated runtime endpoint config, or a blocking config error. */
   runtimeConfig,
+  center: {
+    get: () => ipcRenderer.invoke('center:get'),
+    save: (url: string) => ipcRenderer.invoke('center:save', url),
+    test: (url: string) => ipcRenderer.invoke('center:test', url),
+    connect: () => ipcRenderer.invoke('center:connect'),
+  },
   /** Identifies whether this renderer owns the main tabbed window or a
    *  dedicated issue window, parsed from validated launch arguments. */
   windowContext,

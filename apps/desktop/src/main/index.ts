@@ -5,7 +5,10 @@ import { pathToFileURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
-import { setupDaemonManager } from "./daemon-manager";
+import { setupDaemonManager, switchCenterTarget } from "./daemon-manager";
+import { readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
+import { centerRuntimeConfig, type CenterSettings } from "../shared/center-settings";
+import { deriveProfileName } from "./daemon-profile";
 import { setupLocalDirectory } from "./local-directory";
 import { openExternalSafely, downloadURLSafely } from "./external-url";
 import { installContextMenu } from "./context-menu";
@@ -638,6 +641,45 @@ if (!gotTheLock) {
         wsUrl: viteEnv.VITE_WS_URL,
         appUrl: viteEnv.VITE_APP_URL,
       },
+    });
+
+    let savedCenter: CenterSettings | null = null;
+    let centerError: string | undefined;
+    try {
+      savedCenter = await readCenterSettings();
+      if (savedCenter) {
+        runtimeConfigResult = { ok: true, config: centerRuntimeConfig(savedCenter.url) };
+        process.env.MULTICA_DESKTOP_DAEMON_PROFILE = savedCenter.profile;
+        process.env.MULTICA_DESKTOP_CENTER = "1";
+      }
+    } catch (error) {
+      centerError = (error as Error).message;
+      runtimeConfigResult = { ok: false, error: { message: centerError } };
+    }
+    const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError });
+    let centerBusy = false;
+    ipcMain.handle('center:get', centerState);
+    ipcMain.handle('center:test', (_event, url: string) => testCenterConnection(url));
+    ipcMain.handle('center:save', async (_event, url: string) => {
+      if (centerBusy) throw new Error('A connection change is in progress');
+      centerBusy = true;
+      try {
+        const profile = savedCenter?.profile ?? deriveProfileName(centerState().activeUrl, process.env.MULTICA_DESKTOP_DAEMON_PROFILE ?? (centerState().activeUrl ? undefined : 'desktop-services'));
+        savedCenter = await saveCenterSettings({ version: 1, url, profile });
+        centerError = undefined;
+        return centerState();
+      } finally { centerBusy = false; }
+    });
+    ipcMain.handle('center:connect', async () => {
+      if (centerBusy) throw new Error('A connection change is in progress');
+      if (!savedCenter) throw new Error('Save a server address first');
+      centerBusy = true;
+      try {
+        await switchCenterTarget(savedCenter.url, savedCenter.profile);
+        runtimeConfigResult = { ok: true, config: centerRuntimeConfig(savedCenter.url) };
+        // Recreate API/query/WS clients together. Preload receives the new target.
+        for (const win of BrowserWindow.getAllWindows()) win.webContents.reload();
+      } finally { centerBusy = false; }
     });
 
     electronApp.setAppUserModelId(

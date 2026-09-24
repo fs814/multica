@@ -25,7 +25,15 @@ export function assertResolvedProfile(profile: string): void {
 // Desktop owns a dedicated CLI profile named after the target API host, so it
 // never reads or writes the user's hand-configured profiles. Profile dir:
 //   ~/.multica/profiles/desktop-<host>/
-export function deriveProfileName(targetUrl: string): string {
+export function deriveProfileName(targetUrl: string, localProfile?: string): string {
+  // A self-hosted launcher can pin the local node independently of server DNS/IP.
+  // Only Desktop-owned profiles are accepted; never adopt a terminal CLI profile.
+  if (localProfile !== undefined) {
+    if (!/^desktop-(?:[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}|\[[a-fA-F0-9.-]+\](?:-[0-9]+)?)(?![\s\S])/.test(localProfile)) {
+      throw new Error("Invalid Desktop daemon profile: expected desktop-<local-name>");
+    }
+    return localProfile;
+  }
   try {
     const url = new URL(targetUrl);
     const host = url.host.replace(/:/g, "-").toLowerCase();

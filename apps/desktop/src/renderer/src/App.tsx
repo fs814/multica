@@ -1,5 +1,7 @@
+import { I18nProvider } from "@multica/core/i18n/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { CenterConnectionPanel, CenterSettingsAccess } from "./components/center-settings-tab";
 import { CoreProvider } from "@multica/core/platform";
 import { pickLocale, type SupportedLocale } from "@multica/core/i18n";
 import { useAuthStore } from "@multica/core/auth";
@@ -126,7 +128,9 @@ function AppContent() {
   // can pick the matching CLI profile (server_url from ~/.multica config).
   useEffect(() => {
     if (!runtimeConfig) return;
-    window.daemonAPI.setTargetApiUrl(runtimeConfig.apiUrl);
+    void window.daemonAPI.setTargetApiUrl(runtimeConfig.apiUrl).catch(error => {
+      console.warn("Could not connect local daemon to the selected center", error);
+    });
   }, [runtimeConfig]);
 
   // Listen for invite IDs delivered via deep link (multica://invite/<id>).
@@ -470,6 +474,7 @@ export default function App() {
           localeAdapter={localeAdapter}
         >
           <DesktopAuthSessionBridge />
+          {windowContext.kind === "main" && <CenterConnectionPanel />}
           {windowContext.kind === "main" && <DiagnosticRouteReporter />}
           {windowContext.kind === "main" && (
             <DesktopClientUsageReporter
@@ -483,7 +488,7 @@ export default function App() {
           )}
         </CoreProvider>
       ) : (
-        <BlockingRuntimeConfigError message={runtimeConfigResult.error.message} />
+        <I18nProvider locale={locale} resources={resources}><BlockingRuntimeConfigError message={runtimeConfigResult.error.message} /><CenterSettingsAccess /></I18nProvider>
       )}
       <Toaster />
       {windowContext.kind === "main" && <UpdateNotification />}

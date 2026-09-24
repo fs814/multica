@@ -560,6 +560,7 @@ type Daemon struct {
 	// /health dimensions and must never replace activeTasks in safety barriers.
 	runningTasks      atomic.Int64
 	resourceWaitTasks atomic.Int64
+	centerConnected   atomic.Bool
 	ready             atomic.Bool // false until preflight completes; gates /health status (starting -> running)
 	// reloadPendingReason explains why a confirmed multica version change hasn't
 	// restarted the daemon yet (a task was running at the barrier check). Set

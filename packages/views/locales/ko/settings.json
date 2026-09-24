@@ -979,6 +979,29 @@
       "reconnect_failed": "데몬에 다시 연결하지 못했습니다",
       "try_again_moment": "잠시 후 다시 시도하세요.",
       "try_again": "다시 시도하세요."
+    },
+    "center": {
+      "title": "Center server",
+      "settings": "Center server settings",
+      "description": "Desktop displays and schedules work. The daemon registers this machine and runs assigned tasks. Both connect to the center.",
+      "address": "Server address",
+      "save": "Save",
+      "test": "Test server connection",
+      "connect": "Connect server",
+      "saved": "Saved",
+      "active": "Active",
+      "not_configured": "Not configured",
+      "none": "None",
+      "saved_message": "Saved. Click Connect server to apply now. Desktop and daemon use this address on their next launch.",
+      "reachable": "Server API reachable. This test does not sign in or connect Desktop/daemon.",
+      "failed": "Connection failed. Check the address and whether the center is running.",
+      "hint": "Testing checks API reachability only. Connecting reloads Desktop; a different address requires sign-in. Running tasks must finish before switching servers.",
+      "center": "Center",
+      "connected": "Connected",
+      "reconnecting": "Reconnecting / select workspace",
+      "sign_in": "Sign-in required",
+      "disconnected": "Not connected",
+      "unknown": "Unknown; update CLI"
     }
   },
   "members": {

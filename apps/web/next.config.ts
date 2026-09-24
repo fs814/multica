@@ -39,8 +39,20 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
   : undefined;
 
 const nextConfig: NextConfig = {
+  // Pin the monorepo root, including when running from a center snapshot.
+  outputFileTracingRoot: resolve(__dirname, "../.."),
   ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
   transpilePackages: ["@multica/core", "@multica/ui", "@multica/views"],
+  webpack(config) {
+    // A center snapshot shares installed dependencies with its source checkout.
+    // Resolve workspace packages here so their stateful modules are not loaded
+    // once from the snapshot and again through the source's pnpm symlinks.
+    config.resolve.alias["@multica/core"] = resolve(
+      __dirname,
+      "../../packages/core",
+    );
+    return config;
+  },
   ...(allowedDevOrigins && allowedDevOrigins.length > 0
     ? { allowedDevOrigins }
     : {}),

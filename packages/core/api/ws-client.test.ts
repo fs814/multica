@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WSClient } from "./ws-client";
 import type { WSMessage } from "../types/events";
@@ -23,6 +24,28 @@ class FakeWebSocket {
 }
 
 describe("WSClient", () => {
+  it("reports connected only after auth acknowledgement, drops on disconnect and recovers", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("WebSocket", FakeWebSocket as unknown as typeof WebSocket);
+    const ws = new WSClient("ws://example.test/ws");
+    ws.setAuth("test-token", "acme");
+    const changes: boolean[] = [];
+    ws.subscribeConnection(() => changes.push(ws.getConnected()));
+    ws.connect();
+    FakeWebSocket.lastInstance!.onopen?.();
+    expect(ws.getConnected()).toBe(false);
+    FakeWebSocket.lastInstance!.onmessage?.({ data: '{"type":"auth_ack"}' });
+    expect(ws.getConnected()).toBe(true);
+    FakeWebSocket.lastInstance!.onclose?.();
+    expect(ws.getConnected()).toBe(false);
+    vi.advanceTimersByTime(2000);
+    FakeWebSocket.lastInstance!.onmessage?.({ data: '{"type":"auth_ack"}' });
+    expect(ws.getConnected()).toBe(true);
+    ws.disconnect();
+    expect(ws.getConnected()).toBe(false);
+    expect(changes).toContain(true);
+    vi.useRealTimers();
+  });
   beforeEach(() => {
     FakeWebSocket.lastUrl = null;
     FakeWebSocket.lastInstance = null;

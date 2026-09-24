@@ -3,6 +3,7 @@ package profiling
 import (
 	"net/http"
 	httppprof "net/http/pprof"
+	"os"
 	"time"
 )
 
@@ -20,8 +21,14 @@ func NewHandler() http.Handler {
 }
 
 func NewServer() *http.Server {
+	addr := Addr
+	if os.Getenv("MULTICA_CENTER_ONLY") == "1" {
+		// A center can coexist with a desktop API using the default port.
+		// Let the OS reserve a free loopback port atomically for this instance.
+		addr = "127.0.0.1:0"
+	}
 	return &http.Server{
-		Addr:              Addr,
+		Addr:              addr,
 		Handler:           NewHandler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,

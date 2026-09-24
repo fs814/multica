@@ -24,6 +24,7 @@ import { useRealtimeSync, type RealtimeSyncStores } from "./use-realtime-sync";
 type EventHandler = (payload: unknown, actorId?: string, actorType?: string) => void;
 
 interface WSContextValue {
+  connected: boolean;
   subscribe: (event: WSEventType, handler: EventHandler) => () => void;
   onReconnect: (callback: () => void) => () => void;
 }
@@ -115,6 +116,12 @@ export function WSProvider({
     identityOS,
   ]);
 
+  const connected = useSyncExternalStore(
+    wsClient?.subscribeConnection ?? (() => () => {}),
+    wsClient?.getConnected ?? (() => false),
+    () => false,
+  );
+
   const stores: RealtimeSyncStores = { authStore };
 
   // Centralized WS -> store sync (uses state so it re-subscribes when WS changes)
@@ -137,7 +144,7 @@ export function WSProvider({
   );
 
   return (
-    <WSContext.Provider value={{ subscribe, onReconnect: onReconnectCb }}>
+    <WSContext.Provider value={{ subscribe, onReconnect: onReconnectCb, connected }}>
       {children}
     </WSContext.Provider>
   );

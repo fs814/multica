@@ -36,6 +36,39 @@ describe("deriveProfileName", () => {
   });
 });
 
+describe("pinned local node", () => {
+  it("keeps config paths and health port when the center IP and port change", () => {
+    const local = "desktop-services";
+    const first = deriveProfileName("http://192.0.2.1:8001", local);
+    const second = deriveProfileName("http://192.0.2.2:9001", local);
+    expect(second).toBe(first);
+    expect(profileConfigPath(second)).toBe(profileConfigPath(first));
+    expect(healthPortForProfile(second)).toBe(healthPortForProfile(first));
+  });
+
+  it("can retain an existing Desktop profile across a center address change", () => {
+    expect(deriveProfileName("http://new-host:9001", "desktop-localhost-8001"))
+      .toBe("desktop-localhost-8001");
+  });
+
+  it.each(["http://[::1]:8001", "http://[2001:db8::1]:8001", "http://[::ffff:192.0.2.1]:8001"])("retains historical IPv6 profile %s and all local paths after a center move", (url) => {
+    const original = deriveProfileName(url);
+    const pinned = deriveProfileName("http://192.0.2.90:9001", original);
+    expect(pinned).toBe(original);
+    for (const resolve of [profileDir, profileConfigPath, profileLogPath, profilePidPath, profileUserIdPath]) {
+      expect(resolve(pinned)).toBe(resolve(original));
+    }
+    expect(healthPortForProfile(pinned)).toBe(healthPortForProfile(original));
+    expect(profileArgs(pinned)).toEqual(["--profile", original]);
+  });
+
+  it("rejects default, CLI-owned, empty and path-traversing profiles", () => {
+    for (const name of ["", "default", "services", "../desktop-x", "desktop-../x", "desktop-", "desktop-..\\x", "desktop-[--1]/../x", "desktop-[--1]\\..\\x", "desktop-x\n", "desktop-[--1]-8001\n"]) {
+      expect(() => deriveProfileName("http://center:8001", name)).toThrow(/Invalid/);
+    }
+  });
+});
+
 describe("profile paths", () => {
   it("always resolves under profiles/<name>", () => {
     const dir = join(MULTICA_DIR, "profiles", "desktop-api.multica.ai");
