@@ -1017,25 +1017,80 @@ func TestLockReusablePriorEnvRootSurvivesWorkspacesRootSwap(t *testing.T) {
 	d := &Daemon{logger: discardLogger()}
 	d.cfg.WorkspacesRoot = root
 
+	if _, eligible := shouldReusePriorWorkdir(task, nil, root); !eligible {
+		t.Fatal("fixture is not eligible for reuse; the root-swap path would not run")
+	}
+	originalInfo, err := os.Stat(filepath.Dir(workDir))
+	if err != nil {
+		t.Fatalf("stat original env root: %v", err)
+	}
+	// Prove renaming is permitted before the product pins the root. Otherwise
+	// an unrelated filesystem restriction could masquerade as Windows protection.
+	moved := root + "-moved"
+	if err := os.Rename(root, moved); err != nil {
+		t.Fatalf("rename unpinned root: %v", err)
+	}
+	if err := os.Rename(moved, root); err != nil {
+		t.Fatalf("restore unpinned root: %v", err)
+	}
+
+	hookReached := false
 	reuseLockTestHook = func() {
-		if err := os.Rename(root, root+"-moved"); err != nil {
+		hookReached = true
+		err := os.Rename(root, moved)
+		if runtime.GOOS == "windows" {
+			// Windows prevents renaming an open os.Root. The attempted attack
+			// must be blocked while the original environment remains reusable.
+			if err == nil {
+				t.Fatal("renamed the workspaces root while its handle was pinned")
+			}
+			t.Logf("root-swap hook reached; pinned rename rejected: %v", err)
+			return
+		}
+		if err != nil {
 			t.Fatalf("move the workspaces root aside: %v", err)
 		}
 		if err := os.Symlink(outside, root); err != nil {
-			t.Skipf("symlinks unavailable: %v", err)
+			t.Fatalf("install replacement symlink: %v", err)
 		}
+		t.Log("root-swap hook reached; replacement symlink installed")
 	}
 	t.Cleanup(func() { reuseLockTestHook = nil })
 
-	claim, _, _, ok, _ := d.lockReusablePriorEnvRoot(context.Background(), task, nil, "")
+	claim, reusedWorkDir, lockedInfo, ok, err := d.lockReusablePriorEnvRoot(context.Background(), task, nil, "")
 	if claim != nil {
-		claim.Release()
+		defer claim.Release()
 	}
-	if ok {
+	if err != nil {
+		t.Fatalf("lock reusable env root: %v", err)
+	}
+	if !hookReached {
+		t.Fatal("root-swap hook was not reached; the test proved nothing")
+	}
+	if runtime.GOOS == "windows" {
+		if !ok || claim == nil || lockedInfo == nil || !os.SameFile(originalInfo, lockedInfo) {
+			t.Fatal("blocked root swap did not retain a claim on the original environment")
+		}
+		if !sameDir(t, reusedWorkDir, workDir) {
+			t.Fatal("blocked root swap returned a different workdir")
+		}
+		locks := findTaskLocks(t, root)
+		if len(locks) != 1 || !sameDir(t, filepath.Dir(locks[0]), filepath.Dir(workDir)) {
+			t.Fatalf("expected one lock in the original environment, got %v", locks)
+		}
+	} else if ok || claim != nil {
 		t.Fatal("reuse was accepted after the workspaces root itself was replaced")
 	}
 	if locks := findTaskLocks(t, outside); len(locks) > 0 {
 		t.Fatalf("OpenRoot pinned the replacement tree and wrote the lock outside: %v", locks)
+	}
+	if runtime.GOOS == "windows" {
+		claim.Release()
+		// The same rename must succeed after all product handles are released.
+		if err := os.Rename(root, moved); err != nil {
+			t.Fatalf("rename after releasing product handles: %v", err)
+		}
+		t.Log("same root renamed successfully after product handles were released")
 	}
 }
 
