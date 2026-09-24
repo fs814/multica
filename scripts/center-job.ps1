@@ -30,8 +30,20 @@ public static class CenterJob {
   [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process,out uint code);
   [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process,uint code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  delegate bool Handler(uint signal);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetConsoleCtrlHandler(Handler handler,bool add);
+  // Keep the delegate alive. Unlike ignore-Ctrl+C, a handler is not inherited
+  // by the child. The child still receives the real console event.
+  static volatile bool interrupted;
+  static readonly Handler handler = signal => {
+    if(signal != 0 && signal != 1) return false;
+    interrupted = true;
+    return true; // Do not let PowerShell cancel the pipeline before `exit`.
+  };
   static void Check(bool ok) { if(!ok) throw new Win32Exception(Marshal.GetLastWin32Error()); }
   public static int Run(string node,string script) {
+    interrupted=false;
+    Check(SetConsoleCtrlHandler(handler,true));
     IntPtr job=CreateJobObject(IntPtr.Zero,null); Check(job!=IntPtr.Zero);
     PROCESS pi=new PROCESS();
     try {
@@ -43,8 +55,18 @@ public static class CenterJob {
       Check(CreateProcess(node,cmd,IntPtr.Zero,IntPtr.Zero,true,4,IntPtr.Zero,null,ref si,out pi));
       Check(AssignProcessToJobObject(job,pi.process));
       Check(ResumeThread(pi.thread)!=0xffffffff);
-      WaitForSingleObject(pi.process,0xffffffff);
-      uint code; Check(GetExitCodeProcess(pi.process,out code)); return (int)code;
+      long cancelDeadline=0;
+      while(true) {
+        uint wait=WaitForSingleObject(pi.process,100);
+        if(wait==0) break;
+        if(wait!=258) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if(interrupted) {
+          if(cancelDeadline==0) cancelDeadline=System.Diagnostics.Stopwatch.GetTimestamp()/ (System.Diagnostics.Stopwatch.Frequency/1000)+8000;
+          if(System.Diagnostics.Stopwatch.GetTimestamp()/ (System.Diagnostics.Stopwatch.Frequency/1000)>=cancelDeadline) return 130;
+        }
+      }
+      uint code; Check(GetExitCodeProcess(pi.process,out code));
+      return interrupted ? 130 : unchecked((int)code);
     } finally {
       // Covers assignment failure while suspended as well as normal exit.
       if(pi.process!=IntPtr.Zero) { TerminateProcess(pi.process,1); CloseHandle(pi.process); }

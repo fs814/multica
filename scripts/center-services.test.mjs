@@ -17,7 +17,7 @@ test('same directory lock is refused unchanged, including malformed/stale record
   }
 });
 for (const scenario of ['web-failure','api-failure','timeout','signal']) {
-  test(`supervisor ${scenario} cleans owned children and descendants, preserves unrelated process`, { timeout: 15000 }, async t => {
+  test(`supervisor ${scenario} cleans owned children and descendants, preserves unrelated process`, { timeout: 15000, skip: process.platform === 'win32' ? 'POSIX process-group/SIGTERM fixture; Windows requires the native outer Job tests' : false }, async t => {
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'center-supervisor-')); t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
     const survivor=spawn(process.execPath,['-e','setInterval(()=>{},1000)']);
     t.after(()=>survivor.kill());
@@ -46,7 +46,7 @@ process.exitCode=await supervise(['API','Web'].map(name=>({name,command:process.
 }
 
 for (const buildCode of [0, 17]) {
-  test(`one-shot build ${buildCode} reports its phase and gates service lifetime`, { timeout: 10000 }, async t => {
+  test(`one-shot build ${buildCode} reports its phase and gates service lifetime`, { timeout: 10000, skip: process.platform === 'win32' && buildCode === 0 ? 'POSIX SIGTERM fixture; Windows cancellation is covered by native outer Job tests' : false }, async t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'center-build-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const marker = path.join(dir, 'service-pid');

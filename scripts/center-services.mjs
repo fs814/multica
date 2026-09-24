@@ -101,7 +101,9 @@ async function main() {
   for (const [signal, handler] of handlers) process.on(signal, handler);
   let dir;
   try {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'multica-center-'));
+    // The outer Windows entry may terminate us before finally runs. Keep its
+    // compiler output inside the reserved snapshot, which it cleans after drain.
+    dir = fs.mkdtempSync(path.join(process.platform === 'win32' && process.env.MULTICA_CENTER_ENTRY_TOKEN ? repo : os.tmpdir(), 'multica-center-'));
     const binary = path.join(dir, process.platform === 'win32' ? 'server.exe' : 'server');
     // Compilation owns a process group too, including compiler descendants.
     const code = await supervise([
