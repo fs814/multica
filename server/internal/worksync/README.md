@@ -20,7 +20,7 @@ instructions, permissions and runtime bindings are excluded. References in the
 projection do not imply that the referenced records are backed up. Creation,
 deletion, workflow transitions and relationship changes remain online commands.
 
-Migration 538 installs row triggers on `issue`, `project`, and `agent`. They
+Migrations 538 and 541 install row triggers on `issue`, `project`, and `agent`. They
 cover SQL INSERT/UPDATE/DELETE from handlers, background services, bulk statements
 and maintenance paths without requiring every writer to call a new service.
 TRUNCATE, disabled triggers and administrative schema operations are outside the
@@ -28,16 +28,27 @@ contract. Updates outside the field allowlist produce no journal entry. Deletes
 and identity moves retain tombstones; agent kind changes enter/leave the projection.
 Archive remains an ordinary field change. Explicit enrollment locks all three
 tables while installing a baseline; it cannot reconstruct pre-enrollment deletes.
-Workspace teardown removes its scope, receipts and history transactionally before
-business-row deletion, so capture cannot refill the journal. This is permanent
+Workspace teardown locks its business rows (including Projects), closes the scope
+in a separate statement, then removes receipts and history with a fresh snapshot.
+Enrollment takes the workspace lock before business table locks, so enrollment
+cannot recreate the scope while teardown is in progress or after it commits.
+Capture cannot refill the journal once the scope is closed. This is permanent
 workspace removal, not a replica-visible entity deletion or an offline purge.
 
-The workspace row serializes journal allocation through commit, so late commits
-cannot be skipped by a cursor. Repeatable-read snapshots contain a single boundary;
-incremental batches must be contiguous. Push locks the business row before the
-scope, checks authorization again even for retries, merges against retained
-history and saves the receipt in the same transaction. Operation IDs and node
-incarnation/sequence are independently unique. Retries with changed payloads fail.
+Migration 541 defers capture until transaction commit. An immediate trigger records
+all touched workspace IDs in a transaction-local setting; deferred capture locks
+those scope rows in UUID order after business writes finish, then allocates journal
+positions. The setting and queued events obey savepoint/transaction rollback. Scope
+locks remain held through commit, so late commits cannot be skipped by a cursor.
+Cross-workspace transactions use the same order regardless of business-row order.
+Repeatable-read snapshots contain a single boundary; incremental batches must be
+contiguous. Push locks its one business row before the scope, finishes its update,
+then explicitly flushes capture before reading the version and saving the receipt.
+It checks authorization again even for retries and merges against retained history.
+No business writes may follow an explicit capture flush: ordinary SQL writers must
+leave these capture constraints deferred (do not use SET CONSTRAINTS ALL IMMEDIATE).
+This also avoids adding transaction retries around unrelated command side effects.
+Operation IDs and node incarnation/sequence are independently unique. Retries with changed payloads fail.
 Dependency receipts advance only fields edited by that local chain; unrelated
 center changes are never silently adopted as the next edit's base. Conflicts and
 rejected edits remain in the replica review queue, with the original operation.
@@ -83,16 +94,21 @@ go test -race ./cmd/migrate -run 'TestWorkSyncMigrations|TestConcurrentIndexClea
 ```
 
 The migration test uses a scratch schema: up/repeat, indexes, tenant moves,
-deletes, agent-kind transitions, 538/539 down/up, full down/up. Center tests use
+deletes, agent-kind transitions, 538/539/541 down/up, full down/up. Center tests use
 isolated fixture workspaces and two on-disk replicas, with no real agents.
 Coverage includes restart, field conflicts, causal dependencies, response replay,
 permissions, rollback, commit order, checksum/gap rejection, I/O failure, and
 suppression of wakeup receipts while ordinary updates still emit them.
 Handler tests also cover sync-state cleanup, rollback and preservation of another
-workspace. Migration tests retry after a simulated DDL/ledger interruption.
+workspace, concurrent final-phase journal commits and deferred Project writes.
+Online multirow transactions are tested against online single-row writes and Push,
+including opposite cross-workspace write order and delayed enrollment after deletion.
+Migration tests retry after a simulated DDL/ledger interruption.
 
 Interrupted concurrent indexes are cleaned up by the migration runner before
-retry. Never manually mark a failed migration applied. Rollback 540 restores the
+retry. Never manually mark a failed migration applied. Rollback 541 restores
+immediate capture and its pre-fix concurrency limitations;
+disable enrollment/sync writers before rolling it back. Rollback 540 restores the
 ordinary wakeup trigger; disable all sync writers before rollback. Rollback 538
 removes capture but retains the journal; writes while capture is absent are not
 recoverable through that history. Rollback 533 deletes sync history and receipts,

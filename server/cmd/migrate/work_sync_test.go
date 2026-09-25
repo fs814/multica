@@ -28,7 +28,7 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 		CREATE TRIGGER capture_issue_collaboration_wakeup AFTER UPDATE ON issue FOR EACH ROW EXECUTE FUNCTION capture_issue_collaboration_wakeup()`); err != nil {
 		t.Fatal(err)
 	}
-	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard"}
+	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard", "541_work_sync_commit_capture"}
 	opts := runOptions{SchemaMigrationsTable: schema + ".schema_migrations", AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1}
 	apply := func(direction string, names []string) {
 		t.Helper()
@@ -40,7 +40,7 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 	apply("up", versions)
 	apply("up", versions)
 	// Model a crash after DDL committed but before its ledger insert.
-	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture')`); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture','541_work_sync_commit_capture')`); err != nil {
 		t.Fatal(err)
 	}
 	apply("up", versions)
@@ -85,8 +85,29 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 	exec(`UPDATE agent SET kind='system' WHERE id=$1`, entity)
 	count(`SELECT count(*) FROM work_sync_change WHERE entity_id=$1`, 2, entity)
 	count(`SELECT count(*) FROM work_sync_change WHERE entity_id=$1 AND deleted`, 1, entity)
+	// Events and the scope registry must obey savepoint rollback. In
+	// particular, do not publish a queued change whose business write vanished.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`SAVEPOINT discarded`,
+		`INSERT INTO issue(id,workspace_id,title) VALUES (gen_random_uuid(),'` + workspace + `','rolled back')`,
+		`ROLLBACK TO SAVEPOINT discarded`,
+	} {
+		if _, err = tx.Exec(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	count(`SELECT count(*) FROM work_sync_change`, 17)
+	count(`SELECT count(*) FROM pg_trigger WHERE tgname IN ('work_sync_issue','work_sync_project','work_sync_agent') AND tgdeferrable AND tginitdeferred AND tgrelid IN ('issue'::regclass,'project'::regclass,'agent'::regclass)`, 3)
 	// Rolling back only capture/history leaves the durable journal intact.
-	apply("down", []string{versions[6], versions[5]})
+	apply("down", []string{versions[8], versions[6], versions[5]})
 	count(`SELECT count(*) FROM work_sync_change`, 17)
 	apply("up", versions[5:])
 	for i := len(versions) - 1; i >= 0; i-- {

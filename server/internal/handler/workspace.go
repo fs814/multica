@@ -1213,6 +1213,14 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 			run:  func() error { return deleteWorkspaceTasks(ctx, qtx, requester.WorkspaceID) },
 		},
 		{
+			name: "lock work replication projects",
+			run:  func() error { return qtx.LockWorkspaceWorkSyncProjects(ctx, requester.WorkspaceID) },
+		},
+		{
+			name: "close work replication scope",
+			run:  func() error { return qtx.CloseWorkspaceWorkSync(ctx, requester.WorkspaceID) },
+		},
+		{
 			name: "delete work replication state",
 			run:  func() error { return qtx.DeleteWorkspaceWorkSync(ctx, requester.WorkspaceID) },
 		},

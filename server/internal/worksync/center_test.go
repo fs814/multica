@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -340,21 +339,26 @@ func TestCenterCommitOrderingAndSnapshotBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx2.Rollback(ctx)
-	waitCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-	defer cancel()
-	_, err = tx2.Exec(waitCtx, `UPDATE issue SET title='cannot overtake' WHERE id=$1`, b)
-	if err == nil {
-		t.Fatal("second transaction passed journal commit fence")
+	_, err = tx2.Exec(ctx, `UPDATE issue SET title='second committed' WHERE id=$1`, b)
+	if err != nil {
+		t.Fatal(err)
 	}
-	_ = tx2.Rollback(ctx)
+	if err = tx2.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The transaction that finishes first owns the first committed cursor,
+	// even when an earlier transaction has already changed a business row.
 	during := pull(t, r, base.Cursor, false)
-	if during.Cursor != base.Cursor || len(during.Records) != 0 {
-		t.Fatal("exposed uncommitted cursor")
+	if during.Cursor != base.Cursor+1 || len(during.Records) != 1 || during.Records[0].ID != b {
+		t.Fatal("wrong first committed cursor")
 	}
 	if err = tx1.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	r.fx.Exec(t, `UPDATE issue SET title='second committed' WHERE id=$1`, b)
+	late := pull(t, r, during.Cursor, false)
+	if len(late.Records) != 1 || late.Records[0].ID != a {
+		t.Fatalf("skipped late commit: %+v", late)
+	}
 	changes := pull(t, r, base.Cursor, false)
 	if len(changes.Records) != 2 || changes.Records[0].Version != base.Cursor+1 || changes.Records[1].Version != base.Cursor+2 {
 		t.Fatalf("lost late commit: %+v", changes)

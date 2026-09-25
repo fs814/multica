@@ -62,6 +62,12 @@ func (c *Center) Enroll(ctx context.Context, p Principal, scope Scope) error {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// Match teardown's workspace -> business -> scope order and prevent a
+	// delayed enrollment from resurrecting a scope after workspace deletion.
+	var workspace string
+	if err = tx.QueryRow(ctx, `SELECT id FROM workspace WHERE id=$1 FOR KEY SHARE`, scope.Workspace).Scan(&workspace); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `LOCK TABLE issue, project, agent IN SHARE ROW EXCLUSIVE MODE`); err != nil {
 		return err
 	}
@@ -152,7 +158,7 @@ func (c *Center) Push(ctx context.Context, p Principal, scope Scope, op Operatio
 		return Receipt{}, err
 	}
 	defer tx.Rollback(ctx)
-	// Match the business-write -> journal lock order used by capture triggers.
+	// Acquire the only business row this transaction writes before its journal scope.
 	if _, err = tx.Exec(ctx, `SELECT id FROM `+op.Kind+` WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, scope.Workspace, op.Entity); err != nil {
 		return Receipt{}, err
 	}
@@ -248,6 +254,11 @@ func (c *Center) Push(ctx context.Context, p Principal, scope Scope, op Operatio
 						if err = applyPatch(ctx, tx, scope, op); err != nil {
 							return Receipt{}, err
 						}
+					}
+					// All business writes are finished. Flush deferred capture before
+					// reading the resulting version and persisting the receipt.
+					if _, err = tx.Exec(ctx, `SET CONSTRAINTS work_sync_issue, work_sync_project, work_sync_agent IMMEDIATE`); err != nil {
+						return Receipt{}, err
 					}
 					row, e := q.GetWorkSyncCurrent(ctx, db.GetWorkSyncCurrentParams{WorkspaceID: id(scope.Workspace), Kind: op.Kind, EntityID: id(op.Entity)})
 					if e != nil {
