@@ -641,6 +641,21 @@ func (q *Queries) DeleteWorkspaceSquadsAndSkills(ctx context.Context, workspaceI
 	return err
 }
 
+const deleteWorkspaceWorkSync = `-- name: DeleteWorkspaceWorkSync :exec
+WITH deleted_scope AS (
+    DELETE FROM work_sync_scope WHERE work_sync_scope.workspace_id = $1
+), deleted_receipts AS (
+    DELETE FROM work_sync_receipt WHERE work_sync_receipt.workspace_id = $1
+)
+DELETE FROM work_sync_change WHERE work_sync_change.workspace_id = $1
+`
+
+// Run before deleting business rows so capture cannot refill the journal.
+func (q *Queries) DeleteWorkspaceWorkSync(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteWorkspaceWorkSync, workspaceID)
+	return err
+}
+
 const deleteWorkspaceWorkflowData = `-- name: DeleteWorkspaceWorkflowData :exec
 WITH
 deleted_workflow_debug_upload AS (DELETE FROM workflow_debug_upload WHERE workspace_id=$1),

@@ -617,6 +617,15 @@ deleted_issue_view_preferences AS (
 )
 DELETE FROM quick_action WHERE quick_action.workspace_id = $1;
 
+-- name: DeleteWorkspaceWorkSync :exec
+-- Run before deleting business rows so capture cannot refill the journal.
+WITH deleted_scope AS (
+    DELETE FROM work_sync_scope WHERE work_sync_scope.workspace_id = $1
+), deleted_receipts AS (
+    DELETE FROM work_sync_receipt WHERE work_sync_receipt.workspace_id = $1
+)
+DELETE FROM work_sync_change WHERE work_sync_change.workspace_id = $1;
+
 -- name: DeleteWorkspaceAutopilotRuns :exec
 WITH
 deleted_issue_pool_outbox AS (
