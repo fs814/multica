@@ -17,7 +17,7 @@ import (
 // Authorize must check the current actor, node registration, workspace and
 // resource permissions using tx. Read/enroll require an explicitly authorized
 // full projection: this foundation does not implement filtered replicas.
-// No production adapter is installed until that grant model is approved.
+// HTTP transport supplies the explicit owner/admin grant adapter.
 type Authorize func(context.Context, pgx.Tx, Principal, Scope, string, *Operation) error
 
 type Center struct {
@@ -48,7 +48,7 @@ func (c *Center) begin(ctx context.Context, p Principal, scope Scope, action str
 	}
 	if err := c.Authorize(ctx, tx, p, scope, action, op); err != nil {
 		_ = tx.Rollback(ctx)
-		return nil, ErrDenied
+		return nil, err
 	}
 	return tx, nil
 }
@@ -117,7 +117,7 @@ func (c *Center) Pull(ctx context.Context, p Principal, scope Scope, cursor int6
 	if snapshot {
 		rows, err = q.ListWorkSyncSnapshot(ctx, db.ListWorkSyncSnapshotParams{WorkspaceID: id(scope.Workspace), Limit: MaxSnapshot + 1})
 		if len(rows) > MaxSnapshot {
-			return Batch{}, fmt.Errorf("snapshot exceeds foundation limit")
+			return Batch{}, fmt.Errorf("%w: snapshot", ErrLimit)
 		}
 		b.Cursor = s.Sequence
 	} else {

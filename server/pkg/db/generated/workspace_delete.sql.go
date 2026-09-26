@@ -653,7 +653,9 @@ func (q *Queries) DeleteWorkspaceSquadsAndSkills(ctx context.Context, workspaceI
 }
 
 const deleteWorkspaceWorkSync = `-- name: DeleteWorkspaceWorkSync :exec
-WITH deleted_receipts AS (
+WITH deleted_grants AS (
+    DELETE FROM work_sync_grant WHERE workspace_id = $1
+), deleted_receipts AS (
     DELETE FROM work_sync_receipt WHERE work_sync_receipt.workspace_id = $1
 )
 DELETE FROM work_sync_change WHERE work_sync_change.workspace_id = $1

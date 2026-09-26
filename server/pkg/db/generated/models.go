@@ -1786,6 +1786,16 @@ type WorkSyncChange struct {
 	Fields      []byte      `json:"fields"`
 }
 
+type WorkSyncGrant struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	GroupID     pgtype.UUID        `json:"group_id"`
+	Epoch       pgtype.UUID        `json:"epoch"`
+	ActorID     pgtype.UUID        `json:"actor_id"`
+	NodeID      string             `json:"node_id"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt   pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type WorkSyncReceipt struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	OperationID pgtype.UUID `json:"operation_id"`

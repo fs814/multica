@@ -27,6 +27,8 @@ type Review struct {
 }
 type ReplicaState struct {
 	Schema      int               `json:"schema"`
+	Revoked     bool              `json:"revoked,omitempty"`
+	Quarantined []Operation       `json:"quarantined,omitempty"`
 	Scope       Scope             `json:"scope"`
 	Principal   Principal         `json:"principal"`
 	Incarnation string            `json:"incarnation"`
@@ -48,6 +50,7 @@ type ReplicaState struct {
 // embedded database is needed before larger workspaces can be enabled.
 type Replica struct {
 	mu     sync.Mutex
+	denied bool
 	config ReplicaConfig
 	dir    string
 	lock   *os.File
@@ -188,7 +191,15 @@ func (r *Replica) writeCheckpoint(b []byte) error {
 	return replaceCheckpoint(name, filepath.Join(r.dir, "checkpoint.json"))
 }
 
-func (r *Replica) State() (ReplicaState, error) { r.mu.Lock(); defer r.mu.Unlock(); return r.load() }
+func (r *Replica) State() (ReplicaState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, err := r.load()
+	if err == nil && (s.Revoked || r.denied) {
+		return ReplicaState{}, ErrDenied
+	}
+	return s, err
+}
 
 // Apply advances the cursor only in the same durable commit as the records.
 // A repeated batch is harmless; gaps, rollback snapshots and history changes
@@ -202,6 +213,9 @@ func (r *Replica) Apply(batch Batch) error {
 	s, err := r.load()
 	if err != nil {
 		return err
+	}
+	if s.Revoked || r.denied {
+		return ErrDenied
 	}
 	if !batch.Snapshot && s.Initialized && batch.Cursor <= s.Cursor {
 		return nil
@@ -242,6 +256,9 @@ func (r *Replica) Queue(kind, entity string, patch Fields) (Operation, error) {
 	if err != nil {
 		return Operation{}, err
 	}
+	if s.Revoked || r.denied {
+		return Operation{}, ErrDenied
+	}
 	base, ok := s.Records[kind+"/"+entity]
 	if ack, exists := s.Acknowledged[kind+"/"+entity]; exists && ack.Version > base.Version {
 		base = ack
@@ -276,6 +293,9 @@ func (r *Replica) Acknowledge(receipt Receipt) error {
 	if err != nil {
 		return err
 	}
+	if s.Revoked || r.denied {
+		return ErrDenied
+	}
 	if len(s.Outbox) == 0 || s.Outbox[0].ID != receipt.Operation {
 		return ErrOperation
 	}
@@ -292,5 +312,31 @@ func (r *Replica) Acknowledge(receipt Receipt) error {
 		s.Acknowledged[receipt.Record.Key()] = receipt.Record
 	}
 	s.Outbox = s.Outbox[1:]
+	return r.save(s)
+}
+
+// Revoke atomically purges confirmed data and hides pending edits from normal
+// reads and replay. Quarantine is local intent, not a deletion to replicate.
+// Regrant never automatically replays it; operator-mediated recovery is required.
+func (r *Replica) Revoke() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.denied = true
+	s, err := r.load()
+	if err != nil {
+		return err
+	}
+	if s.Revoked {
+		return nil
+	}
+	s.Revoked = true
+	s.Quarantined = append(s.Quarantined, s.Outbox...)
+	for _, review := range s.Review {
+		s.Quarantined = append(s.Quarantined, review.Operation)
+	}
+	s.Outbox = nil
+	s.Review = nil
+	s.Records = map[string]Record{}
+	s.Acknowledged = map[string]Record{}
 	return r.save(s)
 }

@@ -2143,6 +2143,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return fmt.Errorf("initialize local issues: %w", err)
 	}
 
+	stopSync, err := d.startWorkSync(ctx)
+	if err != nil {
+		return fmt.Errorf("initialize work sync: %w", err)
+	}
+	defer stopSync()
+
 	if d.cfg.AllowOffline {
 		d.offline.Store(&offlineState{Reason: "unconfigured"})
 		go d.serveHealth(ctx, healthLn, time.Now())

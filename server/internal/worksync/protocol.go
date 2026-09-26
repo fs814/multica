@@ -1,5 +1,5 @@
 // Package worksync implements the opt-in Work replication foundation. It has
-// no task dispatch, notification, recovery activation, or public HTTP routes.
+// no task dispatch, notification, or recovery activation.
 package worksync
 
 import (
@@ -22,11 +22,13 @@ const MaxBatch = 256
 const MaxSnapshot = 10000
 
 var (
-	ErrDisabled  = errors.New("work replication disabled")
-	ErrScope     = errors.New("replication identity or history mismatch")
-	ErrDenied    = errors.New("replication access denied")
-	ErrCursor    = errors.New("invalid replication cursor")
-	ErrOperation = errors.New("invalid replication operation")
+	ErrDisabled        = errors.New("work replication disabled")
+	ErrScope           = errors.New("replication identity or history mismatch")
+	ErrDenied          = errors.New("replication access denied")
+	ErrUnauthenticated = errors.New("replication credential invalid or expired")
+	ErrLimit           = errors.New("replication capacity limit exceeded")
+	ErrCursor          = errors.New("invalid replication cursor")
+	ErrOperation       = errors.New("invalid replication operation")
 )
 
 // Scope is an immutable history identity; a newer epoch is never auto-trusted.

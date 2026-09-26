@@ -629,7 +629,9 @@ DELETE FROM work_sync_scope WHERE workspace_id = $1;
 
 -- name: DeleteWorkspaceWorkSync :exec
 -- Call only after CloseWorkspaceWorkSync, in the same transaction.
-WITH deleted_receipts AS (
+WITH deleted_grants AS (
+    DELETE FROM work_sync_grant WHERE workspace_id = $1
+), deleted_receipts AS (
     DELETE FROM work_sync_receipt WHERE work_sync_receipt.workspace_id = $1
 )
 DELETE FROM work_sync_change WHERE work_sync_change.workspace_id = $1;

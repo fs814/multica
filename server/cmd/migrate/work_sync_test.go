@@ -28,7 +28,7 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 		CREATE TRIGGER capture_issue_collaboration_wakeup AFTER UPDATE ON issue FOR EACH ROW EXECUTE FUNCTION capture_issue_collaboration_wakeup()`); err != nil {
 		t.Fatal(err)
 	}
-	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard", "541_work_sync_commit_capture"}
+	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard", "541_work_sync_commit_capture", "542_work_sync_grant", "543_work_sync_grant_identity"}
 	opts := runOptions{SchemaMigrationsTable: schema + ".schema_migrations", AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1}
 	apply := func(direction string, names []string) {
 		t.Helper()
@@ -40,11 +40,11 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 	apply("up", versions)
 	apply("up", versions)
 	// Model a crash after DDL committed but before its ledger insert.
-	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture','541_work_sync_commit_capture')`); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture','541_work_sync_commit_capture','542_work_sync_grant','543_work_sync_grant_identity')`); err != nil {
 		t.Fatal(err)
 	}
 	apply("up", versions)
-	for _, index := range []string{"work_sync_scope_identity", "work_sync_change_position", "work_sync_operation_identity", "work_sync_node_sequence", "work_sync_entity_history"} {
+	for _, index := range []string{"work_sync_scope_identity", "work_sync_change_position", "work_sync_operation_identity", "work_sync_node_sequence", "work_sync_entity_history", "idx_work_sync_grant_identity"} {
 		assertIndexValidity(t, pool, schema, index, true)
 	}
 	workspace, other := uuid.NewString(), uuid.NewString()

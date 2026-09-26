@@ -265,3 +265,41 @@ func TestQueueUsesAppliedReceiptBeforePull(t *testing.T) {
 		t.Fatal("receipt base not reconciled")
 	}
 }
+
+func TestReplicaRevocationStorageFailureDeniesMemoryAndRetainsIntent(t *testing.T) {
+	cfg := config(t)
+	r := open(t, cfg)
+	record := issue()
+	if err := r.Apply(snapshot(cfg.Scope, record)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Queue("issue", record.ID, fields(map[string]any{"title": "local intent"})); err != nil {
+		t.Fatal(err)
+	}
+	r.write = func([]byte) error { return errors.New("disk full") }
+	if err := r.Revoke(); err == nil {
+		t.Fatal("failed purge acknowledged")
+	}
+	if _, err := r.State(); !errors.Is(err, ErrDenied) {
+		t.Fatal("I/O failure exposed revoked projection")
+	}
+	if _, err := r.Queue("issue", record.ID, fields(map[string]any{"title": "new"})); !errors.Is(err, ErrDenied) {
+		t.Fatal("revoked write accepted")
+	}
+	r.write = r.writeCheckpoint
+	if err := r.Revoke(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := r.load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !raw.Revoked || len(raw.Quarantined) != 1 || len(raw.Outbox) != 0 || len(raw.Records) != 0 {
+		t.Fatal("revocation lost intent or retained projection")
+	}
+	_ = r.Close()
+	r = open(t, cfg)
+	if _, err := r.State(); !errors.Is(err, ErrDenied) {
+		t.Fatal("restart lost denial")
+	}
+}

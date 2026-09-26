@@ -131,6 +131,14 @@ func newIndexProblems(raw string) []string {
 
 func TestFrozenMigrationNegativeControls(t *testing.T) {
 	m, files := loadFrozenMigrations(t), migrationContents(t)
+	next := m.MaxPrefix + 1
+	for name := range files {
+		prefix, _, _ := strings.Cut(name, "_")
+		if n, err := strconv.Atoi(prefix); err == nil && n >= next {
+			next = n + 1
+		}
+	}
+	candidate := fmt.Sprintf("%03d_new", next)
 	check := func(name string, change func(map[string][]byte), want bool) {
 		t.Run(name, func(t *testing.T) {
 			c := make(map[string][]byte, len(files))
@@ -164,14 +172,14 @@ func TestFrozenMigrationNegativeControls(t *testing.T) {
 		c["284_added.down.sql"] = []byte("SELECT 1;")
 	}, true)
 	check("single numeric alias", func(c map[string][]byte) {
-		c["0542_a.up.sql"] = []byte("SELECT 1;")
-		c["0542_a.down.sql"] = []byte("SELECT 1;")
+		c[fmt.Sprintf("0%d_a.up.sql", next)] = []byte("SELECT 1;")
+		c[fmt.Sprintf("0%d_a.down.sql", next)] = []byte("SELECT 1;")
 	}, true)
 	check("numeric alias", func(c map[string][]byte) {
-		c["0542_a.up.sql"] = []byte("SELECT 1;")
-		c["542_b.up.sql"] = []byte("SELECT 1;")
-		c["0542_a.down.sql"] = []byte("SELECT 1;")
-		c["542_b.down.sql"] = []byte("SELECT 1;")
+		c[fmt.Sprintf("0%d_a.up.sql", next)] = []byte("SELECT 1;")
+		c[fmt.Sprintf("%d_b.up.sql", next)] = []byte("SELECT 1;")
+		c[fmt.Sprintf("0%d_a.down.sql", next)] = []byte("SELECT 1;")
+		c[fmt.Sprintf("%d_b.down.sql", next)] = []byte("SELECT 1;")
 	}, true)
 	for _, tt := range []struct {
 		name, sql string
@@ -186,8 +194,8 @@ func TestFrozenMigrationNegativeControls(t *testing.T) {
 		{"transaction", "BEGIN; CREATE INDEX CONCURRENTLY i ON new_table(id); COMMIT;", true},
 	} {
 		check(tt.name, func(c map[string][]byte) {
-			c["542_new.up.sql"] = []byte(tt.sql)
-			c["542_new.down.sql"] = []byte("DROP TABLE IF EXISTS new_table;")
+			c[candidate+".up.sql"] = []byte(tt.sql)
+			c[candidate+".down.sql"] = []byte("DROP TABLE IF EXISTS new_table;")
 		}, tt.bad)
 	}
 }
