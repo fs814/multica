@@ -80,7 +80,9 @@ func TestClaimTasksByRuntime_ClaimPollHintSchedulesNextDeferredTask(t *testing.T
 		"runtime_id": runtimeID,
 		"issue_id":   issueID,
 		"status":     "deferred",
-		"fire_at":    testutil.Raw("now() + interval '5 seconds'"),
+		// The handler computes the hint with the host clock. Do not mix
+		// database and host clocks in the five-second upper bound.
+		"fire_at": time.Now().Add(5 * time.Second),
 	})
 
 	hinted := testutil.Decode[batchClaimResponse](t, testHandler.ClaimTasksByRuntime,
