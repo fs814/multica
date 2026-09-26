@@ -1777,6 +1777,51 @@ type WebhookDelivery struct {
 	ReplayIdempotencyKey   pgtype.Text        `json:"replay_idempotency_key"`
 }
 
+type WorkSyncChange struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Sequence    int64       `json:"sequence"`
+	Kind        string      `json:"kind"`
+	EntityID    pgtype.UUID `json:"entity_id"`
+	Deleted     bool        `json:"deleted"`
+	Fields      []byte      `json:"fields"`
+}
+
+type WorkSyncGrant struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	GroupID     pgtype.UUID        `json:"group_id"`
+	Epoch       pgtype.UUID        `json:"epoch"`
+	ActorID     pgtype.UUID        `json:"actor_id"`
+	NodeID      string             `json:"node_id"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt   pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type WorkSyncReceipt struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	OperationID pgtype.UUID `json:"operation_id"`
+	NodeID      string      `json:"node_id"`
+	Incarnation pgtype.UUID `json:"incarnation"`
+	Sequence    int64       `json:"sequence"`
+	ActorID     string      `json:"actor_id"`
+	PayloadHash string      `json:"payload_hash"`
+	Receipt     []byte      `json:"receipt"`
+}
+
+type WorkSyncRecovery struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ReportHash  string      `json:"report_hash"`
+	Report      []byte      `json:"report"`
+	Activated   bool        `json:"activated"`
+}
+
+type WorkSyncScope struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	GroupID     pgtype.UUID `json:"group_id"`
+	Epoch       pgtype.UUID `json:"epoch"`
+	Sequence    int64       `json:"sequence"`
+}
+
 type WorkflowAcceptance struct {
 	ID                  pgtype.UUID        `json:"id"`
 	WorkspaceID         pgtype.UUID        `json:"workspace_id"`

@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const closeWorkspaceWorkSync = `-- name: CloseWorkspaceWorkSync :exec
+DELETE FROM work_sync_scope WHERE workspace_id = $1
+`
+
+// A separate statement is essential: cleanup needs a fresh snapshot after
+// waiting for any in-flight writer. The workspace lock also fences enrollment.
+func (q *Queries) CloseWorkspaceWorkSync(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, closeWorkspaceWorkSync, workspaceID)
+	return err
+}
+
 const deleteTaskBatch = `-- name: DeleteTaskBatch :exec
 WITH
 batch AS MATERIALIZED (
@@ -641,6 +652,23 @@ func (q *Queries) DeleteWorkspaceSquadsAndSkills(ctx context.Context, workspaceI
 	return err
 }
 
+const deleteWorkspaceWorkSync = `-- name: DeleteWorkspaceWorkSync :exec
+WITH deleted_recovery AS (
+    DELETE FROM work_sync_recovery WHERE workspace_id = $1
+), deleted_grants AS (
+    DELETE FROM work_sync_grant WHERE workspace_id = $1
+), deleted_receipts AS (
+    DELETE FROM work_sync_receipt WHERE work_sync_receipt.workspace_id = $1
+)
+DELETE FROM work_sync_change WHERE work_sync_change.workspace_id = $1
+`
+
+// Call only after CloseWorkspaceWorkSync, in the same transaction.
+func (q *Queries) DeleteWorkspaceWorkSync(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteWorkspaceWorkSync, workspaceID)
+	return err
+}
+
 const deleteWorkspaceWorkflowData = `-- name: DeleteWorkspaceWorkflowData :exec
 WITH
 deleted_workflow_debug_upload AS (DELETE FROM workflow_debug_upload WHERE workspace_id=$1),
@@ -1217,6 +1245,17 @@ SELECT 1 FROM agent_runtime WHERE agent_runtime.workspace_id = $1 FOR UPDATE
 
 func (q *Queries) LockWorkspaceTaskOwnerRuntimes(ctx context.Context, workspaceID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, lockWorkspaceTaskOwnerRuntimes, workspaceID)
+	return err
+}
+
+const lockWorkspaceWorkSyncProjects = `-- name: LockWorkspaceWorkSyncProjects :exec
+SELECT id FROM project WHERE workspace_id = $1 ORDER BY id FOR UPDATE
+`
+
+// Agents and issues are already locked by lockWorkspaceTaskOwners. Finish
+// taking business locks before closing the scope, including deferred capture.
+func (q *Queries) LockWorkspaceWorkSyncProjects(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, lockWorkspaceWorkSyncProjects, workspaceID)
 	return err
 }
 

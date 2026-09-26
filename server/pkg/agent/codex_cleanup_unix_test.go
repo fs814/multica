@@ -8,35 +8,16 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestCodexInitializeParentDeadlineDoesNotPersistOpaqueEnv is the other half of
-// the parent-context pair: codex.go treats a parent DEADLINE and a parent
-// CANCELLATION as one kind of ending (`contextEnded` in the initialize-failure
-// path, codex.go), and both must keep untrusted child stderr out of the Result —
-// that stderr can echo opaque Config.Env/auth values which pattern sanitization
-// cannot recognize.
-//
-// Not a transport-timeout test, and it must not be deleted as one: the deadline
-// here is the CALLER's own budget, and it is the only thing that exercises the
-// DeadlineExceeded arm of `errors.Is(err, context.DeadlineExceeded) ||
-// errors.Is(err, context.Canceled)`. The sibling cancellation test covers the
-// Canceled arm only.
-//
-// The fake writes the secret to stderr before reading the handshake, so the
-// redaction check never depends on racing our own initialize write. The budget
-// is sized against measurement: reaching the app-server's first line costs
-// ~430-465ms here (version probe plus launch), so 2s keeps ~4x headroom, and
-// the ready-file guard below fails loudly rather than vacuously if a slower
-// machine ever misses it.
-func TestCodexInitializeParentDeadlineDoesNotPersistOpaqueEnv(t *testing.T) {
+func TestCodexThreadStartTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 	t.Parallel()
 
-	const secret = "opaque-init-parent-deadline-sentinel-8842"
-	readyFile := filepath.Join(t.TempDir(), "stderr-written")
+	pidFile := filepath.Join(t.TempDir(), "descendant.pid")
 	fakePath := writeFakeCodexAppServer(t, ""+
 		`read line`+"\n"+
 		`echo '{"jsonrpc":"2.0","id":1,"result":{}}'`+"\n"+
@@ -128,10 +109,31 @@ func TestCodexInitializeTimeoutReapsDetachedStdioDescendant(t *testing.T) {
 	}
 }
 
-func TestCodexInitializeTimeoutDoesNotPersistOpaqueEnv(t *testing.T) {
-	const secret = "opaque-init-auth-sentinel-7319"
+// TestCodexInitializeParentDeadlineDoesNotPersistOpaqueEnv is the other half of
+// the parent-context pair: codex.go treats a parent DEADLINE and a parent
+// CANCELLATION as one kind of ending (`contextEnded` in the initialize-failure
+// path, codex.go), and both must keep untrusted child stderr out of the Result —
+// that stderr can echo opaque Config.Env/auth values which pattern sanitization
+// cannot recognize.
+//
+// Not a transport-timeout test, and it must not be deleted as one: the deadline
+// here is the CALLER's own budget, and it is the only thing that exercises the
+// DeadlineExceeded arm of `errors.Is(err, context.DeadlineExceeded) ||
+// errors.Is(err, context.Canceled)`. The sibling cancellation test covers the
+// Canceled arm only.
+//
+// The fake writes the secret to stderr before reading the handshake, so the
+// redaction check never depends on racing our own initialize write. The budget
+// is sized against measurement: reaching the app-server's first line costs
+// ~430-465ms here (version probe plus launch), so 2s keeps ~4x headroom, and
+// the ready-file guard below fails loudly rather than vacuously if a slower
+// machine ever misses it.
+func TestCodexInitializeParentDeadlineDoesNotPersistOpaqueEnv(t *testing.T) {
+	t.Parallel()
+
+	const secret = "opaque-init-parent-deadline-sentinel-8842"
+	readyFile := filepath.Join(t.TempDir(), "stderr-written")
 	fakePath := writeFakeCodexAppServer(t, ""+
-		`read line`+"\n"+
 		`echo "$OPAQUE_AUTH_VALUE" >&2`+"\n"+
 		`touch "`+readyFile+`"`+"\n"+
 		`read line`+"\n"+
