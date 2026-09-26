@@ -133,6 +133,9 @@ var legacyDuplicateMigrationStems = map[string][]string{
 
 var migrationPrefixPattern = regexp.MustCompile(`^(\d+)_`)
 
+// PL/pgSQL unique_violation is an exception name, not a UNIQUE constraint.
+var uniqueKeywordPattern = regexp.MustCompile(`\bUNIQUE\b`)
+
 func TestMigrationFilesHaveMatchingDirections(t *testing.T) {
 	files := migrationFilesForLint(t, "*.sql")
 
@@ -218,7 +221,7 @@ func TestNewMigrationsDoNotCreateImplicitIndexes(t *testing.T) {
 			if strings.Contains(sql, "PRIMARY KEY") && !strings.Contains(sql, "PRIMARY KEY USING INDEX") {
 				t.Errorf("%s:%d creates an implicit primary-key index; create a unique index concurrently in its own migration, then attach it with PRIMARY KEY USING INDEX", filepath.Base(file), lineNumber+1)
 			}
-			if strings.Contains(sql, "UNIQUE") && !strings.Contains(sql, "CREATE UNIQUE INDEX CONCURRENTLY") {
+			if uniqueKeywordPattern.MatchString(sql) && !strings.Contains(sql, "CREATE UNIQUE INDEX CONCURRENTLY") {
 				t.Errorf("%s:%d creates an implicit unique index; use CREATE UNIQUE INDEX CONCURRENTLY in its own migration", filepath.Base(file), lineNumber+1)
 			}
 		}
@@ -297,5 +300,23 @@ func isKnownLegacyPrefix(prefix string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func TestUniqueKeywordPatternDistinguishesExceptionNames(t *testing.T) {
+	for _, tt := range []struct {
+		sql  string
+		want bool
+	}{
+		{"EXCEPTION WHEN unique_violation THEN", false},
+		{"id uuid UNIQUE", true},
+		{"CONSTRAINT delivery_key UNIQUE(comment_id, agent_id)", true},
+		{"CREATE UNIQUE INDEX delivery_idx ON delivery(id)", true},
+	} {
+		t.Run(tt.sql, func(t *testing.T) {
+			if got := uniqueKeywordPattern.MatchString(strings.ToUpper(tt.sql)); got != tt.want {
+				t.Fatalf("UNIQUE keyword in %q = %v, want %v", tt.sql, got, tt.want)
+			}
+		})
 	}
 }
