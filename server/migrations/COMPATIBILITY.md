@@ -36,11 +36,15 @@ invalid new DDL. A hash failure is never an excuse to update the expected hash.
 valid receipt table and primary key are retained, including their data and
 index OID. Before any pending up DDL, under the migration advisory lock, a run
 containing 507 checks agreement between its ledger and table. Recorded tables
-must retain the expected columns/types/nullability, timestamp defaults, valid
+must retain exactly the ten expected user columns (excluding dropped columns),
+their types/nullability, timestamp defaults, valid
 primary index, and validated status constraint. Drift or DDL committed without
 a ledger entry stops with a recovery diagnostic; the runner does not rebuild,
 drop, or silently mark the table applied. Recover from verified schema/data
-and ledger evidence under a separate recovery decision.
+and ledger evidence under a separate recovery decision. Extra columns, including
+nullable or defaulted columns, are outside this frozen schema contract and are
+rejected; in particular, an extra required column must not pass migration checks
+and then block normal receipt inserts.
 
 Migration lock waiters use session-pinned `pg_try_advisory_lock` attempts. Each
 failed attempt finishes before waiting 25 ms, with context cancellation honored.

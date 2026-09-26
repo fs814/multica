@@ -27,7 +27,8 @@ func validateHistoricalDelivery(ctx context.Context, conn *pgxpool.Conn, recorde
 	var columns, pkOK, defaultsOK bool
 	var check string
 	err := conn.QueryRow(ctx, `SELECT
-  (SELECT count(*)=10 AND count(a.attname)=10 AND bool_and(format_type(atttypid,atttypmod)=expected.typ AND attnotnull=expected.required)
+  (SELECT count(*)=10 FROM pg_attribute WHERE attrelid='comment_agent_delivery'::regclass AND attnum>0 AND NOT attisdropped)
+  AND (SELECT count(a.attname)=10 AND bool_and(format_type(atttypid,atttypmod)=expected.typ AND attnotnull=expected.required)
    FROM (VALUES ('comment_id','uuid',true),('agent_id','uuid',true),('task_id','uuid',false),('runtime_id','uuid',false),
    ('status','text',true),('failure_reason','text',false),('created_at','timestamp with time zone',true),
    ('updated_at','timestamp with time zone',true),('claimed_at','timestamp with time zone',false),('delivered_at','timestamp with time zone',false)) expected(name,typ,required)
