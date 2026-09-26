@@ -141,6 +141,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"vcs_pull_request":                   workspaceDelete,
 	"verification_code":                  workspaceDeleteKeep,
 	"webhook_delivery":                   workspaceDelete,
+	"work_sync_recovery":                 workspaceDelete,
 	"work_sync_grant":                    workspaceDelete,
 	"work_sync_scope":                    workspaceDelete,
 	"work_sync_change":                   workspaceDelete,

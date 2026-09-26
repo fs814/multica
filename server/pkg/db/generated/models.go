@@ -1807,6 +1807,14 @@ type WorkSyncReceipt struct {
 	Receipt     []byte      `json:"receipt"`
 }
 
+type WorkSyncRecovery struct {
+	ID          pgtype.UUID `json:"id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	ReportHash  string      `json:"report_hash"`
+	Report      []byte      `json:"report"`
+	Activated   bool        `json:"activated"`
+}
+
 type WorkSyncScope struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	GroupID     pgtype.UUID `json:"group_id"`

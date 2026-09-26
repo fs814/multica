@@ -1,5 +1,6 @@
 // Package worksync implements the opt-in Work replication foundation. It has
-// no task dispatch, notification, or recovery activation.
+// no task dispatch or notifications. Recovery activation requires a separate
+// explicitly authorized operator service with a verified external fence.
 package worksync
 
 import (

@@ -15,7 +15,7 @@ func TestDeleteWorkspaceWorkSync(t *testing.T) {
 	if testPool == nil {
 		t.Skip("database not available")
 	}
-	tables := []string{"work_sync_scope", "work_sync_change", "work_sync_receipt", "work_sync_grant"}
+	tables := []string{"work_sync_scope", "work_sync_change", "work_sync_receipt", "work_sync_grant", "work_sync_recovery"}
 	for _, rollback := range []bool{false, true} {
 		t.Run(fmt.Sprintf("rollback=%v", rollback), func(t *testing.T) {
 			seed := func() string {
@@ -25,6 +25,7 @@ func TestDeleteWorkspaceWorkSync(t *testing.T) {
 				dbfx.Issue(t, "captured", testutil.Cols{"workspace_id": w})
 				dbfx.Exec(t, `INSERT INTO work_sync_receipt(workspace_id,operation_id,node_id,incarnation,sequence,actor_id,payload_hash,receipt) VALUES ($1,gen_random_uuid(),'node',gen_random_uuid(),1,$2,'test','{}')`, w, testUserID)
 				dbfx.Exec(t, `INSERT INTO work_sync_grant(workspace_id,group_id,epoch,actor_id,node_id,expires_at) SELECT workspace_id,group_id,epoch,$2,'node',now()+interval '1 hour' FROM work_sync_scope WHERE workspace_id=$1`, w, testUserID)
+				dbfx.Exec(t, `INSERT INTO work_sync_recovery(id,workspace_id,report_hash,report) VALUES(gen_random_uuid(),$1,'fixture','{}')`, w)
 				t.Cleanup(func() {
 					for _, table := range tables {
 						_, _ = testPool.Exec(context.Background(), "DELETE FROM "+table+" WHERE workspace_id=$1", w)

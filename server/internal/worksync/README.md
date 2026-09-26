@@ -2,8 +2,8 @@
 
 This is disabled-by-default replication for the bounded Issues, Projects and
 Agents projection below. It includes authenticated HTTP, on-disk replicas and a
-joined daemon polling/reconnect lifecycle. It is not complete Work backup or new
-Center recovery. No migration/startup enrolls a workspace, issues a credential,
+joined daemon polling/reconnect lifecycle. It also includes an operator-only recovery service for this bounded projection.
+It is not complete Work backup or a production disaster-recovery system. No migration/startup enrolls a workspace, issues a credential,
 creates a grant, imports LocalIssue or starts an agent from replicated data.
 
 ## Explicit activation boundary
@@ -172,7 +172,7 @@ cd server
 go test -race ./cmd/migrate -run 'TestWorkSyncMigrations|TestConcurrentIndexCleanupsMatch' -count=1 -timeout=2m
 ```
 
-The migration test uses a scratch schema: up/repeat through 543, indexes, tenant moves,
+The migration test uses a scratch schema: up/repeat through 545, indexes, tenant moves,
 deletes, agent-kind transitions, 538/539/541 down/up, full down/up. Center tests use
 isolated fixture workspaces and two on-disk replicas, with no real agents.
 Coverage includes restart, field conflicts, causal dependencies, response replay,
@@ -202,15 +202,18 @@ reconnect convergence, receipt deduplication and wakeup/task suppression. Negati
 tests cover cross-workspace/history/actor mismatches, malformed wire requests,
 non-daemon credentials, grant/member/role/runtime/expiry revocation, token invalidation without purge, redirect
 refusal and durable quarantine. Lifecycle tests start/stop/restart the daemon's
-actual sync hook without starting any agent executables. They do not run three
-production binaries, simulate OS power loss or prove production recovery.
+actual sync hook without starting any agent executables. An opt-in test also runs full `cmd/server` and two `cmd/multica daemon start`
+processes with fixture profiles and no task claims, including Center restart and
+recovery. It does not simulate OS power loss or prove production recovery.
 
 Remaining acceptance/release gates:
 
-- New Center recovery: trusted recovery identity, multi-replica coverage manifests,
-  staging/import, dependency closure, missing-data reports, old-Center fencing,
-  epoch lineage and explicit activation are unimplemented. An empty/new Center
-  cannot accept uploaded copies through this protocol.
+- New Center recovery: the internal `Recovery` service stages pinned multi-replica
+  exports and atomically restores an empty workspace with a fresh epoch. See
+  [RECOVERY.md](RECOVERY.md) for the trust contract and fixture procedure.
+  Production recovery identity/fencing adapters, an operator UI/CLI, custom status
+  catalogs and complete Work recovery remain unimplemented. Ordinary daemon HTTP
+  cannot upload a recovery copy or activate a new Center.
 - Full Work: comments, labels, custom attributes/status definitions, memberships,
   squads, relationships, chats/history, automation definitions, Skills/Memory,
   attachment metadata and actual bytes are not replicated. References are not
