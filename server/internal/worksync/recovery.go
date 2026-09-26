@@ -137,8 +137,32 @@ func PlanRecovery(p RecoveryPlan, bundles []RecoveryBundle) (RecoveryReport, err
 			last = op.Sequence
 		}
 		for _, review := range s.Review {
-			if review.Operation.Validate(s.Principal, s.Scope) != nil || review.Receipt.Operation != review.Operation.ID || (review.Receipt.Status != "conflict" && review.Receipt.Status != "rejected") {
+			op, receipt := review.Operation, review.Receipt
+			if op.Validate(s.Principal, s.Scope) != nil || op.Incarnation != s.Incarnation || op.Sequence > s.Sequence || receipt.Operation != op.ID || (receipt.Status != "conflict" && receipt.Status != "rejected") {
 				return fail("invalid conflict")
+			}
+			// A conflict/rejection can carry a confirmed Center record newer
+			// than the last pull. In particular a delete receipt may be the
+			// only surviving tombstone if the process crashes before pulling.
+			rec := receipt.Record
+			if rec.ID != "" || rec.Kind != "" || rec.Version != 0 || rec.Deleted || len(rec.Fields) != 0 {
+				if rec.Validate() != nil || rec.Key() != op.Kind+"/"+op.Entity || (!rec.Deleted && len(rec.Fields) != len(exportFields[rec.Kind])) {
+					return fail("invalid confirmed conflict record")
+				}
+				if old, ok := versions[rec.Version]; ok && digest(old) != digest(rec) {
+					return fail("divergent confirmed conflict history")
+				}
+				versions[rec.Version] = rec
+			}
+			for _, conflict := range receipt.Conflicts {
+				if !contains(writableFields[op.Kind], conflict.Field) {
+					return fail("invalid conflict field")
+				}
+				for _, value := range []json.RawMessage{conflict.Base, conflict.Local, conflict.Center} {
+					if !json.Valid(value) || len(value) > 1<<20 {
+						return fail("invalid conflict value")
+					}
+				}
 			}
 		}
 		report.Pending += len(s.Outbox)
@@ -314,11 +338,36 @@ func (r *Recovery) Activate(ctx context.Context, p Principal, plan RecoveryPlan,
 	}
 	// Lock bootstrap identity and business tables before checking emptiness. No
 	// ordinary writer can race the empty check or mutate the imported projection.
-	if _, err = tx.Exec(ctx, `LOCK TABLE issue,project,agent IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+	if _, err = tx.Exec(ctx, `LOCK TABLE issue,project,agent,agent_task_queue,agent_runtime,daemon_token,autopilot,issue_wakeup,workflow_run IN SHARE ROW EXCLUSIVE MODE`); err != nil {
 		return err
 	}
+	// Reusing business UUIDs must not reconnect old tasks or automation.
+	// These tables share the write barrier until the activation commits.
+	agents, issues := []string{}, []string{}
+	for _, rec := range report.Records {
+		switch rec.Kind {
+		case "agent":
+			agents = append(agents, rec.ID)
+		case "issue":
+			issues = append(issues, rec.ID)
+		}
+	}
 	var occupied bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM issue WHERE workspace_id=$1 UNION ALL SELECT 1 FROM project WHERE workspace_id=$1 UNION ALL SELECT 1 FROM agent WHERE workspace_id=$1 UNION ALL SELECT 1 FROM work_sync_scope WHERE workspace_id=$1 UNION ALL SELECT 1 FROM work_sync_change WHERE workspace_id=$1 UNION ALL SELECT 1 FROM work_sync_receipt WHERE workspace_id=$1 UNION ALL SELECT 1 FROM work_sync_grant WHERE workspace_id=$1)`, plan.Target.Workspace).Scan(&occupied); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(
+      SELECT 1 FROM issue WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM project WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM agent WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM work_sync_scope WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM work_sync_change WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM work_sync_receipt WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM work_sync_grant WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM agent_runtime WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM daemon_token WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM autopilot WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM issue_wakeup WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM workflow_run WHERE workspace_id=$1
+      UNION ALL SELECT 1 FROM agent_task_queue WHERE agent_id=ANY($2::uuid[]) OR issue_id=ANY($3::uuid[])
+    )`, plan.Target.Workspace, agents, issues).Scan(&occupied); err != nil {
 		return err
 	}
 	if occupied {
@@ -335,6 +384,17 @@ func (r *Recovery) Activate(ctx context.Context, p Principal, plan RecoveryPlan,
 			if err = restoreRecord(ctx, tx, plan, rec); err != nil {
 				return err
 			}
+		}
+	}
+	// Existing installations retain the historical parent foreign key. Insert
+	// every Issue first, then restore parent links, independent of UUID order.
+	for _, rec := range report.Records {
+		if rec.Kind != "issue" || rec.Deleted {
+			continue
+		}
+		fields, _ := json.Marshal(rec.Fields)
+		if _, err = tx.Exec(ctx, `UPDATE issue SET parent_issue_id=($2::jsonb->>'parent_issue_id')::uuid WHERE id=$1 AND workspace_id=$3`, rec.ID, fields, plan.Target.Workspace); err != nil {
+			return err
 		}
 	}
 	if _, err = tx.Exec(ctx, `UPDATE workspace SET issue_counter=GREATEST(issue_counter,COALESCE((SELECT max(number) FROM issue WHERE workspace_id=$1),0)) WHERE id=$1`, plan.Target.Workspace); err != nil {
@@ -415,7 +475,7 @@ func restoreRecord(ctx context.Context, tx pgx.Tx, p RecoveryPlan, r Record) err
 				return fmt.Errorf("%w: missing assignee identity", ErrOperation)
 			}
 		}
-		query = `INSERT INTO issue(id,workspace_id,title,description,priority,status,number,project_id,parent_issue_id,assignee_type,assignee_id,creator_type,creator_id) SELECT $1,$2,x.title,x.description,x.priority,x.status,x.number,x.project_id,x.parent_issue_id,x.assignee_type,x.assignee_id,'member',$4 FROM jsonb_populate_record(NULL::issue,$3) x`
+		query = `INSERT INTO issue(id,workspace_id,title,description,priority,status,number,project_id,parent_issue_id,assignee_type,assignee_id,creator_type,creator_id) SELECT $1,$2,x.title,x.description,x.priority,x.status,x.number,x.project_id,NULL,x.assignee_type,x.assignee_id,'member',$4 FROM jsonb_populate_record(NULL::issue,$3) x`
 	default:
 		return ErrOperation
 	}

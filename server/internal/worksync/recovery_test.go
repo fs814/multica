@@ -390,3 +390,152 @@ func TestRecoveryConcurrentStageActivateAndCanceledImport(t *testing.T) {
 		t.Fatalf("duplicate baseline: %d", n)
 	}
 }
+
+func TestRecoveryRefusesResidualExecutionState(t *testing.T) {
+	r := setup(t)
+	agent := r.fx.Agent(t, "restored agent", "")
+	issue := r.fx.Issue(t, "restored issue")
+	enroll(t, r)
+	_, bundles, p := recoveryCopies(t, r)
+	recovery, _, fenced := recoveryService(t, r, p)
+	report, err := recovery.Stage(context.Background(), r.principal, p, bundles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate only the business tables being lost/emptied while an old queued
+	// execution survives. Restoring the referenced UUID must not reconnect it.
+	eraseSource(t, r)
+	// Seed a stale execution row as it could exist after an incomplete table
+	// restore. Only this fixture transaction bypasses FK/capture triggers; the
+	// setting is transaction-local and production recovery never uses it.
+	tx, e := r.c.Pool.Begin(context.Background())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer tx.Rollback(context.Background())
+	if _, e = tx.Exec(context.Background(), `SET LOCAL session_replication_role='replica'`); e != nil {
+		t.Fatal(e)
+	}
+	task := uuid.NewString()
+	if _, e = tx.Exec(context.Background(), `INSERT INTO agent_task_queue(id,agent_id,issue_id,runtime_id,status,priority) VALUES($1,$2,$3,$4,'queued',0)`, task, agent, issue, uuid.NewString()); e != nil {
+		t.Fatal(e)
+	}
+	if e = tx.Commit(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { r.fx.Exec(t, `DELETE FROM agent_task_queue WHERE id=$1`, task) })
+	if n := r.fx.Count(t, `SELECT count(*) FROM agent_task_queue WHERE id=$1`, task); n != 1 {
+		t.Fatal("missing stale execution fixture")
+	}
+	fenced.Store(true)
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); !errors.Is(err, ws.ErrScope) {
+		t.Fatalf("residual task accepted: %v", err)
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM issue WHERE workspace_id=$1`, r.scope.Workspace); n != 0 {
+		t.Fatal("failed guard published projection")
+	}
+	r.fx.Exec(t, `DELETE FROM agent_task_queue WHERE id=$1`, task)
+	runtime := r.fx.Runtime(t, "old runtime", testutil.Cols{"daemon_id": "old-node"})
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); !errors.Is(err, ws.ErrScope) {
+		t.Fatalf("residual runtime accepted: %v", err)
+	}
+	r.fx.Exec(t, `DELETE FROM agent_runtime WHERE id=$1`, runtime)
+	auto := uuid.NewString()
+	tx, e = r.c.Pool.Begin(context.Background())
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer tx.Rollback(context.Background())
+	if _, e = tx.Exec(context.Background(), `SET LOCAL session_replication_role='replica'`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = tx.Exec(context.Background(), `INSERT INTO autopilot(id,workspace_id,title,assignee_id,created_by_type,created_by_id) VALUES($1,$2,'old automation',$3,'member',$4)`, auto, r.scope.Workspace, agent, r.fx.UserID); e != nil {
+		t.Fatal(e)
+	}
+	if e = tx.Commit(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { r.fx.Exec(t, `DELETE FROM autopilot WHERE id=$1`, auto) })
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); !errors.Is(err, ws.ErrScope) {
+		t.Fatalf("residual automation accepted: %v", err)
+	}
+	r.fx.Exec(t, `DELETE FROM autopilot WHERE id=$1`, auto)
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM agent_task_queue WHERE agent_id=$1`, agent); n != 0 {
+		t.Fatal("execution survived recovery")
+	}
+}
+
+func TestRecoveryIncludesConfirmedTombstoneFromConflictReceiptBeforePull(t *testing.T) {
+	r := setup(t)
+	issue := r.fx.Issue(t, "old live snapshot")
+	enroll(t, r)
+	reps, _, _ := recoveryCopies(t, r)
+	op := queue(t, reps[0], "issue", issue, "title", "offline edit")
+	r.fx.Exec(t, `DELETE FROM issue WHERE id=$1`, issue)
+	deleted := pull(t, r, 0, true).Records[0]
+	if !deleted.Deleted {
+		t.Fatal("missing fixture tombstone")
+	}
+	// Persist the conflict response and crash before the trailing pull. Neither
+	// snapshot nor Applied acknowledgement contains this newer tombstone.
+	if err := reps[0].Acknowledge(ws.Receipt{Operation: op.ID, Status: "conflict", Reason: "entity deleted", Record: deleted}); err != nil {
+		t.Fatal(err)
+	}
+	bundles, p := exportCopies(t, r, reps)
+	if _, err := ws.PlanRecovery(p, bundles); err == nil {
+		t.Fatal("accepted stale boundary despite newer confirmed conflict tombstone")
+	}
+	p.Boundary = deleted.Version
+	report, err := ws.PlanRecovery(p, bundles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Records) != 1 || !report.Records[0].Deleted || report.Conflicts != 1 {
+		t.Fatalf("lost tombstone or local conflict: %+v", report)
+	}
+	recovery, _, fenced := recoveryService(t, r, p)
+	fenced.Store(true)
+	report, err = recovery.Stage(context.Background(), r.principal, p, bundles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eraseSource(t, r)
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM issue WHERE workspace_id=$1`, r.scope.Workspace); n != 0 {
+		t.Fatal("deleted entity resurrected")
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM work_sync_change WHERE workspace_id=$1 AND deleted`, r.scope.Workspace); n != 1 {
+		t.Fatal("deletion was not published")
+	}
+}
+
+func TestRecoveryRestoresParentReferencesRegardlessOfUUIDOrder(t *testing.T) {
+	r := setup(t)
+	parentID := "f" + uuid.NewString()[1:]
+	childID := "0" + uuid.NewString()[1:]
+	r.fx.Issue(t, "parent", testutil.Cols{"id": parentID})
+	r.fx.Issue(t, "child sorts before parent", testutil.Cols{"id": childID, "parent_issue_id": parentID})
+	enroll(t, r)
+	_, bundles, p := recoveryCopies(t, r)
+	recovery, _, fenced := recoveryService(t, r, p)
+	report, err := recovery.Stage(context.Background(), r.principal, p, bundles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eraseSource(t, r)
+	fenced.Store(true)
+	if err = recovery.Activate(context.Background(), r.principal, p, report.Digest); err != nil {
+		t.Fatal(err)
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM issue WHERE id=$1 AND parent_issue_id=$2`, childID, parentID); n != 1 {
+		t.Fatal("parent reference lost")
+	}
+	if n := r.fx.Count(t, `SELECT count(*) FROM work_sync_change WHERE workspace_id=$1`, r.scope.Workspace); n != 2 {
+		t.Fatal("relationship restore duplicated journal")
+	}
+}

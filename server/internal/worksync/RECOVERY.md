@@ -32,7 +32,8 @@ machines, persistent fencing, encryption/retention and acceptable loss are agree
    missing/newer in the selected snapshot. Identical global sequence numbers with
    different records, unknown fields, gaps, other histories, revoked copies,
    invalid pending operations and missing project/parent references are rejected.
-   Acknowledged records from different replicas complement the snapshot only when
+   Acknowledged and conflict/rejection receipt records from different replicas
+   complement the snapshot only when
    their union covers every sequence through the explicitly approved boundary.
    The union cannot silently discard any later confirmed record. This is bounded
    to 10,000 records, 32 sources and 32 MiB total input; no paginated recovery.
@@ -51,7 +52,9 @@ machines, persistent fencing, encryption/retention and acceptable loss are agree
 7. Review and approve the exact report digest, then call `Recovery.Activate`.
    Authorization and fencing are checked again. Under workspace/session/business
    locks it checks the destination is empty, validates owner and assignee identity,
-   inserts allowlisted Projects/Agents/Issues, verifies the resulting database
+   rejects residual runtimes, daemon credentials, automation/wakeups/workflow runs
+   and tasks referencing restored IDs, inserts allowlisted Projects/Agents/Issues,
+   verifies the resulting database
    projection, retains tombstones and writes a fresh epoch journal plus activation
    receipt in one transaction. Only the seven built-in issue status keys are
    supported; custom status catalogs block activation. Missing identities, UUID or
@@ -89,7 +92,8 @@ LocalIssue, execution history, Skills/Memory or automations. Missing dependencie
 are rejected, not fabricated. Creator metadata for imported Issues is the verified
 recovery owner because original creators are outside the current projection.
 Creation timestamps are new. UUIDs and allowlisted projection values are preserved.
-The workspace counter is advanced to at least the highest restored live number;
+Issue parent references are assigned in a second pass so historical foreign keys
+work even when a child UUID sorts before its parent. The workspace counter is advanced to at least the highest restored live number;
 an independently provisioned larger historical counter is retained.
 
 ## Reproducible binary fixture
