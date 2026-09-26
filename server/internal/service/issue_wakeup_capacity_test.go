@@ -167,22 +167,45 @@ func TestIssueWakeupCaptureRacingConsumptionKeepsNewInput(t *testing.T) {
 }
 
 func TestIssueWakeupReceiptExpiryIsBoundedAndKeepsPending(t *testing.T) {
-	f, s, issue, agent := wakeFixture(t)
-	w := wakeCreate(t, f, s, issue, WakeupInput{AgentID: agent, Kind: "event", EventTypes: []string{"comment.created"}, Instruction: "check"})
-	f.Exec(t, `INSERT INTO issue_wakeup_receipt(id,wakeup_id,revision,event_key,event_type,payload,created_at,processed_at)
+	for _, plan := range []string{"default", "nested_loop"} {
+		t.Run(plan, func(t *testing.T) {
+			f, s, issue, agent := wakeFixture(t)
+			w := wakeCreate(t, f, s, issue, WakeupInput{AgentID: agent, Kind: "event", EventTypes: []string{"comment.created"}, Instruction: "check"})
+			f.Exec(t, `INSERT INTO issue_wakeup_receipt(id,wakeup_id,revision,event_key,event_type,payload,created_at,processed_at)
  SELECT gen_random_uuid(),$1,1,n::text,'comment.created','{}',now()-interval '10 days',now()-interval '8 days' FROM generate_series(1,1050) n`, w.ID)
-	f.Exec(t, `INSERT INTO issue_wakeup_receipt(id,wakeup_id,revision,event_key,event_type,payload,created_at,processed_at)
+			f.Exec(t, `INSERT INTO issue_wakeup_receipt(id,wakeup_id,revision,event_key,event_type,payload,created_at,processed_at)
  VALUES(gen_random_uuid(),$1,1,'pending','comment.created','{}',now()-interval '10 days',NULL),
  (gen_random_uuid(),$1,1,'recent','comment.created','{}',now()-interval '10 days',now())`, w.ID)
-	removed, err := f.q.DeleteExpiredWakeupReceipts(context.Background(), pgtype.Timestamptz{Time: time.Now().Add(-7 * 24 * time.Hour), Valid: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if removed != 1000 {
-		t.Fatalf("cleanup not bounded: %d", removed)
-	}
-	if got := f.Count(t, "SELECT count(*) FROM issue_wakeup_receipt WHERE wakeup_id=$1 AND event_key IN ('pending','recent')", w.ID); got != 2 {
-		t.Fatal("expired pending input or recent dedup key")
+			ctx := context.Background()
+			tx, err := f.Pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback(ctx)
+			if plan == "nested_loop" {
+				// The batch bound must hold independently of receipt statistics and
+				// join strategy. Exercise rescanning without planner materialization.
+				if _, err = tx.Exec(ctx, `SET LOCAL enable_hashjoin=off; SET LOCAL enable_mergejoin=off; SET LOCAL enable_material=off; SET LOCAL enable_hashagg=off; SET LOCAL enable_sort=off`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			removed, err := f.q.WithTx(tx).DeleteExpiredWakeupReceipts(ctx, pgtype.Timestamptz{Time: time.Now().Add(-7 * 24 * time.Hour), Valid: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if removed != 1000 {
+				t.Fatalf("cleanup not bounded: %d", removed)
+			}
+			if err = tx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.Count(t, `SELECT count(*) FROM issue_wakeup_receipt WHERE wakeup_id=$1 AND processed_at < now()-interval '7 days'`, w.ID); got != 50 {
+				t.Fatalf("expired remainder: %d", got)
+			}
+			if got := f.Count(t, "SELECT count(*) FROM issue_wakeup_receipt WHERE wakeup_id=$1 AND event_key IN ('pending','recent')", w.ID); got != 2 {
+				t.Fatal("expired pending input or recent dedup key")
+			}
+		})
 	}
 }
 
