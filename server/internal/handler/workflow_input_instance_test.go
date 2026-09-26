@@ -166,7 +166,7 @@ func TestWorkflowInputInstancesCRUD(t *testing.T) {
 		}
 	})
 	for _, tc := range []struct{ body, detail string }{
-		{`{"name":"invalid","input":{"count":3}}`, "field \"input\" must be string"},
+		{`{"name":"invalid","input":{"count":3}}`, "field \"input.count\" must be string"},
 		{`{"name":"invalid","input":{},"input_node":{"key":"input","type":"input","future_setting":true}}`, "unrecognized field \"future_setting\""},
 		{`{"name":"invalid","input":{}} {}`, "expected exactly one JSON object"},
 	} {

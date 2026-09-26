@@ -247,7 +247,9 @@ func TestRepeatedCheckoutMovesCleanCheckoutToNewBranch(t *testing.T) {
 			}
 			runGitAuthored(t, first.Path, "add", "pushed.txt")
 			runGitAuthored(t, first.Path, "commit", "-m", "pushed work")
-			runGitAuthored(t, first.Path, "push", "origin", first.BranchName)
+			// An explicit destination keeps push.default=upstream from
+			// redirecting this fixture push to the source default branch.
+			runGitAuthored(t, first.Path, "push", "origin", "refs/heads/"+first.BranchName+":refs/heads/"+first.BranchName)
 			upstream := f.advanceUpstream(t)
 
 			second := f.checkout(t, secondTaskID, false)
