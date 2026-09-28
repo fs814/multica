@@ -86,8 +86,8 @@ func (r *WorkflowRouter) Route(ctx context.Context, q *db.Queries, req workflow.
 
 	// rejections accumulates why each near-miss candidate was refused. It is the
 	// difference between "routing_no_candidate" and an operator knowing that the
-	// right agent exists but its runtime is offline, so it is carried into the
-	// returned error and thence onto the Step's failure_detail.
+	// right agent exists but its runtime is offline. Carry it into the returned
+	// error (Step failure_detail), or the routing reason when fallback succeeds.
 	var rejections []string
 
 	switch routing.Strategy {
@@ -135,6 +135,9 @@ func (r *WorkflowRouter) Route(ctx context.Context, q *db.Queries, req workflow.
 	if routing.FallbackAgentID != "" {
 		result, err := r.routeExplicit(ctx, q, req, actor, routing.FallbackAgentID, "fallback", req.RequiresVision)
 		if err == nil {
+			// The reason is persisted on the step. Keep the primary rejection
+			// even when fallback succeeds, so the substitution can be explained.
+			result.Reason += "; primary rejected: " + strings.Join(rejections, "; ")
 			return result, nil
 		}
 		rejections = append(rejections, err.Error())

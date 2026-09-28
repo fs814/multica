@@ -530,7 +530,8 @@ func e2eTaskResult(t *testing.T, taskID, stepID, artifactType, summary string) [
 // TestWorkflowRunExecutesBugFixEndToEnd walks the built-in Bug Fix template from
 // "press Run" to "Run completed", asserting each hop.
 func TestWorkflowRunExecutesBugFixEndToEnd(t *testing.T) {
-	withWorkflowEngineForTest(t)
+	engine := withWorkflowEngineForTest(t)
+	engine.Router = workflowRoutingTrace{t: t, router: engine.Router}
 	env := newWorkflowE2EEnv(t, "happy")
 
 	const (

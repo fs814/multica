@@ -558,6 +558,42 @@ func TestWorkflowRouterPreviousStepStillGated(t *testing.T) {
 	}
 }
 
+// A successful fallback must retain why the inherited implementer was refused;
+// otherwise a completed validate step hides the evidence needed to explain it.
+func TestWorkflowRouterPreviousStepFallbackRetainsRejection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec agentSpec
+		want string
+	}{
+		{name: "offline", spec: agentSpec{name: "Implementer", offlineRT: true}, want: "agent runtime is offline"},
+		{name: "permission", spec: agentSpec{name: "Implementer", permission: "private"}, want: "accountable user may not invoke"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newWorkflowRouterEnv(t)
+			spec := tc.spec
+			if tc.name == "permission" {
+				spec.owner = env.otherUserID
+			}
+			implementer := env.createAgent(t, spec)
+			fallback := env.createAgent(t, agentSpec{name: "Fallback"})
+			node := &workflow.Node{Key: "validate", Type: workflow.NodeTypeAgent,
+				Routing: &workflow.Routing{Strategy: workflow.RoutingPreviousStep,
+					FromNode: "implement", FallbackAgentID: util.UUIDToString(fallback)}}
+			got, err := env.route(t, node, env.userID, map[string]pgtype.UUID{"implement": implementer})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("implementer=%s fallback=%s selected=%s reason=%q",
+				util.UUIDToString(implementer), util.UUIDToString(fallback), util.UUIDToString(got.AgentID), got.Reason)
+			if got.AgentID != fallback || !strings.Contains(got.Reason, "fallback") ||
+				!strings.Contains(got.Reason, "previous_step:implement") || !strings.Contains(got.Reason, tc.want) {
+				t.Fatalf("fallback lost its primary rejection: %+v; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestWorkflowRouterExplicit: a pinned agent id is honoured.
 func TestWorkflowRouterExplicit(t *testing.T) {
 	env := newWorkflowRouterEnv(t)
