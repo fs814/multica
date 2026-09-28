@@ -28,7 +28,7 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 		CREATE TRIGGER capture_issue_collaboration_wakeup AFTER UPDATE ON issue FOR EACH ROW EXECUTE FUNCTION capture_issue_collaboration_wakeup()`); err != nil {
 		t.Fatal(err)
 	}
-	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard", "541_work_sync_commit_capture", "542_work_sync_grant", "543_work_sync_grant_identity", "544_work_sync_recovery", "545_work_sync_recovery_identity"}
+	versions := []string{"533_work_sync", "534_work_sync_scope_identity", "535_work_sync_change_position", "536_work_sync_operation_identity", "537_work_sync_node_sequence", "538_work_sync_capture", "539_work_sync_entity_history", "540_work_sync_wakeup_guard", "541_work_sync_commit_capture", "542_work_sync_grant", "543_work_sync_grant_identity", "544_work_sync_recovery", "545_work_sync_recovery_identity", "546_work_sync_recovery_control", "547_work_sync_recovery_authority_identity", "548_work_sync_recovery_fence_identity", "549_work_sync_recovery_write_guard"}
 	opts := runOptions{SchemaMigrationsTable: schema + ".schema_migrations", AdvisoryLockKey: int64(rand.Uint64()&0x7fffffffffffffff) | 1}
 	apply := func(direction string, names []string) {
 		t.Helper()
@@ -40,11 +40,11 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 	apply("up", versions)
 	apply("up", versions)
 	// Model a crash after DDL committed but before its ledger insert.
-	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture','541_work_sync_commit_capture','542_work_sync_grant','543_work_sync_grant_identity','544_work_sync_recovery','545_work_sync_recovery_identity')`); err != nil {
+	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version IN ('533_work_sync','538_work_sync_capture','541_work_sync_commit_capture','542_work_sync_grant','543_work_sync_grant_identity','544_work_sync_recovery','545_work_sync_recovery_identity','546_work_sync_recovery_control','547_work_sync_recovery_authority_identity','548_work_sync_recovery_fence_identity','549_work_sync_recovery_write_guard')`); err != nil {
 		t.Fatal(err)
 	}
 	apply("up", versions)
-	for _, index := range []string{"work_sync_scope_identity", "work_sync_change_position", "work_sync_operation_identity", "work_sync_node_sequence", "work_sync_entity_history", "idx_work_sync_grant_identity", "idx_work_sync_recovery_identity"} {
+	for _, index := range []string{"work_sync_scope_identity", "work_sync_change_position", "work_sync_operation_identity", "work_sync_node_sequence", "work_sync_entity_history", "idx_work_sync_grant_identity", "idx_work_sync_recovery_identity", "idx_work_sync_recovery_authority_identity", "idx_work_sync_recovery_fence_identity"} {
 		assertIndexValidity(t, pool, schema, index, true)
 	}
 	workspace, other := uuid.NewString(), uuid.NewString()
@@ -110,6 +110,18 @@ func TestWorkSyncMigrationsRoundTripAndCapture(t *testing.T) {
 	apply("down", []string{versions[8], versions[6], versions[5]})
 	count(`SELECT count(*) FROM work_sync_change`, 17)
 	apply("up", versions[5:])
+	// A persistent fence rejects direct SQL and cannot be silently downgraded.
+	exec(`UPDATE work_sync_recovery_fence SET proof='{"fixture":true}' WHERE workspace_id=$1`, workspace)
+	if _, err := pool.Exec(ctx, `UPDATE issue SET title='fenced' WHERE workspace_id=$1`, workspace); err == nil {
+		t.Fatal("fenced direct writer succeeded")
+	}
+	opts.Direction, opts.Files, opts.Hooks = "down", realMigrationFiles(t, []string{"549_work_sync_recovery_write_guard"}, "down"), hooksForDirection("down")
+	if err := runMigrations(ctx, pool, opts); err == nil {
+		t.Fatal("downgrade removed active fence")
+	}
+	count(`SELECT count(*) FROM pg_trigger WHERE tgname='work_sync_recovery_guard' AND tgrelid IN ('issue'::regclass,'project'::regclass,'agent'::regclass,'work_sync_scope'::regclass)`, 4)
+	// Administrative fixture cleanup only, never an operational un-fence API.
+	exec(`UPDATE work_sync_recovery_fence SET proof=NULL WHERE workspace_id=$1`, workspace)
 	for i := len(versions) - 1; i >= 0; i-- {
 		apply("down", versions[i:i+1])
 	}

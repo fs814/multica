@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_work_sync_recovery_fence_identity;

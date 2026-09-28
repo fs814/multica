@@ -246,11 +246,11 @@ func PlanRecovery(p RecoveryPlan, bundles []RecoveryBundle) (RecoveryReport, err
 	return report, nil
 }
 
-// Recovery is an operator service, deliberately absent from public sync routes.
+// Recovery is an operator service, separate from ordinary daemon sync routes.
 // Authorize must use an independent recovery identity and recheck expiration,
 // scope, owner and pinned plan at every call. VerifyFence must verify deployment
 // isolation, not infer it from an epoch or a failed HTTP probe. Nil hooks deny.
-// No production identity/fencing adapter is supplied by this bounded stage.
+// The controlled HTTP adapter supplies database authority and a durable fence.
 type Recovery struct {
 	Enabled     bool
 	Pool        *pgxpool.Pool

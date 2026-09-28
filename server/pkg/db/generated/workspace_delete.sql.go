@@ -655,6 +655,8 @@ func (q *Queries) DeleteWorkspaceSquadsAndSkills(ctx context.Context, workspaceI
 const deleteWorkspaceWorkSync = `-- name: DeleteWorkspaceWorkSync :exec
 WITH deleted_recovery AS (
     DELETE FROM work_sync_recovery WHERE workspace_id = $1
+), deleted_recovery_authority AS (
+    DELETE FROM work_sync_recovery_authority WHERE workspace_id = $1
 ), deleted_grants AS (
     DELETE FROM work_sync_grant WHERE workspace_id = $1
 ), deleted_receipts AS (

@@ -631,6 +631,8 @@ DELETE FROM work_sync_scope WHERE workspace_id = $1;
 -- Call only after CloseWorkspaceWorkSync, in the same transaction.
 WITH deleted_recovery AS (
     DELETE FROM work_sync_recovery WHERE workspace_id = $1
+), deleted_recovery_authority AS (
+    DELETE FROM work_sync_recovery_authority WHERE workspace_id = $1
 ), deleted_grants AS (
     DELETE FROM work_sync_grant WHERE workspace_id = $1
 ), deleted_receipts AS (

@@ -136,6 +136,13 @@ func authorizedPrincipal(ctx context.Context, tx pgx.Tx, hash string, scope Scop
 	if workspace != scope.Workspace {
 		return Principal{}, ErrDenied
 	}
+	var fenced bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM work_sync_recovery_fence WHERE workspace_id=$1 AND proof IS NOT NULL)`, scope.Workspace).Scan(&fenced); err != nil {
+		return Principal{}, err
+	}
+	if fenced {
+		return Principal{}, ErrScope
+	}
 	var group, epoch string
 	err = tx.QueryRow(ctx, `SELECT group_id::text, epoch::text FROM work_sync_scope WHERE workspace_id=$1`, scope.Workspace).Scan(&group, &epoch)
 	if errors.Is(err, pgx.ErrNoRows) {

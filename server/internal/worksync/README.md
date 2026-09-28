@@ -172,7 +172,7 @@ cd server
 go test -race ./cmd/migrate -run 'TestWorkSyncMigrations|TestConcurrentIndexCleanupsMatch' -count=1 -timeout=2m
 ```
 
-The migration test uses a scratch schema: up/repeat through 545, indexes, tenant moves,
+The migration test uses a scratch schema: up/repeat through 549, indexes, tenant moves,
 deletes, agent-kind transitions, 538/539/541 down/up, full down/up. Center tests use
 isolated fixture workspaces and two on-disk replicas, with no real agents.
 Coverage includes restart, field conflicts, causal dependencies, response replay,
@@ -211,9 +211,11 @@ Remaining acceptance/release gates:
 - New Center recovery: the internal `Recovery` service stages pinned multi-replica
   exports and atomically restores an empty workspace with a fresh epoch. See
   [RECOVERY.md](RECOVERY.md) for the trust contract and fixture procedure.
-  Production recovery identity/fencing adapters, an operator UI/CLI, custom status
-  catalogs and complete Work recovery remain unimplemented. Ordinary daemon HTTP
-  cannot upload a recovery copy or activate a new Center.
+  An independently gated operator HTTP API now checks database-provisioned recovery
+  credentials and permanently fences the old database's bounded projection.
+  See the deployment, credential and external-execution isolation requirements in
+  RECOVERY.md. An operator UI/CLI, custom status catalogs and complete Work recovery
+  remain unimplemented. Ordinary daemon credentials cannot recover a Center.
 - Full Work: comments, labels, custom attributes/status definitions, memberships,
   squads, relationships, chats/history, automation definitions, Skills/Memory,
   attachment metadata and actual bytes are not replicated. References are not

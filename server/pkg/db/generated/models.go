@@ -1815,6 +1815,28 @@ type WorkSyncRecovery struct {
 	Activated   bool        `json:"activated"`
 }
 
+type WorkSyncRecoveryAuthority struct {
+	TokenHash          string             `json:"token_hash"`
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	OwnerID            pgtype.UUID        `json:"owner_id"`
+	OperatorID         string             `json:"operator_id"`
+	SourceDeploymentID pgtype.UUID        `json:"source_deployment_id"`
+	TargetDeploymentID pgtype.UUID        `json:"target_deployment_id"`
+	Plan               []byte             `json:"plan"`
+	ApprovedReportHash string             `json:"approved_report_hash"`
+	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt          pgtype.Timestamptz `json:"revoked_at"`
+}
+
+type WorkSyncRecoveryDeployment struct {
+	DeploymentID pgtype.UUID `json:"deployment_id"`
+}
+
+type WorkSyncRecoveryFence struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Proof       []byte      `json:"proof"`
+}
+
 type WorkSyncScope struct {
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	GroupID     pgtype.UUID `json:"group_id"`
