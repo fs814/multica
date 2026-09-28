@@ -9,7 +9,7 @@ machines, persistent fencing, encryption/retention and acceptable loss are agree
 
 ## Procedure and trust boundary
 
-1. Stop ordinary destination traffic and all destination scheduling/notification
+1. Stop ordinary destination workspace traffic and all of its scheduling/notification
    workers. Bootstrap only the original workspace UUID and independently verified
    owner/member identities. Neither a daemon upload nor this service creates an
    owner, ACL, runtime binding or credential. Use a separately authorized, empty
@@ -86,6 +86,18 @@ reports together with sync state; delayed stage cannot refill a deleted workspac
 There is no automatic staging expiry, encryption, conflict-resolution UI or secure
 erasure of exported files/backups.
 
+The business-table barriers are table-wide, including other workspaces in the
+same database. They use NOWAIT so activation never holds one business table while
+waiting for an ordinary writer on another. Lock contention, deadlock and
+serialization failures roll back the complete transaction and retry at most 20
+attempts, with a context-cancelable delay of 25–250 ms between attempts. Every
+attempt rechecks authorization, owner, approved report and fence; adapters must
+support repeated checks without side effects. Exhaustion returns the database
+error and leaves staging available for a later operator retry. Other workspaces
+can write between attempts but may briefly wait while a successful activation
+holds its barriers. This does not authorize live traffic in the destination
+workspace or replace durable isolation of the old Center.
+
 The replica projection does not include complete agent definitions, custom status
 catalogs, Comments, attachments/bytes, ACL history, secrets, runtime identities,
 LocalIssue, execution history, Skills/Memory or automations. Missing dependencies
@@ -126,3 +138,8 @@ edits use `Replica.Queue` while the owning daemon is stopped; this does not impl
 an offline UI/API exists. The destination is a logically empty workspace in the
 isolated database, with independently provisioned fixture identity; the test does
 not claim physical host loss, whole-database restoration or production fencing.
+
+Retain both binaries with the evidence, together with build argv and exit codes,
+`go version -m` output (including VCS revision and modified state), SHA-256
+checksums, test argv/exit code and child logs. A manifest without the binary
+artifacts cannot independently establish the executed binaries' checksums.

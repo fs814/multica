@@ -22,7 +22,12 @@ func TestReviewMemoryForeignDaemonHTTP(t *testing.T) {
 	ctx := context.Background()
 	dsn := os.Getenv("PROJECT_MEMORY_TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Fatal("dedicated database required")
+		if testPool == nil {
+			t.Skip("database unavailable")
+		}
+		// Reuse the configured test database; all DDL below is scoped to a
+		// uniquely owned schema. CI supplies DATABASE_URL through TestMain.
+		dsn = testPool.Config().ConnString()
 	}
 	admin, err := pgxpool.New(ctx, dsn)
 	if err != nil {

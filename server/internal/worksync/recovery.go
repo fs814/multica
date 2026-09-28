@@ -3,11 +3,14 @@ package worksync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -307,6 +310,27 @@ func (r *Recovery) Stage(ctx context.Context, p Principal, plan RecoveryPlan, bu
 // provisioned workspace. Restored agents have no runtime and private permissions.
 // Recovery stores preserve source versions; the new journal gets fresh versions.
 func (r *Recovery) Activate(ctx context.Context, p Principal, plan RecoveryPlan, approvedDigest string) error {
+	// Table barriers cover all workspaces. Never wait for a later table while
+	// retaining earlier locks: ordinary writers can acquire them in another order.
+	// Each retry rolls back the entire import and rechecks authority and fencing.
+	const attempts = 20
+	for attempt := 0; ; attempt++ {
+		err := r.activateOnce(ctx, p, plan, approvedDigest)
+		var pgerr *pgconn.PgError
+		if !errors.As(err, &pgerr) || (pgerr.Code != "55P03" && pgerr.Code != "40P01" && pgerr.Code != "40001") || attempt == attempts-1 {
+			return err
+		}
+		timer := time.NewTimer(time.Duration(min(attempt+1, 10)) * 25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (r *Recovery) activateOnce(ctx context.Context, p Principal, plan RecoveryPlan, approvedDigest string) error {
 	tx, err := r.begin(ctx, p, plan, "activate")
 	if err != nil {
 		return err
@@ -315,7 +339,10 @@ func (r *Recovery) Activate(ctx context.Context, p Principal, plan RecoveryPlan,
 	// Use workspace -> session -> business order, matching staging/deletion.
 	var owner string
 	if err = tx.QueryRow(ctx, `SELECT m.user_id::text FROM workspace w JOIN member m ON m.workspace_id=w.id WHERE w.id=$1 AND m.user_id=$2 AND m.role='owner' FOR UPDATE OF w,m`, plan.Target.Workspace, plan.Owner).Scan(&owner); err != nil {
-		return ErrDenied
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrDenied
+		}
+		return err
 	}
 	var data []byte
 	var hash string
@@ -338,7 +365,7 @@ func (r *Recovery) Activate(ctx context.Context, p Principal, plan RecoveryPlan,
 	}
 	// Lock bootstrap identity and business tables before checking emptiness. No
 	// ordinary writer can race the empty check or mutate the imported projection.
-	if _, err = tx.Exec(ctx, `LOCK TABLE issue,project,agent,agent_task_queue,agent_runtime,daemon_token,autopilot,issue_wakeup,workflow_run IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+	if _, err = tx.Exec(ctx, `LOCK TABLE issue,project,agent,agent_task_queue,agent_runtime,daemon_token,autopilot,issue_wakeup,workflow_run IN SHARE ROW EXCLUSIVE MODE NOWAIT`); err != nil {
 		return err
 	}
 	// Reusing business UUIDs must not reconnect old tasks or automation.

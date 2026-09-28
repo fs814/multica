@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	ws "github.com/multica-ai/multica/server/internal/worksync"
 )
@@ -334,8 +335,8 @@ func TestRecoveryConcurrentStageActivateAndCanceledImport(t *testing.T) {
 	}
 	eraseSource(t, r)
 	fenced.Store(true)
-	// Block a real import on the business table, cancel it after it obtained
-	// the workspace/session locks, then prove that the same session can resume.
+	// Contend with a real import, cancel during transaction retries, then
+	// prove that the same durable session can resume.
 	blocker, err := r.c.Pool.Begin(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -344,26 +345,23 @@ func TestRecoveryConcurrentStageActivateAndCanceledImport(t *testing.T) {
 	if _, err = blocker.Exec(context.Background(), `LOCK TABLE project IN SHARE MODE`); err != nil {
 		t.Fatal(err)
 	}
+	var attempts atomic.Int32
+	authorize := recovery.Authorize
+	recovery.Authorize = func(ctx context.Context, tx pgx.Tx, actor ws.Principal, plan ws.RecoveryPlan, action string) error {
+		attempts.Add(1)
+		return authorize(ctx, tx, actor, plan, action)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	result := make(chan error, 1)
 	go func() { result <- recovery.Activate(ctx, r.principal, p, report.Digest) }()
 	deadline := time.Now().Add(3 * time.Second)
-	blocked := false
-	for time.Now().Before(deadline) {
-		var n int
-		err = r.c.Pool.QueryRow(context.Background(), `SELECT count(*) FROM pg_locks WHERE relation='project'::regclass AND NOT granted`).Scan(&n)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n > 0 {
-			blocked = true
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	for attempts.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
-	if err = <-result; err == nil || !blocked {
-		t.Fatalf("import did not block/cancel: blocked=%v err=%v", blocked, err)
+	if err = <-result; !errors.Is(err, context.Canceled) || attempts.Load() < 2 {
+		t.Fatalf("import did not retry/cancel: attempts=%d err=%v", attempts.Load(), err)
 	}
 	if err = blocker.Rollback(context.Background()); err != nil {
 		t.Fatal(err)
@@ -537,5 +535,140 @@ func TestRecoveryRestoresParentReferencesRegardlessOfUUIDOrder(t *testing.T) {
 	}
 	if n := r.fx.Count(t, `SELECT count(*) FROM work_sync_change WHERE workspace_id=$1`, r.scope.Workspace); n != 2 {
 		t.Fatal("relationship restore duplicated journal")
+	}
+}
+
+func TestRecoveryActivationWorkflowContention(t *testing.T) {
+	r := setup(t)
+	r.fx.Project(t, "contention recovery")
+	enroll(t, r)
+	_, bundles, plan := recoveryCopies(t, r)
+	recovery, _, fenced := recoveryService(t, r, plan)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	report, err := recovery.Stage(ctx, r.principal, plan, bundles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eraseSource(t, r)
+	fenced.Store(true)
+	var attempts atomic.Int32
+	authorize := recovery.Authorize
+	recovery.Authorize = func(ctx context.Context, tx pgx.Tx, p ws.Principal, plan ws.RecoveryPlan, action string) error {
+		attempts.Add(1)
+		return authorize(ctx, tx, p, plan, action)
+	}
+	writer, err := r.c.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(context.Background())
+	if _, err = writer.Exec(ctx, "LOCK TABLE workflow_run IN ROW EXCLUSIVE MODE"); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { result <- recovery.Activate(ctx, r.principal, plan, report.Digest) }()
+	// Observe either the old waiting lock or the new complete-transaction retry.
+	// The writer then requests the task lock in the real Workflow enqueue order.
+	for {
+		var waiting bool
+		err = r.c.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE relation='workflow_run'::regclass AND NOT granted)").Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting || attempts.Load() > 1 {
+			break
+		}
+		select {
+		case err := <-result:
+			t.Fatalf("activation returned before contention barrier: %v", err)
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	_, writeErr := writer.Exec(ctx, "LOCK TABLE agent_task_queue IN ROW EXCLUSIVE MODE")
+	_ = writer.Rollback(context.Background())
+	activateErr := <-result
+	t.Logf("workflow writer=%v; activation=%v; authorized attempts=%d", writeErr, activateErr, attempts.Load())
+	if writeErr != nil || activateErr != nil {
+		t.Fatal("recovery and unrelated workflow writer must both succeed")
+	}
+	if attempts.Load() < 2 {
+		t.Fatal("contention must retry with fresh authorization")
+	}
+	if n := r.fx.Count(t, "SELECT count(*) FROM project WHERE workspace_id=$1", r.scope.Workspace); n != 1 {
+		t.Fatalf("restored projects=%d", n)
+	}
+	if err = recovery.Activate(ctx, r.principal, plan, report.Digest); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecoveryContentionRechecksAuthorityFenceAndBoundsRetries(t *testing.T) {
+	for _, mode := range []string{"authority", "fence", "exhausted"} {
+		t.Run(mode, func(t *testing.T) {
+			r := setup(t)
+			r.fx.Project(t, "retry guards")
+			enroll(t, r)
+			_, bundles, plan := recoveryCopies(t, r)
+			recovery, allowed, fenced := recoveryService(t, r, plan)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			report, err := recovery.Stage(ctx, r.principal, plan, bundles)
+			if err != nil {
+				t.Fatal(err)
+			}
+			eraseSource(t, r)
+			fenced.Store(true)
+			writer, err := r.c.Pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer writer.Rollback(context.Background())
+			if _, err = writer.Exec(ctx, "LOCK TABLE workflow_run IN ROW EXCLUSIVE MODE"); err != nil {
+				t.Fatal(err)
+			}
+			attempts := 0
+			authorize := recovery.Authorize
+			recovery.Authorize = func(ctx context.Context, tx pgx.Tx, actor ws.Principal, p ws.RecoveryPlan, action string) error {
+				attempts++
+				if attempts == 2 {
+					if mode == "authority" {
+						allowed.Store(false)
+					}
+					if mode == "fence" {
+						fenced.Store(false)
+					}
+				}
+				return authorize(ctx, tx, actor, p, action)
+			}
+			err = recovery.Activate(ctx, r.principal, plan, report.Digest)
+			if mode == "exhausted" {
+				var pgerr *pgconn.PgError
+				if !errors.As(err, &pgerr) || pgerr.Code != "55P03" || attempts != 20 {
+					t.Fatalf("bounded contention: attempts=%d err=%v", attempts, err)
+				}
+			} else if !errors.Is(err, ws.ErrDenied) || attempts != 2 {
+				t.Fatalf("revoked %s ignored: attempts=%d err=%v", mode, attempts, err)
+			}
+			for _, table := range []string{"project", "work_sync_scope", "work_sync_change"} {
+				if n := r.fx.Count(t, "SELECT count(*) FROM "+table+" WHERE workspace_id=$1", r.scope.Workspace); n != 0 {
+					t.Fatalf("failed retry leaked %s", table)
+				}
+			}
+			if n := r.fx.Count(t, "SELECT count(*) FROM work_sync_recovery WHERE id=$1 AND NOT activated", plan.ID); n != 1 {
+				t.Fatal("staging changed on failure")
+			}
+			if err = writer.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+			allowed.Store(true)
+			fenced.Store(true)
+			if err = recovery.Activate(ctx, r.principal, plan, report.Digest); err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("%s: fresh authorization calls=%d; rollback and later activation verified", mode, attempts)
+		})
 	}
 }

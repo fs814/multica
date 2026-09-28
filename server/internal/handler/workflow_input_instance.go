@@ -90,15 +90,15 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req struct {
-		Description       string             `json:"description"`
-		InputNode         *workflow.Node     `json:"input_node"`
-		ImageAttachmentID *string            `json:"image_attachment_id"`
-		IdempotencyKey    string             `json:"idempotency_key"`
-		TemplateVersionID *string            `json:"template_version_id"`
-		Name              string             `json:"name"`
-		Input             map[string]*string `json:"input"`
-		ProjectID         *string            `json:"project_id"`
-		Revision          int64              `json:"revision"`
+		Description       string                     `json:"description"`
+		InputNode         *workflow.Node             `json:"input_node"`
+		ImageAttachmentID *string                    `json:"image_attachment_id"`
+		IdempotencyKey    string                     `json:"idempotency_key"`
+		TemplateVersionID *string                    `json:"template_version_id"`
+		Name              string                     `json:"name"`
+		Input             map[string]json.RawMessage `json:"input"`
+		ProjectID         *string                    `json:"project_id"`
+		Revision          int64                      `json:"revision"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
@@ -111,7 +111,14 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 		writeError(w, 400, "invalid input instance body: expected exactly one JSON object")
 		return
 	}
-	for _, value := range req.Input {
+	for key, raw := range req.Input {
+		// Decode each value explicitly: encoding/json's type-error Field omits
+		// map keys on some supported Go versions.
+		var value *string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			writeError(w, 400, fmt.Sprintf("invalid input instance body: field %q must be string", "input."+key))
+			return
+		}
 		if value == nil {
 			writeError(w, 400, "input values must be strings; null is not supported")
 			return
