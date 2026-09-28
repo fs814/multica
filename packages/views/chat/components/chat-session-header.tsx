@@ -125,7 +125,7 @@ export function ChatSessionHeader({
   const doUnarchive = () => setArchived.mutate({ sessionId: session.id, archived: false });
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
+    <div className="flex min-h-12 shrink-0 items-center gap-3 border-b px-4 py-2">
       {agent ? (
         <ActorAvatar actorType="agent" actorId={agent.id} size="lg" enableHoverCard showStatusDot />
       ) : (
@@ -200,9 +200,9 @@ export function ChatSessionHeader({
           </button>
         )}
         {agent && (
-          <div className="truncate text-caption text-muted-foreground" title={agent.name}>
-            {agent.name}
-            {agent.description ? ` · ${agent.description}` : ""}
+          <div className="text-caption text-muted-foreground">
+            <span className="block whitespace-normal [overflow-wrap:anywhere]">{agent.name}</span>
+            {agent.description && <span className="block truncate">{agent.description}</span>}
           </div>
         )}
       </div>

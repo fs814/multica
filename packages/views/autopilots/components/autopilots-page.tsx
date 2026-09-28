@@ -294,7 +294,7 @@ function AssigneeCell({ autopilot }: { autopilot: Autopilot }) {
         enableHoverCard={autopilot.assignee_type === "agent"}
         showStatusDot={autopilot.assignee_type === "agent"}
       />
-      <span className="min-w-0 truncate text-caption text-muted-foreground" title={getActorName(autopilot.assignee_type, autopilot.assignee_id)}>
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={getActorName(autopilot.assignee_type, autopilot.assignee_id)}>
         {getActorName(autopilot.assignee_type, autopilot.assignee_id)}
       </span>
     </ListGridCell>
@@ -435,7 +435,7 @@ function CreatorCell({ autopilot }: { autopilot: Autopilot }) {
         actorId={autopilot.created_by_id}
         size="sm"
       />
-      <span className="min-w-0 truncate text-caption text-muted-foreground" title={getActorName(autopilot.created_by_type, autopilot.created_by_id)}>
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={getActorName(autopilot.created_by_type, autopilot.created_by_id)}>
         {getActorName(autopilot.created_by_type, autopilot.created_by_id)}
       </span>
     </ListGridCell>
@@ -956,7 +956,7 @@ export function AutopilotsPage() {
                     return (
                       <ListGridRow
                         key={autopilot.id}
-                        className={`cursor-pointer ${
+                        className={`h-auto min-h-12 cursor-pointer py-2 ${
                           selectedIds.has(autopilot.id) ? "bg-accent/30" : ""
                         }`}
                         {...rowLink(

@@ -533,7 +533,7 @@ function DetailHeader({
             />
             <div className="min-w-0 pt-0.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className="min-w-0 text-balance text-title-lg font-semibold tracking-tight sm:text-display-sm">
+                <h1 className="min-w-0 [overflow-wrap:anywhere] text-balance text-title-lg font-semibold tracking-tight sm:text-display-sm">
                   {agent.name}
                 </h1>
                 <AgentPresenceIndicator detail={presence} />

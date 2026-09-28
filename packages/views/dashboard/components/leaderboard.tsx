@@ -271,7 +271,7 @@ export function Leaderboard({
                             enableHoverCard
                           />
                           <span className="min-w-0">
-                            <span className="block cursor-pointer truncate text-body font-medium" title={agent?.name ?? row.agentId}>
+                            <span className="block cursor-pointer whitespace-normal [overflow-wrap:anywhere] text-body font-medium" title={agent?.name ?? row.agentId}>
                               {agent?.name ?? row.agentId}
                             </span>
                             {coverageText ? (

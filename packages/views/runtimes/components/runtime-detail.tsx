@@ -439,7 +439,7 @@ function ServingAgentsCard({
               >
                 <ActorAvatar actorType="agent" actorId={agent.id} size="sm" enableHoverCard showStatusDot />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-caption font-medium" title={agent.name}>
+                  <div className="whitespace-normal [overflow-wrap:anywhere] text-caption font-medium" title={agent.name}>
                     {agent.name}
                   </div>
                   <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-caption">

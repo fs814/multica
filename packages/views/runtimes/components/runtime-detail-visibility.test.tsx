@@ -78,11 +78,9 @@ vi.mock("@multica/core/auth", () => ({
 // runtime access from, so the real implementation is kept rather than stubbed —
 // a stub here would just re-derive the rule this test is meant to pin down.
 vi.mock("@multica/core/runtimes", async () => ({
-  isRuntimeUsableForUser: (
-    await vi.importActual<typeof import("@multica/core/runtimes")>(
-      "@multica/core/runtimes",
-    )
-  ).isRuntimeUsableForUser,
+  ...await vi.importActual<typeof import("@multica/core/runtimes")>(
+    "@multica/core/runtimes",
+  ),
   deriveRuntimeHealth: () => "online",
   runtimeDisplayName: (rt: { name: string; custom_name?: string | null }) =>
     rt.custom_name?.trim() || rt.name,

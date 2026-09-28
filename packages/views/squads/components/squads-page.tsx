@@ -204,7 +204,7 @@ function LeaderCell({
   return (
     <ListGridCell className="gap-1.5">
       <ActorAvatar actorType="agent" actorId={leaderId} size="sm" />
-      <span className="min-w-0 truncate text-caption text-muted-foreground" title={leader?.name ?? leaderId.slice(0, 8)}>
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={leader?.name ?? leaderId.slice(0, 8)}>
         {leader?.name ?? leaderId.slice(0, 8)}
         <ExecutionLocation agentId={leaderId} />
       </span>
@@ -619,7 +619,7 @@ function SquadListToolbar({
                 <span className="text-caption font-medium text-primary">{filters.leaders.length}</span>
               )}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-72 w-auto min-w-48 overflow-y-auto">
+            <DropdownMenuSubContent className="max-h-72 w-64 min-w-0 max-w-[calc(100vw-1rem)] overflow-y-auto">
               {leaderOptions.map((o) => (
                 <DropdownMenuCheckboxItem
                   key={o.id}
@@ -629,7 +629,7 @@ function SquadListToolbar({
                 >
                   <HoverCheck checked={filters.leaders.includes(o.id)} />
                   <ActorAvatar actorType="agent" actorId={o.id} size="sm" />
-                  <span className="min-w-0 truncate">{o.name}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">{o.name}</span>
                   {countBadge(o.count)}
                 </DropdownMenuCheckboxItem>
               ))}
@@ -642,7 +642,7 @@ function SquadListToolbar({
                 <span className="text-caption font-medium text-primary">{filters.creators.length}</span>
               )}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-72 w-auto min-w-48 overflow-y-auto">
+            <DropdownMenuSubContent className="max-h-72 w-64 min-w-0 max-w-[calc(100vw-1rem)] overflow-y-auto">
               {creatorOptions.map((o) => (
                 <DropdownMenuCheckboxItem
                   key={o.id}
@@ -652,7 +652,7 @@ function SquadListToolbar({
                 >
                   <HoverCheck checked={filters.creators.includes(o.id)} />
                   <ActorAvatar actorType="member" actorId={o.id} size="sm" />
-                  <span className="min-w-0 truncate">{o.name}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">{o.name}</span>
                   {countBadge(o.count)}
                 </DropdownMenuCheckboxItem>
               ))}
@@ -987,7 +987,7 @@ export function SquadsPage() {
                 rows.map((squad) => (
                   <ListGridRow
                     key={squad.id}
-                    className="cursor-pointer"
+                    className="h-auto min-h-12 cursor-pointer py-2"
                     {...rowLink(p.squadDetail(squad.id), squad.name)}
                   >
                     <NameCell squad={squad} />

@@ -111,7 +111,7 @@ function WakeupListRow({
             name={row.agent_name}
             size="sm"
           />
-          <span className="truncate" title={row.agent_name}>{row.agent_name}</span>
+          <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{row.agent_name}</span>
         </span>
       </TableCell>
       <TableCell className="max-w-64">

@@ -164,7 +164,7 @@ export const BoardCardContent = memo(function BoardCardContent({
         className="shrink-0"
       />
       {assigneeName && (
-        <span className="min-w-0 truncate text-caption text-foreground" title={assigneeName}>{assigneeName}</span>
+        <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-foreground" title={assigneeName}>{assigneeName}</span>
       )}
     </span>
   ) : (
