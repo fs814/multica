@@ -240,7 +240,7 @@ function SubscriberPopoverContent({
                   >
                     <Checkbox checked={isSubbed} className="pointer-events-none" />
                     <ActorAvatar actorType="member" actorId={m.user_id} size="md" />
-                    <span className="truncate flex-1">{m.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] flex-1">{m.name}</span>
                   </CommandItem>
                 );
               })}
@@ -260,7 +260,7 @@ function SubscriberPopoverContent({
                   >
                     <Checkbox checked={isSubbed} className="pointer-events-none" />
                     <ActorAvatar actorType="agent" actorId={a.id} size="md" showStatusDot />
-                    <span className="truncate flex-1">{a.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] flex-1">{a.name}</span>
                   </CommandItem>
                 );
               })}

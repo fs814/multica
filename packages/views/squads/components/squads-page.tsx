@@ -180,7 +180,7 @@ function NameCell({ squad }: { squad: Squad }) {
     <ListGridCell className="gap-3">
       <SquadAvatar squad={squad} />
       <div className="min-w-0 flex-1">
-        <span className="block min-w-0 truncate text-body font-medium">
+        <span className="block min-w-0 truncate text-body font-medium" title={squad.name}>
           {squad.name}
         </span>
         <SquadMachines squadId={squad.id} leaderId={squad.leader_id} compact />
@@ -204,7 +204,7 @@ function LeaderCell({
   return (
     <ListGridCell className="gap-1.5">
       <ActorAvatar actorType="agent" actorId={leaderId} size="sm" />
-      <span className="min-w-0 truncate text-caption text-muted-foreground">
+      <span className="min-w-0 truncate text-caption text-muted-foreground" title={leader?.name ?? leaderId.slice(0, 8)}>
         {leader?.name ?? leaderId.slice(0, 8)}
         <ExecutionLocation agentId={leaderId} />
       </span>

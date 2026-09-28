@@ -145,7 +145,7 @@ function OwnedAgentsSection({ agents }: { agents: Agent[] }) {
               className="mt-0.5 shrink-0"
             />
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">{a.name}</div>
+              <div className="min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">{a.name}</div>
               {a.description && (
                 <div className="truncate text-muted-foreground">
                   {a.description}

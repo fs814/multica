@@ -274,7 +274,7 @@ function UsedByCell({ agents }: { agents: Agent[] }) {
           isAgent
           size="md"
         />
-        <span className="min-w-0 truncate text-caption text-muted-foreground">
+        <span className="min-w-0 truncate text-caption text-muted-foreground" title={agent.name}>
           {agent.name}
         </span>
       </ListGridCell>

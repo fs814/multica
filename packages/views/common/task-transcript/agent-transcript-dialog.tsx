@@ -890,7 +890,7 @@ export function AgentTranscriptDialog({
                   <Bot className="h-3 w-3" />
                 </div>
               )}
-              <span className="truncate font-medium text-body">
+              <span className="truncate font-medium text-body" title={agentName || agentInfo?.name || ""}>
                 {agentName || agentInfo?.name || ""}
               </span>
             </div>

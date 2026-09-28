@@ -432,7 +432,7 @@ function UsedByList({ agents }: { agents: Agent[] }) {
             size="md"
           />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-body font-medium">{a.name}</div>
+            <div className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-body font-medium">{a.name}</div>
             {a.description && (
               <div className="truncate text-caption text-muted-foreground">
                 {a.description}

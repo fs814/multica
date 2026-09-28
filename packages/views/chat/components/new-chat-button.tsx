@@ -70,7 +70,7 @@ export function AgentPicker({
     <PropertyPicker
       open={open}
       onOpenChange={setOpen}
-      width="w-64"
+      width="w-80 max-w-[calc(100vw-2rem)]"
       align={align}
       side={side}
       searchable
@@ -140,7 +140,7 @@ function AgentPickerItem({
         enableHoverCard
         showStatusDot
       />
-      <span className="truncate flex-1">{agent.name}</span>
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] flex-1">{agent.name}</span>
       {!runtimeBound && (
         <span className="shrink-0 text-micro text-amber-600 dark:text-amber-400">
           {t(($) => $.window.agent_needs_runtime)}

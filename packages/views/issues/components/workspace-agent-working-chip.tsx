@@ -107,7 +107,7 @@ export function WorkingAgentsHoverContent({
               isAgent
               size="sm"
             />
-            <span className="min-w-0 flex-1 truncate font-medium">
+            <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] font-medium">
               {getActorName("agent", agent.id)}
             </span>
             <span className="shrink-0 tabular-nums text-muted-foreground">

@@ -73,7 +73,7 @@ export function AgentPicker({
     <PropertyPicker
       open={open}
       onOpenChange={setOpen}
-      width="w-56"
+      width="w-80 max-w-[calc(100vw-2rem)]"
       align={align}
       searchable
       searchPlaceholder={t(($) => $.agent_picker.filter_placeholder)}
@@ -90,7 +90,7 @@ export function AgentPicker({
                   size="sm"
                   showStatusDot={assignee.type === "agent"}
                 />
-                <span className="truncate">{selectedName}</span>
+                <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-left" title={selectedName}>{selectedName}</span>
               </>
             ) : (
               <>
@@ -123,7 +123,7 @@ export function AgentPicker({
                     onClick={() => handlePick("agent", a.id)}
                   >
                     <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                    <span className="truncate">{a.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                   </PickerItem>
                 );
               })}
@@ -147,7 +147,7 @@ export function AgentPicker({
                     onClick={() => handlePick("squad", s.id)}
                   >
                     <ActorAvatar actorType="squad" actorId={s.id} size="sm" />
-                    <span className="truncate">{s.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{s.name}</span>
                   </PickerItem>
                 );
               })}

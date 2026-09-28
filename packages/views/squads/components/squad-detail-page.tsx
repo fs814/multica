@@ -209,7 +209,7 @@ export function SquadDetailPage() {
         leaf={
           <>
             <SquadHeaderAvatar squad={squad} initials={initials} />
-            <h1 className="truncate text-body font-medium text-foreground">{squad.name}</h1>
+            <h1 className="truncate text-body font-medium text-foreground" title={squad.name}>{squad.name}</h1>
           </>
         }
         actions={
@@ -396,9 +396,9 @@ function SquadNameEditor({
         <button
           type="button"
           {...triggerProps}
-          className="group -mx-1 inline-flex items-center gap-1.5 self-start rounded-xs px-1 text-left text-title font-semibold leading-tight transition-colors hover:bg-accent/50"
+          className="group -mx-1 inline-flex min-w-0 max-w-full items-center gap-1.5 self-start rounded-xs px-1 text-left text-title font-semibold leading-tight transition-colors hover:bg-accent/50"
         >
-          <span>{value}</span>
+          <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{value}</span>
           <Pencil className="h-3.5 w-3.5 shrink-0 text-transparent transition-colors group-hover:text-muted-foreground" />
         </button>
       )}
@@ -560,7 +560,7 @@ function AddMemberDialog({
                   <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">
+                  <div className="min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">
                     {target?.name ?? t(($) => $.add_member_dialog.select_target)}
                   </div>
                   {target && (
@@ -596,7 +596,7 @@ function AddMemberDialog({
                           }}
                         >
                           <ActorAvatar actorType="member" actorId={m.user_id} size="sm" />
-                          <span>{m.name}</span>
+                          <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{m.name}</span>
                         </PickerItem>
                       ))}
                     </PickerSection>
@@ -614,7 +614,7 @@ function AddMemberDialog({
                           }}
                         >
                           <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                          <span>{a.name}</span>
+                          <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                         </PickerItem>
                       ))}
                     </PickerSection>
@@ -772,7 +772,7 @@ function SquadDetailInspector({
           <>
             <SquadStaticAvatar squad={squad} initials={initials} />
             <div className="flex flex-col gap-1">
-              <span className="text-title font-semibold leading-tight">{squad.name}</span>
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-title font-semibold leading-tight">{squad.name}</span>
               {squad.description ? (
                 <span className="text-caption leading-relaxed text-muted-foreground">
                   {squad.description}
@@ -797,7 +797,7 @@ function SquadDetailInspector({
           <InspectorRow label={t(($) => $.details.leader)}>
             <span className="flex min-w-0 items-center gap-1.5">
               <ActorAvatar actorType="agent" actorId={squad.leader_id} size="xs" />
-              <span className="truncate">{leaderName}</span>
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{leaderName}</span>
             </span>
           </InspectorRow>
           <InspectorRow label={t(($) => $.details.members)}>

@@ -94,7 +94,7 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
           size="xl"
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-body font-semibold">{agent.name}</p>
+          <p className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-body font-semibold">{agent.name}</p>
           <div className="mt-0.5 inline-flex items-center gap-1.5">
             {isArchived ? (
               <>

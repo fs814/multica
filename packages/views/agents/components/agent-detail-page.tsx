@@ -519,7 +519,7 @@ function DetailHeader({
             {t(($) => $.page.title)}
           </AppLink>
           <span aria-hidden="true">/</span>
-          <span className="truncate text-foreground">{agent.name}</span>
+          <span className="truncate text-foreground" title={agent.name}>{agent.name}</span>
         </div>
 
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

@@ -1152,7 +1152,7 @@ export function AgentDropdown({
             enableHoverCard
             showStatusDot
           />
-          <span className="text-caption font-medium max-w-28 truncate">{activeAgent.name}</span>
+          <span className="text-caption font-medium max-w-28 truncate" title={activeAgent.name}>{activeAgent.name}</span>
           <ChevronDown className="size-3 text-muted-foreground shrink-0" />
         </>
       }
@@ -1218,7 +1218,7 @@ function AgentPickerItem({
         enableHoverCard
         showStatusDot
       />
-      <span className="truncate flex-1">{agent.name}</span>
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] flex-1">{agent.name}</span>
       {!runtimeBound && (
         <span className="shrink-0 text-micro text-amber-600 dark:text-amber-400">
           {t(($) => $.window.agent_needs_runtime)}

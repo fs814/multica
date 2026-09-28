@@ -50,6 +50,8 @@ interface AssigneePickerProps {
    * genuinely unassigned and the unassigned row should be checked.
    */
   mixed?: boolean;
+  /** Let selected names wrap in variable-height surfaces such as create forms. */
+  wrapLabel?: boolean;
   onUpdate: (updates: Partial<UpdateIssueRequest>) => void;
   trigger?: React.ReactNode;
   triggerRender?: React.ReactElement<Record<string, unknown>>;
@@ -93,6 +95,7 @@ function AssigneePickerImpl({
   assigneeType,
   assigneeId,
   mixed = false,
+  wrapLabel = false,
   onUpdate,
   trigger: customTrigger,
   triggerRender,
@@ -158,7 +161,7 @@ function AssigneePickerImpl({
         setOpen(v);
         if (!v) setFilter("");
       }}
-      width="w-64"
+      width="w-80 max-w-[calc(100vw-2rem)]"
       align={align}
       searchable
       searchPlaceholder={t(($) => $.pickers.assignee.search_placeholder)}
@@ -168,7 +171,7 @@ function AssigneePickerImpl({
         customTrigger ? customTrigger : assigneeType && assigneeId ? (
           <>
             <ActorAvatar actorType={assigneeType} actorId={assigneeId} size="sm" enableHoverCard showStatusDot />
-            <span className="truncate">{triggerLabel}</span>
+            <span className={wrapLabel ? "min-w-0 whitespace-normal [overflow-wrap:anywhere] text-left" : "truncate"} title={triggerLabel}>{triggerLabel}</span>
           </>
         ) : (
           <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
@@ -206,7 +209,7 @@ function AssigneePickerImpl({
               }}
             >
               <ActorAvatar actorType="member" actorId={m.user_id} size="sm" />
-              <span className="truncate">{m.name}</span>
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{m.name}</span>
             </PickerItem>
           ))}
         </PickerSection>
@@ -249,9 +252,9 @@ function AssigneePickerImpl({
                 }}
               >
                 <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                <span className={`truncate ${allowed ? "" : "text-muted-foreground"}`}>{a.name}</span>
+                <span className={`min-w-0 whitespace-normal [overflow-wrap:anywhere] ${allowed ? "" : "text-muted-foreground"}`}>{a.name}</span>
                 {a.visibility === "private" && (
-                  <Lock className="ml-auto h-3 w-3 text-muted-foreground" />
+                  <Lock className="ml-auto h-3 w-3 shrink-0 text-muted-foreground" />
                 )}
               </PickerItem>
             );
@@ -285,7 +288,7 @@ function AssigneePickerImpl({
                 }}
               >
                 <ActorAvatar actorType="squad" actorId={s.id} size="sm" />
-                <span className="truncate">{s.name}</span>
+                <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{s.name}</span>
               </PickerItem>
             );
           })}

@@ -1012,22 +1012,22 @@ function ActorPicker({
         setOpen(v);
         if (!v) setFilter("");
       }}
-      width="w-64"
+      width="w-80 max-w-[calc(100vw-2rem)]"
       align="start"
       searchable
       searchPlaceholder={t(($) => $.create_issue.agent.search_placeholder)}
       onSearchChange={setFilter}
       trigger={
-        <span className="flex items-center gap-2 text-caption text-muted-foreground hover:text-foreground transition-colors">
-          <span>{t(($) => $.create_issue.agent.created_by)}</span>
+        <span className="flex min-w-0 max-w-full items-center gap-2 text-caption text-muted-foreground hover:text-foreground transition-colors">
+          <span className="shrink-0">{t(($) => $.create_issue.agent.created_by)}</span>
           {displayActor && displayLabel ? (
-            <span className="flex items-center gap-1.5 text-foreground">
+            <span className="flex min-w-0 items-center gap-1.5 text-foreground">
               <ActorAvatar
                 actorType={displayActor.type}
                 actorId={displayActor.id}
                 size="sm"
               />
-              {displayLabel}
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-left">{displayLabel}</span>
             </span>
           ) : (
             <span>{t(($) => $.create_issue.agent.pick_an_agent)}</span>
@@ -1057,7 +1057,7 @@ function ActorPicker({
                   }}
                 >
                   <ActorAvatar actorType="agent" actorId={a.id} size="sm" />
-                  <span className="truncate">{a.name}</span>
+                  <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                 </PickerItem>
               ))}
             </PickerSection>
@@ -1074,7 +1074,7 @@ function ActorPicker({
                   }}
                 >
                   <ActorAvatar actorType="squad" actorId={s.id} size="sm" />
-                  <span className="truncate">{s.name}</span>
+                  <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{s.name}</span>
                 </PickerItem>
               ))}
             </PickerSection>

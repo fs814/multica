@@ -526,7 +526,7 @@ function AgentFailureItem({
   const label = (
     <span
       className={`block truncate text-caption${name ? "" : " italic text-muted-foreground"}`}
-    >
+     title={name ?? t(($) => $.errors.other_agents)}>
       {name ?? t(($) => $.errors.other_agents)}
     </span>
   );

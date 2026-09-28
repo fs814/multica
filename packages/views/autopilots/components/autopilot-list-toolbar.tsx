@@ -341,7 +341,7 @@ export function AutopilotListToolbar({
                         checked={filters.assignees.includes(value)}
                       />
                       <ActorAvatar actorType={type} actorId={id} size="sm" />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate" title={getActorName(type, id)}>
                         {getActorName(type, id)}
                       </span>
                       {countBadge(count)}
@@ -436,7 +436,7 @@ export function AutopilotListToolbar({
                     >
                       <HoverCheck checked={filters.creators.includes(value)} />
                       <ActorAvatar actorType={type} actorId={id} size="sm" />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 truncate" title={getActorName(type, id)}>
                         {getActorName(type, id)}
                       </span>
                       {countBadge(count)}

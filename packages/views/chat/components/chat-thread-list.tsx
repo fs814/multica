@@ -421,7 +421,7 @@ export function ChatThreadList({
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-caption">
                     {agentName && (
                       <>
-                        <span className="max-w-[40%] shrink-0 truncate font-medium text-muted-foreground">
+                        <span className="max-w-[40%] shrink-0 truncate font-medium text-muted-foreground" title={agentName}>
                           {agentName}
                         </span>
                         <span aria-hidden="true" className="shrink-0 text-faint-foreground">

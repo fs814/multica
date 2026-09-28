@@ -872,7 +872,7 @@ function AgentSection({
               </span>
             )}
             <span className="flex-1 min-w-0">
-              <span className="block text-body font-medium truncate">
+              <span className="block text-body font-medium truncate" title={selectedName ?? t(($) => $.dialog.select_assignee)}>
                 {selectedName ?? t(($) => $.dialog.select_assignee)}
               </span>
               {selectedDescription && (

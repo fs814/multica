@@ -493,7 +493,7 @@ function AgentPlanTable({
                   size="sm"
                   enableHoverCard
                 />
-                <span className="truncate font-medium text-foreground">
+                <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium text-foreground">
                   {agent.name}
                 </span>
               </span>

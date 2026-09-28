@@ -200,7 +200,7 @@ export function ChatSessionHeader({
           </button>
         )}
         {agent && (
-          <div className="truncate text-caption text-muted-foreground">
+          <div className="truncate text-caption text-muted-foreground" title={agent.name}>
             {agent.name}
             {agent.description ? ` · ${agent.description}` : ""}
           </div>

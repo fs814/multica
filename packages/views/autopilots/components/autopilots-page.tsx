@@ -294,7 +294,7 @@ function AssigneeCell({ autopilot }: { autopilot: Autopilot }) {
         enableHoverCard={autopilot.assignee_type === "agent"}
         showStatusDot={autopilot.assignee_type === "agent"}
       />
-      <span className="min-w-0 truncate text-caption text-muted-foreground">
+      <span className="min-w-0 truncate text-caption text-muted-foreground" title={getActorName(autopilot.assignee_type, autopilot.assignee_id)}>
         {getActorName(autopilot.assignee_type, autopilot.assignee_id)}
       </span>
     </ListGridCell>
@@ -435,7 +435,7 @@ function CreatorCell({ autopilot }: { autopilot: Autopilot }) {
         actorId={autopilot.created_by_id}
         size="sm"
       />
-      <span className="min-w-0 truncate text-caption text-muted-foreground">
+      <span className="min-w-0 truncate text-caption text-muted-foreground" title={getActorName(autopilot.created_by_type, autopilot.created_by_id)}>
         {getActorName(autopilot.created_by_type, autopilot.created_by_id)}
       </span>
     </ListGridCell>

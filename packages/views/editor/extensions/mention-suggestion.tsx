@@ -506,7 +506,7 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
     return (
       <div
         className={cn(
-          "flex flex-col overflow-y-auto overscroll-contain border bg-popover py-1",
+          "flex max-w-[calc(100vw-2rem)] flex-col overflow-y-auto overscroll-contain border bg-popover py-1",
           // Height budget: clamp to whichever is smaller — the design max or the
           // viewport-aware `--suggestion-available-height` published by the
           // floating-ui `size` middleware (suggestion-popup.tsx). The var falls
@@ -646,16 +646,16 @@ function MentionRow({
         size="sm"
         showStatusDot
       />
-      <span className="truncate font-medium">
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">
         {item.type === "all" ? t(($) => $.mention.all_members) : item.label}
       </span>
       {item.type === "agent" && (
-        <Badge variant="outline" className="ml-auto text-micro h-4 px-1.5">
+        <Badge variant="outline" className="ml-auto shrink-0 text-micro h-4 px-1.5">
           {t(($) => $.mention.agent_badge)}
         </Badge>
       )}
       {item.type === "squad" && (
-        <Badge variant="outline" className="ml-auto text-micro h-4 px-1.5">
+        <Badge variant="outline" className="ml-auto shrink-0 text-micro h-4 px-1.5">
           {t(($) => $.mention.squad_badge)}
         </Badge>
       )}

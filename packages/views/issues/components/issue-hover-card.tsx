@@ -103,7 +103,7 @@ function IssueHoverCardAssignee({
         profileLink={false}
         className="shrink-0"
       />
-      <span className="min-w-0 truncate text-caption text-foreground">
+      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-foreground">
         {getActorName(actorType, actorId)}
       </span>
     </span>
