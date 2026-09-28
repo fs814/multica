@@ -98,12 +98,12 @@ import { PAGE_TOOLBAR } from "../../layout/page-header";
 // Column template — the simplest member of the ListGrid family (squads are
 // the fewest entity, 1-5 rows): subgrid template + var tracks + two-zone
 // responsiveness + single scroll container, but NO virtualization, checkbox,
-// or batch. Identity two-line rows (avatar + name + description, 64px) like
-// the agents list. Name + leader are the core set (<@2xl); members / creator
+// or batch. Identity rows grow with wrapped names. Name + leader share the
+// available width in the core set (<@2xl); members / creator
 // / created are @2xl. The kebab track collapses when the viewer can't manage
 // any squad (workspace admin only).
 const GRID_COLS =
-  "grid-cols-[0.75rem_minmax(120px,1fr)_var(--sqc-leader)_var(--sqc-kebab)_0.75rem] " +
+  "grid-cols-[0.75rem_minmax(0,1fr)_minmax(0,1fr)_var(--sqc-kebab)_0.75rem] " +
   "@2xl:grid-cols-[0.75rem_minmax(200px,1fr)_var(--sqc-leader)_var(--sqc-members)_var(--sqc-creator)_var(--sqc-created)_var(--sqc-kebab)_0.75rem]";
 
 const LEADER_WIDTH = 160;
@@ -174,13 +174,13 @@ function SquadAvatar({ squad }: { squad: Squad }) {
   );
 }
 
-// Two-line identity cell — same form as the agents list.
+// Names remain readable without a hover tooltip, including unbroken names.
 function NameCell({ squad }: { squad: Squad }) {
   return (
-    <ListGridCell className="gap-3">
+    <ListGridCell className="flex-col items-start gap-1 @sm:flex-row @sm:items-center @sm:gap-3">
       <SquadAvatar squad={squad} />
-      <div className="min-w-0 flex-1">
-        <span className="block min-w-0 truncate text-body font-medium" title={squad.name}>
+      <div className="w-full min-w-0 flex-1 [overflow-wrap:anywhere] @sm:w-auto">
+        <span className="block min-w-0 whitespace-normal text-body font-medium" title={squad.name}>
           {squad.name}
         </span>
         <SquadMachines squadId={squad.id} leaderId={squad.leader_id} compact />
@@ -202,9 +202,9 @@ function LeaderCell({
   leader: Agent | undefined;
 }) {
   return (
-    <ListGridCell className="gap-1.5">
+    <ListGridCell className="flex-col items-start gap-1 @sm:flex-row @sm:items-center @sm:gap-1.5">
       <ActorAvatar actorType="agent" actorId={leaderId} size="sm" />
-      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={leader?.name ?? leaderId.slice(0, 8)}>
+      <span className="max-w-full min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={leader?.name ?? leaderId.slice(0, 8)}>
         {leader?.name ?? leaderId.slice(0, 8)}
         <ExecutionLocation agentId={leaderId} />
       </span>
@@ -339,7 +339,7 @@ function SquadRowActions({ squad }: { squad: Squad }) {
             <button
               type="button"
               aria-label={t(($) => $.page.row_menu)}
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-accent-foreground group-hover/row:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100 data-popup-open:text-accent-foreground"
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-accent hover:text-accent-foreground @sm:opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 data-popup-open:bg-accent data-popup-open:opacity-100 data-popup-open:text-accent-foreground"
             >
               <MoreHorizontal className="size-4" />
             </button>
@@ -575,6 +575,9 @@ function SquadListToolbar({
             <Button
               variant={hasActiveFilters ? "default" : "outline"}
               size="sm"
+              aria-label={hasActiveFilters
+                ? t(($) => $.toolbar.filter_active_count, { count: activeFilterCount })
+                : t(($) => $.toolbar.filter_label)}
               className={
                 hasActiveFilters
                   ? "h-8 w-8 gap-1 bg-brand px-0 text-white hover:bg-brand/90 md:w-auto md:px-2.5"
