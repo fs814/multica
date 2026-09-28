@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
@@ -171,8 +173,11 @@ func (r *WorkflowRouter) routeExplicit(
 		ID:          agentUUID,
 		WorkspaceID: req.WorkspaceID,
 	})
-	if err != nil {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %s not found in this workspace", reasonPrefix, agentID)
+	}
+	if err != nil {
+		return workflow.RouteResult{}, fmt.Errorf("%s agent %s lookup failed: %w", reasonPrefix, agentID, err)
 	}
 	if reason, ok := r.eligible(ctx, q, agent, actor, requiresVision, req.Run.ExecutionMode == workflow.ExecutionDraftTest, req.ScriptPipeline); !ok {
 		return workflow.RouteResult{}, fmt.Errorf("%s agent %q is not eligible: %s", reasonPrefix, agent.Name, reason)

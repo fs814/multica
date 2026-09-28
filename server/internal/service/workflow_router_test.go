@@ -594,6 +594,24 @@ func TestWorkflowRouterPreviousStepFallbackRetainsRejection(t *testing.T) {
 	}
 }
 
+// A failed database read is different from an absent agent.
+func TestWorkflowRouterLookupFailureRetainsCause(t *testing.T) {
+	env := newWorkflowRouterEnv(t)
+	agent := env.createAgent(t, agentSpec{name: "Implementer"})
+	node := &workflow.Node{Key: "validate", Type: workflow.NodeTypeAgent,
+		Routing: &workflow.Routing{Strategy: workflow.RoutingPreviousStep, FromNode: "implement"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := env.router.Route(ctx, env.q, workflow.RouteRequest{
+		WorkspaceID: env.workspaceID, AccountableUserID: env.userID, Node: node,
+		PriorAgentByNode: map[string]pgtype.UUID{"implement": agent},
+	})
+	t.Logf("cancelled lookup: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") || strings.Contains(err.Error(), "not found") {
+		t.Fatalf("database lookup failure was misreported as a missing agent: %v", err)
+	}
+}
+
 // TestWorkflowRouterExplicit: a pinned agent id is honoured.
 func TestWorkflowRouterExplicit(t *testing.T) {
 	env := newWorkflowRouterEnv(t)
