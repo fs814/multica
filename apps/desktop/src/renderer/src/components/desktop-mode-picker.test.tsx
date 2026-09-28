@@ -17,14 +17,22 @@ describe("Desktop mode selection", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enter local mode" }));
     expect(onLocal).toHaveBeenCalledOnce();
     expect(onCenter).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Set up Center" }));
     expect(screen.getByText("Center settings form")).toBeInTheDocument();
   });
 
   it("opens the regular workspace only when Center is configured", () => {
     const onCenter = vi.fn();
     render(<DesktopModePicker centerConfigured onLocal={vi.fn()} onCenter={onCenter} />);
+    expect(screen.getByText("Center settings form")).toBeInTheDocument();
+    expect(onCenter).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Open Multica workspace" }));
     expect(onCenter).toHaveBeenCalledOnce();
+  });
+  it("keeps Center configuration accessible when the saved server is unreachable", () => {
+    const onCenter = vi.fn();
+    render(<DesktopModePicker centerConfigured centerError="Center unavailable" onLocal={vi.fn()} onCenter={onCenter} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Center unavailable");
+    expect(screen.getByText("Center settings form")).toBeInTheDocument();
+    expect(onCenter).not.toHaveBeenCalled();
   });
 });
