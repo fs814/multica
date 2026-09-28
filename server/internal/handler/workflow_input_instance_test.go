@@ -165,6 +165,25 @@ func TestWorkflowInputInstancesCRUD(t *testing.T) {
 			t.Fatalf("cleanup: %s", response.Body.String())
 		}
 	})
+	t.Run("equivalent JSON strings preserve idempotency", func(t *testing.T) {
+		var firstID string
+		for _, value := range []string{`"a"`, `"\u0061"`} {
+			body := `{"name":"Canonical","idempotency_key":"canonical-input","input":{"title":` + value + `}}`
+			response := call("POST", "", body, testWorkspaceID, h.SaveWorkflowInputInstance)
+			if response.Code != http.StatusCreated {
+				t.Fatalf("equivalent retry: %d %s", response.Code, response.Body.String())
+			}
+			var row workflowInputInstanceResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &row); err != nil {
+				t.Fatal(err)
+			}
+			if firstID == "" {
+				firstID = row.ID
+			} else if row.ID != firstID {
+				t.Fatal("equivalent retry created another instance")
+			}
+		}
+	})
 	for _, tc := range []struct{ body, detail string }{
 		{`{"name":"invalid","input":{"count":3}}`, "field \"input.count\" must be string"},
 		{`{"name":"invalid","input":{},"input_node":{"key":"input","type":"input","future_setting":true}}`, "unrecognized field \"future_setting\""},

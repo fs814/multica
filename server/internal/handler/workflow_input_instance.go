@@ -123,6 +123,9 @@ func (h *Handler) SaveWorkflowInputInstance(w http.ResponseWriter, r *http.Reque
 			writeError(w, 400, "input values must be strings; null is not supported")
 			return
 		}
+		// Preserve the original string normalization for storage and the
+		// idempotency hash of req (e.g. "a" and "\u0061" are equivalent).
+		req.Input[key], _ = json.Marshal(*value)
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" || utf8.RuneCountInString(req.Name) > 100 || req.Input == nil {
