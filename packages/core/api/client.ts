@@ -1,4 +1,5 @@
 import { memoryBindingSchema, memoryWorkSchema, memoryReceiptSchema, parseMemory, type MemoryOperation } from "../projects/memory-schemas";
+import { readCenterSyncResponse, validateCenterSyncSourceRequest, type CenterSyncSourceRequest } from "./center-sync";
 import {WorkflowDebugCapabilitiesSchema, WorkflowDebugSettingsSchema, WorkflowDebugRunSchema, WorkflowDebugDefinitionSchema, WorkflowDebugListSchema, workflowDebugPolicyWire, type WorkflowDebugPolicy, type StartWorkflowDebugRequest} from "../workflows/debug-schemas";
 import type { PublishWorkflowTemplateRequest } from "../workflows/schemas";
 import type { z } from "zod";
@@ -775,6 +776,18 @@ export class ApiClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  // Source operations only: strict payload validation excludes replica writes,
+  // arbitrary paths and execution/credential fields from this API surface.
+  async centerSyncSourceRequest(input: CenterSyncSourceRequest, signal: AbortSignal): Promise<unknown> {
+    const { action, body } = validateCenterSyncSourceRequest(input);
+    const response = await this.fetchRaw(`/api/center-sync/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), redirect: "error", cache: "no-store",
+      signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+    });
+    return readCenterSyncResponse(response);
   }
 
   setToken(token: string | null) {

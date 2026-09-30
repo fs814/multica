@@ -22,6 +22,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/centerrecovery"
+	"github.com/multica-ai/multica/server/internal/centersync"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/entitlement"
@@ -1687,6 +1688,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
+
+		// Manual center sync uses the normal human session on each center.
+		// It never exposes recovery APIs or starts a background transfer.
+		manualSync, syncErr := centersync.NewFromEnvironment(pool)
+		if syncErr != nil {
+			slog.Error("manual center sync configuration rejected", "error", syncErr)
+		}
+		r.With(handler.RequireHumanActor).Post(centersync.Prefix+"/{action}", func(w http.ResponseWriter, req *http.Request) {
+			if manualSync == nil {
+				http.Error(w, "Manual center sync is not configured on this server", http.StatusServiceUnavailable)
+				return
+			}
+			manualSync.ServeHTTP(w, req)
+		})
 
 		// Plugin Action API. Called by the HOST PAGE on the signed-in user's
 		// session after a surface asks for something over the postMessage

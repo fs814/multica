@@ -465,6 +465,11 @@ second path-derived identity. `make destroy` removes the marked env file and
 this environment's Electron userData. Direct `pnpm dev:desktop` still uses its
 path-derived fallback when it is run outside `make up`.
 
+`pnpm dev:desktop` watches the main process and preload as well as the renderer.
+Main-process edits restart Electron; preload edits reload its windows so new
+Desktop APIs are available. Restart an older dev session once to enable this
+watching behavior; renderer hot reload alone does not update the native APIs.
+
 Log in with `dev@localhost` and `888888`.
 
 ### Isolation Guarantee

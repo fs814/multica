@@ -52,7 +52,9 @@ const isWin = process.platform === "win32";
 // electron-vite's bin lands in apps/desktop/node_modules/.bin under the
 // isolated linker but only in the repo-root .bin under the hoisted linker
 // (.npmrc node-linker=hoisted); envWithLocalBins puts both on PATH.
-run("electron-vite", ["dev", ...process.argv.slice(2)], {
+// Renderer HMR alone leaves contextBridge APIs stale. Rebuild main/preload too;
+// electron-vite restarts Electron or reloads its windows when those change.
+run("electron-vite", ["dev", "--watch", ...process.argv.slice(2)], {
   shell: isWin,
   env: envWithLocalBins(process.env),
 });

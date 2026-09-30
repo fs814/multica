@@ -93,6 +93,7 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 - Cross-workspace navigation uses the adapter's `switchWorkspace(slug, targetPath)` flow; do not bypass it with direct router navigation.
 - Workspace delete awaits the server. Existing workspace leave clears/navigates first to avoid the `member:removed` race; this is known debt in `packages/views/settings/components/workspace-tab.tsx`, not a pattern for new flows.
 - Full-window views outside the dashboard shell mount `<DragStrip />` from `@multica/views/platform` as the first flex child. Interactive controls in the top 48px need `WebkitAppRegion: "no-drag"`.
+- Center sync is an explicit Desktop-coordinated run with separate sessions for each origin. Keep it behind normal human authentication and configured owner checks; never route it through recovery/database replacement or start it on connection, reconnect, or a timer. See `docs/design/center-sync-manual.md` for scope and setup.
 
 ## UI Copy
 

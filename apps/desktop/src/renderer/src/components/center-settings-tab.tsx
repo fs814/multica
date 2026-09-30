@@ -7,7 +7,7 @@ import { Input } from "@multica/ui/components/ui/input";
 import type { CenterSettingsState } from "../../../shared/center-settings";
 import type { DaemonStatus } from "../../../shared/daemon-types";
 import { CenterRecoveryActions } from "./center-recovery-actions";
-import { CenterTransferSettings } from "./center-transfer-settings";
+import { CenterSyncSettings } from "./center-sync-settings";
 import { daemonStateLabel } from "./daemon-i18n";
 
 function useLocalDaemonStatus(): DaemonStatus {
@@ -70,7 +70,7 @@ export function CenterSettingsTab({ enterServerMode = false }: { enterServerMode
     </div>
     <p className="break-all text-caption text-muted-foreground">{t(($) => $.desktop.center.saved)}: {settings?.saved?.url ?? t(($) => $.desktop.center.not_configured)}<br />{t(($) => $.desktop.center.active)}: {settings?.activeUrl ?? t(($) => $.desktop.center.none)}</p>
     <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.hint)}</p>
-    <CenterTransferSettings settings={settings} disabled={busy || loading} onBusyChange={setBusy} onSaved={setSettings} />
+    <CenterSyncSettings settings={settings} disabled={busy || loading} onBusyChange={setBusy} onSaved={setSettings} />
     <CenterRecoveryActions disabled={busy || !settings?.activeUrl} onBusyChange={setBusy} onMessage={setMessage} />
     <p role="status" className="text-body">{message}</p>
   </section>;

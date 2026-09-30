@@ -1,5 +1,9 @@
 # Center recovery stored on a daemon
 
+For manual workspace replication without recovery-token entry, see the
+[manual center sync design and setup](center-sync-manual.md). Recovery below is a separate
+backup/replacement workflow, not synchronization between live centers.
+
 Changing the center URL changes the database the client sees. Existing daemons
 are executors, not database replicas: their runtime inventory, local issues,
 checkout directories and task logs cannot reconstruct all workspace records.
