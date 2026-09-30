@@ -118,7 +118,7 @@ import { projectDetailOptions } from "@multica/core/projects/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { issueLabelsOptions } from "@multica/core/labels";
 import { propertyListOptions } from "@multica/core/properties";
-import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
+import { memberListOptions, agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import {
   selectExpandedResolved,
   useRecentIssuesStore,
@@ -1165,6 +1165,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const { data: runtimes = [] } = useQuery(runtimeListOptions(wsId));
   // Workspace owners and admins moderate any comment authored by anyone
   // (mirrors backend `comment.go:507-512`). Computed here so per-comment
@@ -1458,7 +1459,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   } = useIssueTimeline(id, user?.id);
 
   const { data: commentTasks } = useQuery(issueTasksOptions(id));
-  const issueMachine = issue ? resolveIssueMachine(issue, agents, runtimes, commentTasks ?? []) : null;
+  const issueMachine = issue ? resolveIssueMachine(issue, agents, runtimes, commentTasks ?? [], squads) : null;
   const enteringRunIds = useNewRunIds(id, commentTasks);
   const previousCommentRuns = useRef(new Map<string, CommentRun[]>());
   const { runs: commentRuns, timeline: displayTimeline, standaloneRuns } = useMemo(() => {

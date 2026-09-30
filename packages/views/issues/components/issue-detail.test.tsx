@@ -708,6 +708,28 @@ describe("IssueDetail (shared)", () => {
     mockApiObj.getProject.mockReset();
   });
 
+  it("shows the assigned squad leader's machine before any run", async () => {
+    mockApiObj.getIssue.mockResolvedValue({ ...mockIssue, assignee_type: "squad", assignee_id: "squad-5090" });
+    const queryClient = createTestQueryClient();
+    const data = [
+      { key: ["workspaces", "ws-1", "agents"], value: [{ id: "leader-5090", name: "Codex leader", runtime_id: "runtime-5090", runtime_bound: true }] },
+      { key: ["workspaces", "ws-1", "squads"], value: [{ id: "squad-5090", name: "Codex 5090", leader_id: "leader-5090" }] },
+      { key: ["runtimes", "ws-1", "list"], value: [{ id: "runtime-5090", name: "Codex (SHENGFENG-PC4-5090)", custom_name: null }] },
+    ];
+    for (const { key, value } of data) {
+      queryClient.setQueryDefaults(key, { staleTime: Infinity });
+      queryClient.setQueryData(key, value);
+    }
+    render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <QueryClientProvider client={queryClient}>
+          <IssueDetail issueId="issue-1" />
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+    expect(await screen.findByText("Codex (SHENGFENG-PC4-5090)")).toHaveAttribute("title", enIssues.detail.machine_assigned);
+  });
+
   it("opens source-context creation from both a root comment and a reply", async () => {
     mockApiObj.listTimeline.mockResolvedValue([
       { ...mockTimeline[0], id: "source-root", parent_id: null },
