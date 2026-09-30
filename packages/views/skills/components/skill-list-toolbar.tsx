@@ -358,7 +358,7 @@ export function SkillListToolbar({
                       isAgent
                       size="sm"
                     />
-                    <span className="min-w-0 truncate">{agent.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{agent.name}</span>
                     {countBadge(count)}
                   </DropdownMenuCheckboxItem>
                 ))}

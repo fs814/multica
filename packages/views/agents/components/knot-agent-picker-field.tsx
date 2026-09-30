@@ -92,7 +92,7 @@ export function KnotAgentPickerField({
               }}
             >
               <span className="block min-w-0 flex-1 text-left">
-                <span className="truncate text-label font-medium">
+                <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-label font-medium">
                   {agent.name}
                 </span>
                 <span className="mt-0.5 block truncate font-mono text-micro leading-snug text-muted-foreground">

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/attributionbackfill"
+	"github.com/multica-ai/multica/server/internal/centerrecovery"
 	"github.com/multica-ai/multica/server/internal/chatoriginbackfill"
 	"github.com/multica-ai/multica/server/internal/dbstartup"
 	"github.com/multica-ai/multica/server/internal/logger"
@@ -904,6 +905,10 @@ type runOptions struct {
 
 func main() {
 	logger.Init()
+	if err := centerrecovery.ApplyActivation(centerrecovery.StateDir()); err != nil {
+		slog.Error("cannot load recovered center configuration")
+		os.Exit(1)
+	}
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run ./cmd/migrate <up|down>")

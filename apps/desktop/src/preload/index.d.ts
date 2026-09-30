@@ -25,6 +25,9 @@ interface DesktopAPI {
     save: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
     test: (url: string) => Promise<import('../shared/center-settings').CenterTestResult>;
     connect: (enterServerMode?: boolean) => Promise<void>;
+    exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
+    importData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
+    importStatus: (jobId: string) => Promise<import('../shared/center-recovery').CenterRecoveryProgress>;
   };
   /** App version + normalized OS, captured synchronously at preload time. */
   appInfo: {

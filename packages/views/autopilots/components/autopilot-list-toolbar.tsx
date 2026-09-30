@@ -269,6 +269,7 @@ export function AutopilotListToolbar({
           <DropdownMenuTrigger
             render={
               <Button
+                aria-label={t(($) => $.toolbar.filter_label)}
                 variant={hasActiveFilters ? "default" : "outline"}
                 size="sm"
                 className={
@@ -326,7 +327,7 @@ export function AutopilotListToolbar({
                   </span>
                 )}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-72 w-auto min-w-48 overflow-y-auto">
+              <DropdownMenuSubContent className="max-h-72 w-64 min-w-0 max-w-[calc(100vw-1rem)] overflow-y-auto">
                 {[...assigneeOptions.entries()].map(
                   ([value, { type, id, count }]) => (
                     <DropdownMenuCheckboxItem
@@ -341,7 +342,7 @@ export function AutopilotListToolbar({
                         checked={filters.assignees.includes(value)}
                       />
                       <ActorAvatar actorType={type} actorId={id} size="sm" />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">
                         {getActorName(type, id)}
                       </span>
                       {countBadge(count)}
@@ -425,7 +426,7 @@ export function AutopilotListToolbar({
                   </span>
                 )}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-72 w-auto min-w-48 overflow-y-auto">
+              <DropdownMenuSubContent className="max-h-72 w-64 min-w-0 max-w-[calc(100vw-1rem)] overflow-y-auto">
                 {[...creatorOptions.entries()].map(
                   ([value, { type, id, count }]) => (
                     <DropdownMenuCheckboxItem
@@ -436,7 +437,7 @@ export function AutopilotListToolbar({
                     >
                       <HoverCheck checked={filters.creators.includes(value)} />
                       <ActorAvatar actorType={type} actorId={id} size="sm" />
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">
                         {getActorName(type, id)}
                       </span>
                       {countBadge(count)}

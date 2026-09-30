@@ -726,7 +726,7 @@ function CostByBlock({
               return (
                 <div className="flex min-w-0 items-center gap-2">
                   <ActorAvatar actorType="agent" actorId={key} size="md" enableHoverCard />
-                  <span className="cursor-pointer truncate text-body font-medium">
+                  <span className="min-w-0 cursor-pointer whitespace-normal [overflow-wrap:anywhere] text-body font-medium" title={agent?.name ?? key}>
                     {agent?.name ?? key}
                   </span>
                 </div>

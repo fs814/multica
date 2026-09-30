@@ -392,7 +392,7 @@ function MultiTriggerChip({
                       <TriggerAgentAvatar agent={agent} suppressed={suppressed} />
                       <span
                         className={cn(
-                          "min-w-0 flex-1 truncate text-caption",
+                          "min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] text-caption",
                           suppressed && "text-muted-foreground",
                         )}
                       >

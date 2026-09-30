@@ -386,6 +386,7 @@ function NameCell({ row }: { row: AgentListRow }) {
             className={`min-w-0 truncate text-body font-medium ${
               isArchived ? "text-muted-foreground" : ""
             }`}
+            title={agent.name}
           >
             {agent.name}
           </span>

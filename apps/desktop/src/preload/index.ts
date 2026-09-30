@@ -126,6 +126,9 @@ const desktopAPI = {
     save: (url: string) => ipcRenderer.invoke('center:save', url),
     test: (url: string) => ipcRenderer.invoke('center:test', url),
     connect: (enterServerMode = false) => ipcRenderer.invoke('center:connect', enterServerMode),
+    exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => ipcRenderer.invoke('center:export-data', request),
+    importData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => ipcRenderer.invoke('center:import-data', request),
+    importStatus: (jobId: string) => ipcRenderer.invoke('center:import-status', jobId),
   },
   /** Identifies whether this renderer owns the main tabbed window or a
    *  dedicated issue window, parsed from validated launch arguments. */

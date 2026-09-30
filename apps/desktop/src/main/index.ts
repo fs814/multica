@@ -5,7 +5,8 @@ import { pathToFileURL } from "url";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
-import { setupDaemonManager, switchCenterTarget } from "./daemon-manager";
+import { setupDaemonManager, switchCenterTarget, resetDaemonAfterCenterImport } from "./daemon-manager";
+import { createCenterRecovery } from "./center-recovery";
 import { readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
 import { centerRuntimeConfig, type CenterSettings } from "../shared/center-settings";
 import { deriveProfileName } from "./daemon-profile";
@@ -669,6 +670,44 @@ if (!gotTheLock) {
     // Preserve the explicit mode choice across a connection reload, not app restarts.
     let centerInitialMode: 'choose' | 'center' = 'choose';
     ipcMain.on('center:initial-mode', event => { event.returnValue = centerInitialMode; });
+    const recovery = createCenterRecovery({
+      target: () => {
+        const activeUrl = centerState().activeUrl;
+        if (!activeUrl) throw new Error("Connect to a center first");
+        return { url: activeUrl, profile: savedCenter?.profile ?? deriveProfileName(activeUrl, process.env.MULTICA_DESKTOP_DAEMON_PROFILE) };
+      },
+      dialogs: {
+        save: async () => { const result = await dialog.showSaveDialog({ title: "Export center data", defaultPath: `multica-center-${new Date().toISOString().slice(0, 10)}.multica-backup`, filters: [{ name: "Multica center backup", extensions: ["multica-backup"] }] }); return result.canceled ? undefined : result.filePath; },
+        open: async () => { const result = await dialog.showOpenDialog({ title: "Import center data", properties: ["openFile"], filters: [{ name: "Multica center backup", extensions: ["multica-backup"] }] }); return result.canceled ? undefined : result.filePaths[0]; },
+        confirm: async (source, destination) => {
+          const result = await dialog.showMessageBox({ type: "warning", title: "Import and use center data", message: `Use the backup from ${source} on ${destination}?`, detail: "The destination center will restart and use the imported data. Its previous database will be retained. Stop the source center and finish running tasks before continuing. You will need to sign in again.", buttons: ["Cancel", "Import and use"], defaultId: 0, cancelId: 0, noLink: true });
+          return result.response === 1;
+        },
+      },
+    });
+    const recoveryOperation = async (operation: () => Promise<unknown>) => {
+      if (centerBusy) throw new Error("A center operation is already in progress");
+      centerBusy = true;
+      try { return await operation(); } finally { centerBusy = false; }
+    };
+    ipcMain.handle('center:export-data', (_event, request: unknown) => recoveryOperation(() => recovery.exportData(request)));
+    let importingJob: string | undefined;
+    ipcMain.handle('center:import-data', async (_event, request: unknown) => {
+      if (centerBusy) throw new Error("A center operation is already in progress");
+      centerBusy = true;
+      try { const result = await recovery.importData(request); importingJob = result.jobId; return result; }
+      finally { if (!importingJob) centerBusy = false; }
+    });
+    ipcMain.handle('center:import-status', async (_event, jobId: unknown) => {
+      const status = await recovery.status(jobId);
+      if (jobId === importingJob && (status.state === 'complete' || status.state === 'failed')) {
+        importingJob = undefined; centerBusy = false;
+        if (status.state === 'complete') {
+          try { await resetDaemonAfterCenterImport(); } catch { console.warn('[daemon] sign out and reconnect after center import'); }
+        }
+      }
+      return status;
+    });
     ipcMain.handle('center:get', centerState);
     ipcMain.handle('center:test', (_event, url: string) => testCenterConnection(url));
     ipcMain.handle('center:save', async (_event, url: string) => {

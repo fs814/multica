@@ -715,7 +715,7 @@ function StepRow({
         ) : null}
         <span className="flex-1" />
         {step.agent_name ? (
-          <span className="min-w-0 truncate text-caption text-muted-foreground">
+          <span className="min-w-0 truncate text-caption text-muted-foreground" title={step.agent_name}>
             {step.agent_name}
           </span>
         ) : step.node_type === "agent" ? (

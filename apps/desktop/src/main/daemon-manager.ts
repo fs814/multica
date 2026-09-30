@@ -1279,6 +1279,25 @@ function stopLogTail(): void {
   disposeLogTail = null;
 }
 
+// A restored database can have different users and workspace IDs at the same URL.
+export async function resetDaemonAfterCenterImport(): Promise<void> {
+  await lifecycleOperations.runForeground(async () => {
+    setDesiredDaemonRunning(false, true);
+    const active = await ensureActiveProfile();
+    if (!active) return;
+    const health = await fetchHealth();
+    if (health.state === "running" && !health.externallyManaged) {
+      const stopped = await stopDaemon();
+      if (!stopped.success) console.warn("[daemon] stop after center import failed; sign in again before restarting");
+    }
+    await clearToken();
+    const config = await readProfileConfig(active.name);
+    delete config.workspace_id;
+    await writeProfileConfig(active.name, config);
+    invalidateActiveProfile();
+  });
+}
+
 export async function switchCenterTarget(url: string, profile: string): Promise<void> {
   await lifecycleOperations.runForeground(async () => {
     const wasDesired = desiredDaemonRunning;

@@ -274,7 +274,7 @@ function UsedByCell({ agents }: { agents: Agent[] }) {
           isAgent
           size="md"
         />
-        <span className="min-w-0 truncate text-caption text-muted-foreground">
+        <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption text-muted-foreground" title={agent.name}>
           {agent.name}
         </span>
       </ListGridCell>
@@ -864,7 +864,7 @@ export default function SkillsPage() {
                 return (
               <ListGridRow
                 key={row.skill.id}
-                className={`cursor-pointer ${
+                className={`h-auto min-h-12 cursor-pointer py-2 ${
                   selectedIds.has(row.skill.id) ? "bg-accent/30" : ""
                 }`}
                 {...rowLink(paths.skillDetail(row.skill.id), row.skill.name)}

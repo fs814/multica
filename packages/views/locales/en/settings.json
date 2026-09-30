@@ -1297,7 +1297,23 @@
       "reconnecting": "Reconnecting / select workspace",
       "sign_in": "Sign-in required",
       "disconnected": "Not connected",
-      "unknown": "Unknown; update CLI"
+      "unknown": "Unknown; update CLI",
+      "recovery_hint": "Changing the center address does not move agents, squads or issues. Restore a center backup before connecting to its replacement; the daemon cache is not a full backup.",
+      "export_data": "Export center data",
+      "import_data": "Import and use center data",
+      "export_description": "Save the current center’s workspaces, agents, squads, issues and credentials in a password-protected backup file. Keep the password; it cannot be recovered.",
+      "import_description": "Select an exported backup to restore and use on the current center. The center will restart and retain its previous database. Stop the source center and finish running tasks first.",
+      "backup_password": "Backup password (at least 12 characters)",
+      "confirm_password": "Confirm backup password",
+      "recovery_token": "Current center recovery token",
+      "recovery_token_hint": "Leave blank to use the recovery token already saved for this center on this Desktop. This is the center operator’s recovery token, not your login or provider API key.",
+      "recovery_cancel": "Cancel",
+      "recovery_working": "Working…",
+      "export_success": "Center backup exported.",
+      "import_progress": "Restoring data and restarting the center. This can take several minutes.",
+      "import_success": "Imported center data is now active. Sign in again.",
+      "import_failed": "Import failed. The previous center configuration remains available.",
+      "import_timeout": "The center has not reported completion. Check its status before retrying; the import may still be running."
     }
   },
   "members": {

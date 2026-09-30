@@ -93,4 +93,10 @@ describe("Desktop mode selection", () => {
     fireEvent.click(enter);
     await waitFor(() => expect(center.connect).toHaveBeenCalledTimes(2));
   });
+  it("keeps Center configuration accessible when the saved server is unreachable", async () => {
+    render(<I18nProvider locale="en" resources={RESOURCES}><DesktopModePicker centerError="Center unavailable" onLocal={vi.fn()} /></I18nProvider>);
+    expect(screen.getByRole("alert")).toHaveTextContent("Center unavailable");
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Server address" })).toBeEnabled());
+    expect(center.connect).not.toHaveBeenCalled();
+  });
 });

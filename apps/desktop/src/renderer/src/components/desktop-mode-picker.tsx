@@ -9,7 +9,7 @@ export function DesktopModePicker({ centerError, onLocal }: {
 }) {
   return <div className="flex h-screen flex-col bg-background text-foreground">
     <DragStrip />
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center gap-6 overflow-y-auto px-6 py-8">
+    <main className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8">
       <div>
         <h1 className="text-title font-semibold">Multica Desktop</h1>
         <p className="mt-2 text-body text-muted-foreground">Choose where to work. Local mode does not require a Center server or sign-in.</p>

@@ -192,7 +192,7 @@ function CreateRunHint({
               profileLink={false}
             />
           )}
-          <span className="truncate">{text}</span>
+          <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{text}</span>
         </div>
       </div>
     </div>
@@ -1033,6 +1033,7 @@ export function ManualCreatePanel({
               {/* Assignee */}
               {showField.assignee && !machineTarget.localExecution && !machineTarget.useLocalAssignee && (
                 <AssigneePicker
+                  wrapLabel
                   assigneeType={assigneeType ?? null}
                   assigneeId={assigneeId ?? null}
                   onUpdate={(u) => updateAssignee(

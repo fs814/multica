@@ -77,7 +77,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-body font-semibold">{squad.name}</p>
+            <p className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-body font-semibold">{squad.name}</p>
             {isArchived && (
               <span className="rounded-md bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
                 {t(($) => $.profile_card.archived)}
@@ -171,7 +171,7 @@ function MembersList({
                 showStatusDot={m.member_type === "agent"}
                 className="shrink-0"
               />
-              <span className="min-w-0 flex-1"><span className="block truncate font-medium">{name}</span><ExecutionLocation agentId={m.member_id} human={m.member_type === "member"} /></span>
+              <span className="min-w-0 flex-1"><span className="block min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">{name}</span><ExecutionLocation agentId={m.member_id} human={m.member_type === "member"} /></span>
               {isLeader && (
                 <span className="max-w-[4rem] shrink-0 truncate rounded-md bg-amber-100 px-1 py-0.5 text-micro font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                   {t(($) => $.members_tab.leader_chip)}

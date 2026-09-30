@@ -109,7 +109,7 @@ function AgentActivityTaskRow({
         isAgent
         size="sm"
       />
-      <span className="flex-1 truncate font-medium">
+      <span className="flex-1 min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">
         {getActorName("agent", task.agent_id)}
       </span>
       {task.wakeup_id && <Bell className="size-3 shrink-0 text-muted-foreground" aria-label={t(($) => $.wakeups.triggered_by_wakeup)} />}

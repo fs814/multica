@@ -1268,6 +1268,24 @@
       "reconnect_failed": "Impossible de reconnecter le démon",
       "try_again_moment": "Veuillez réessayer dans un instant.",
       "try_again": "Veuillez réessayer."
+    },
+    "center": {
+      "recovery_hint": "Changer l’adresse du centre ne transfère pas les agents, les escouades ni les tâches. Restaurez une sauvegarde du centre avant de vous connecter à son remplaçant ; le cache du démon n’est pas une sauvegarde complète.",
+      "export_data": "Exporter les données du centre",
+      "import_data": "Importer et utiliser les données du centre",
+      "export_description": "Enregistrez les espaces de travail, agents, escouades, tâches et identifiants du centre dans une sauvegarde protégée par mot de passe. Ce mot de passe ne peut pas être récupéré.",
+      "import_description": "Restaurez une sauvegarde exportée sur le centre actuel. Le centre redémarrera et conservera sa base précédente. Arrêtez le centre source et terminez les tâches en cours avant de continuer.",
+      "backup_password": "Mot de passe de sauvegarde (12 caractères minimum)",
+      "confirm_password": "Confirmer le mot de passe",
+      "recovery_token": "Jeton de récupération du centre actuel",
+      "recovery_token_hint": "Laissez vide pour utiliser le jeton déjà enregistré pour ce centre sur ce Desktop. Il s’agit du jeton de récupération de l’opérateur, pas de votre connexion ni d’une clé API de fournisseur.",
+      "recovery_cancel": "Annuler",
+      "recovery_working": "Traitement…",
+      "export_success": "Sauvegarde du centre exportée.",
+      "import_progress": "Restauration des données et redémarrage du centre. Cela peut prendre plusieurs minutes.",
+      "import_success": "Les données importées sont actives. Reconnectez-vous.",
+      "import_failed": "L’importation a échoué. La configuration précédente reste disponible.",
+      "import_timeout": "Le centre n’a pas confirmé la fin. Vérifiez son état avant de réessayer ; l’importation peut être en cours."
     }
   },
   "members": {

@@ -519,7 +519,7 @@ function DetailHeader({
             {t(($) => $.page.title)}
           </AppLink>
           <span aria-hidden="true">/</span>
-          <span className="truncate text-foreground">{agent.name}</span>
+          <span className="truncate text-foreground" title={agent.name}>{agent.name}</span>
         </div>
 
         <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -533,7 +533,7 @@ function DetailHeader({
             />
             <div className="min-w-0 pt-0.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <h1 className="min-w-0 text-balance text-title-lg font-semibold tracking-tight sm:text-display-sm">
+                <h1 className="min-w-0 [overflow-wrap:anywhere] text-balance text-title-lg font-semibold tracking-tight sm:text-display-sm">
                   {agent.name}
                 </h1>
                 <AgentPresenceIndicator detail={presence} />

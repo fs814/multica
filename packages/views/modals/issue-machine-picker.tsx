@@ -170,8 +170,8 @@ export function IssueMachinePicker({ target, onSelect, mode = "manual" }: {
       searchable
       searchPlaceholder={t(($) => $.create_issue.machine.search)}
       onSearchChange={setSearch}
-      triggerRender={<PillButton aria-label={`${label}: ${pickerValue}`} />}
-      trigger={<>{target.remoteOnly ? <Monitor className="size-3.5 shrink-0" /> : <Users className="size-3.5 shrink-0" />}<span className="truncate">{label}: {pickerValue}</span></>}
+      triggerRender={<PillButton className="max-w-full rounded-lg text-left" aria-label={`${label}: ${pickerValue}`} />}
+      trigger={<>{target.remoteOnly ? <Monitor className="size-3.5 shrink-0" /> : <Users className="size-3.5 shrink-0" />}<span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{label}: {pickerValue}</span></>}
       header={<p className="px-2 py-1.5 text-caption text-muted-foreground">{!target.remoteOnly ? t(($) => $.create_issue.machine.local_target_hint) : mode === "agent" ? t(($) => $.create_issue.machine.creation_hint) : t(($) => $.create_issue.machine.hint)}{target.remoteOnly && assigneeType === "squad" && <> {t(($) => $.create_issue.machine.squad_hint)}</>}</p>}
     >
       {loading ? <p className="p-2 text-caption text-muted-foreground">{t(($) => $.create_issue.machine.loading)}</p>
@@ -186,7 +186,7 @@ export function IssueMachinePicker({ target, onSelect, mode = "manual" }: {
               return <PickerSection key={type} label={type === "agent" ? t(($) => $.create_issue.agent.agents_group) : t(($) => $.create_issue.agent.squads_group)}>
                 {items.map(({ id, name, runtime }) => (
                   <PickerItem key={id} selected={assigneeType === type && assigneeId === id} onClick={() => { onSelect(type, id); setOpen(false); }}>
-                    <span className="min-w-0 flex-1 truncate">{name} · {type === "squad" ? t(($) => $.create_issue.machine.squad) : runtimeRowLabel(runtime, machine.title)}</span>
+                    <span className="min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere]">{name} · {type === "squad" ? t(($) => $.create_issue.machine.squad) : runtimeRowLabel(runtime, machine.title)}</span>
                     <span className="shrink-0 text-micro text-muted-foreground">{deriveRuntimeHealth(runtime, now) === "online" ? t(($) => $.create_issue.machine.online) : t(($) => $.create_issue.machine.offline)}</span>
                   </PickerItem>
                 ))}

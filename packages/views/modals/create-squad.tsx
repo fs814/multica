@@ -307,7 +307,7 @@ function LeaderPicker({
               <UserPlus className="h-4 w-4 shrink-0 text-muted-foreground" />
             )}
             <div className="min-w-0 flex-1">
-              <div className="truncate font-medium">
+              <div className="min-w-0 whitespace-normal [overflow-wrap:anywhere] font-medium">
                 {selected?.name ?? t(($) => $.create_squad.leader_placeholder)}
               </div>
               {selected?.description && (
@@ -347,7 +347,7 @@ function LeaderPicker({
                       }}
                     >
                       <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                      <span className="truncate">{a.name}</span>
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                     </PickerItem>
                   ))}
                 </PickerSection>
@@ -365,7 +365,7 @@ function LeaderPicker({
                       }}
                     >
                       <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                      <span className="truncate">{a.name}</span>
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                     </PickerItem>
                   ))}
                 </PickerSection>
@@ -539,7 +539,7 @@ function AdditionalMembersPicker({
                     }
                   >
                     <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                    <span className="truncate">{a.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                   </PickerItem>
                 ))}
               </PickerSection>
@@ -555,7 +555,7 @@ function AdditionalMembersPicker({
                     }
                   >
                     <ActorAvatar actorType="agent" actorId={a.id} size="sm" showStatusDot />
-                    <span className="truncate">{a.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{a.name}</span>
                   </PickerItem>
                 ))}
               </PickerSection>
@@ -571,7 +571,7 @@ function AdditionalMembersPicker({
                     }
                   >
                     <ActorAvatar actorType="member" actorId={m.user_id} size="sm" />
-                    <span className="truncate">{m.name}</span>
+                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{m.name}</span>
                   </PickerItem>
                 ))}
               </PickerSection>
@@ -595,7 +595,7 @@ function MemberChip({
   return (
     <span className="inline-flex items-center gap-1 rounded-full border bg-background px-1.5 py-0.5 text-caption">
       <ActorAvatar actorType={m.type} actorId={m.id} size="xs" />
-      <span className="max-w-[120px] truncate">{m.name}</span>
+      <span className="max-w-[120px] min-w-0 whitespace-normal [overflow-wrap:anywhere]">{m.name}</span>
       <button
         type="button"
         onClick={(e) => {

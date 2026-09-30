@@ -1266,7 +1266,7 @@ function IssueTableBodyCell({
             actorId={issue.creator_id}
             size="sm"
           />
-          <span className="truncate">
+          <span className="truncate" title={meta.getActorName(issue.creator_type, issue.creator_id)}>
             {meta.getActorName(issue.creator_type, issue.creator_id)}
           </span>
         </span>

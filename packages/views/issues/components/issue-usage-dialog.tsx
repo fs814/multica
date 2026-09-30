@@ -244,7 +244,7 @@ function CostByAgent({
           >
             <div className="flex min-w-0 items-center gap-2">
               <ActorAvatar actorType="agent" actorId={row.agentId} size="sm" enableHoverCard />
-              <span className="truncate text-caption">
+              <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere] text-caption" title={getActorName("agent", row.agentId)}>
                 {getActorName("agent", row.agentId)}
               </span>
             </div>

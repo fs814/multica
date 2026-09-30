@@ -20,6 +20,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/centerrecovery"
 	"github.com/multica-ai/multica/server/internal/cloudruntime"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/entitlement"
@@ -216,6 +217,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus, analytics
 }
 
 type RouterOptions struct {
+	RecoveryRestart     func()
 	HTTPMetrics         *obsmetrics.HTTPMetrics
 	BusinessMetrics     *obsmetrics.BusinessMetrics
 	IssuePoolMetrics    *obsmetrics.IssuePoolMetrics
@@ -1447,9 +1449,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		MaxAge:           300,
 	}))
 
+	// Operator-only deployment recovery; ordinary workspace credentials are insufficient.
+	r.Get(centerrecovery.Endpoint, centerrecovery.HandlerFromEnvironment(version))
+	importCenter, importStatus := centerrecovery.ManagedHandlers(opts.RecoveryRestart)
+	r.Post(centerrecovery.ImportEndpoint, importCenter)
+	r.Get(centerrecovery.StatusEndpoint, importStatus)
+
 	// Health / readiness checks
 	r.Get("/health", health.liveHandler)
-	r.Get("/readyz", health.readyHandler)
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if bootID := os.Getenv("MULTICA_RECOVERY_BOOT_ID"); bootID != "" {
+			w.Header().Set("X-Multica-Recovery-Boot", bootID)
+		}
+		health.readyHandler(w, r)
+	})
 	r.Get("/healthz", health.readyHandler)
 
 	// Realtime subsystem metrics — connection counts, slow-client evictions,
