@@ -18,6 +18,48 @@ outstanding.
 
 ## Server setup
 
+### Native HTTPS on port 18082
+
+The Go center can serve an additional HTTPS API listener without replacing the
+existing HTTP API/Web ports. It uses the same router, sign-in and ownership
+checks; enabling TLS does not enable sync or start a transfer.
+
+Add these settings to each center's environment file (or the file selected by
+`MULTICA_CENTER_ENV_FILE` for the launcher), then rebuild and restart that center:
+
+```dotenv
+MULTICA_CENTER_HTTPS_ADDR=:18082
+MULTICA_CENTER_HTTPS_CERT_FILE=/absolute/path/to/fullchain.pem
+MULTICA_CENTER_HTTPS_KEY_FILE=/absolute/path/to/privkey.pem
+```
+
+Both files are required. Without any of these settings the extra listener stays
+disabled. Partial settings, invalid/expired certificates, mismatched keys and
+occupied ports fail startup; there is no insecure fallback or automatic port
+change. Certificates load at startup, so restart after renewal. Keep the private
+key readable only by the server account, outside the checkout and sync directory.
+For container deployments, mount the files read-only and explicitly publish
+18082; the existing Compose port mappings are not changed automatically.
+
+Use a certificate with a DNS SAN for the hostname, or an IP SAN when connecting
+by IP. For example, `https://9.134.118.150:18082` requires that IP in the
+certificate SAN. A private-CA certificate also requires the CA to be trusted by
+Desktop's Electron/Node and browser transports. Do not turn off certificate
+verification. No certificate or CA installation is performed by this feature.
+
+Allow TCP 18082 from the intended clients in the host firewall. Set each center's
+`MULTICA_CENTER_SYNC_ORIGIN` to its own exact HTTPS origin including `:18082`.
+When TLS is enabled, this origin must match the listener port and certificate
+SAN. After binding, the API prints `Center HTTPS (Desktop/API and sync only)`
+and its configured `Network: https://HOST:18082` address separately from Next's
+HTTP Web banner. This confirms local binding, not remote reachability or trust.
+In Desktop, connect the primary **Server address** to the source's HTTPS origin
+and **Connect for sync** to the other center's HTTPS origin. Both connections
+must use HTTPS; an HTTP primary connection does not silently switch to port
+18082. This port serves the API, not the Next.js web page.
+
+### Manual sync authorization
+
 Rebuild and restart both centers and the Desktop. On each center configure:
 
 ```dotenv

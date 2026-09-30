@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/centerhttps"
 	"github.com/multica-ai/multica/server/internal/centerrecovery"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/database"
@@ -355,6 +356,12 @@ func runServer() bool {
 		port = "8080"
 	}
 	shutdownHoldDuration := envNonNegativeDuration("MULTICA_SHUTDOWN_HOLD_DURATION", 0)
+
+	httpsConfig, httpsErr := centerhttps.FromEnvironment()
+	if httpsErr != nil {
+		slog.Error("center HTTPS configuration rejected", "error", httpsErr)
+		os.Exit(1)
+	}
 
 	// Feature flags: loaded once at startup from MULTICA_FEATURE_FLAGS_FILE
 	// (a YAML rule set) with FF_<KEY> env overrides layered on top.
@@ -709,6 +716,19 @@ func runServer() bool {
 	heartbeatScheduler.RecoveryNotifier = h
 
 	srv := newMainHTTPServer(":"+port, r)
+	var httpsServer *http.Server
+	var httpsListener net.Listener
+	if httpsConfig != nil {
+		// Use the same router and auth middleware, with independent TLS transport.
+		httpsServer = newMainHTTPServer(httpsConfig.Addr, r)
+		httpsServer.TLSConfig = httpsConfig.TLS
+		httpsListener, httpsErr = net.Listen("tcp", httpsServer.Addr)
+		if httpsErr != nil {
+			slog.Error("cannot bind center HTTPS listener; no port fallback", "addr", httpsServer.Addr, "error", httpsErr)
+			os.Exit(1)
+		}
+		defer httpsListener.Close()
+	}
 	profilingServer := profiling.NewServer()
 	maintenanceServer, maintenanceErr := maintenance.NewServer(os.Getenv("MAINTENANCE_PORT"), maintenance.NewService(pool, maintenance.StatusCategory{}))
 	if maintenanceErr != nil {
@@ -888,6 +908,17 @@ func runServer() bool {
 		}
 	}()
 
+	if httpsServer != nil {
+		go func() {
+			slog.Info("center HTTPS server starting", "addr", httpsListener.Addr().String())
+			fmt.Print(httpsConfig.StartupMessage())
+			if err := httpsServer.ServeTLS(httpsListener, "", ""); err != nil && err != http.ErrServerClosed {
+				slog.Error("center HTTPS server error", "error", err)
+				os.Exit(1)
+			}
+		}()
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	restart := false
@@ -924,10 +955,15 @@ func runServer() bool {
 		},
 		DrainHTTP: func() {
 			apiShutdownCtx, apiShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if err := srv.Shutdown(apiShutdownCtx); err != nil {
-				apiShutdownCancel()
-				slog.Error("server forced to shutdown", "error", err)
-				os.Exit(1)
+			for _, server := range []*http.Server{srv, httpsServer} {
+				if server == nil {
+					continue
+				}
+				if err := server.Shutdown(apiShutdownCtx); err != nil {
+					apiShutdownCancel()
+					slog.Error("server forced to shutdown", "addr", server.Addr, "error", err)
+					os.Exit(1)
+				}
 			}
 			apiShutdownCancel()
 		},
