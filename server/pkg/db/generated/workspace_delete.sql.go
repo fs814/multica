@@ -1306,3 +1306,19 @@ func (q *Queries) SetWorkspaceTeardownMode(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, setWorkspaceTeardownMode)
 	return err
 }
+
+const settleWorkspaceContentMerge = `-- name: SettleWorkspaceContentMerge :exec
+WITH removed_records AS (
+    DELETE FROM center_content_merge
+    WHERE center_content_merge.workspace_id = $1 AND record_key <> 'workspace:' || $1::uuid::text
+)
+UPDATE center_content_merge SET baseline = '{}'::jsonb
+WHERE center_content_merge.workspace_id = $1 AND record_key = 'workspace:' || $1::uuid::text
+`
+
+// Erase content baselines while retaining a content-free workspace tombstone.
+// A later manual sync must not resurrect an explicitly deleted workspace.
+func (q *Queries) SettleWorkspaceContentMerge(ctx context.Context, workspaceID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, settleWorkspaceContentMerge, workspaceID)
+	return err
+}

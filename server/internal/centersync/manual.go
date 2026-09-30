@@ -86,9 +86,10 @@ func resolveOwner(id, email string, lookup func(string) ([]string, error)) (stri
 }
 
 type Handler struct {
-	pool   *pgxpool.Pool
-	config Config
-	node   string
+	pool            *pgxpool.Pool
+	config          Config
+	node            string
+	MembershipCache *auth.MembershipCache
 }
 
 func New(pool *pgxpool.Pool, config Config) (*Handler, error) {
@@ -145,6 +146,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respondError(w, err)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, Prefix+"/merge-") {
+		h.serveMerge(ctx, w, r)
+		return
+	}
 	var input request
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, ws.MaxWireBytes))
 	d.DisallowUnknownFields()
@@ -156,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch strings.TrimPrefix(r.URL.Path, Prefix+"/") {
 	case "info":
-		result = map[string]any{"schema": ws.Schema, "mode": "manual", "owner": h.config.Owner, "origin": h.config.Origin, "node": h.node}
+		result = map[string]any{"schema": ws.Schema, "mode": "manual", "owner": h.config.Owner, "origin": h.config.Origin, "node": h.node, "content_merge": mergeVersion}
 	case "prepare":
 		result, err = h.prepare(ctx, input)
 	case "pull", "push":

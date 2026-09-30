@@ -1699,6 +1699,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// Manual center sync uses the normal human session on each center.
 		// It never exposes recovery APIs or starts a background transfer.
 		manualSync, syncErr := centersync.NewFromEnvironment(pool)
+		if manualSync != nil {
+			manualSync.MembershipCache = h.MembershipCache
+		}
 		if syncErr != nil {
 			slog.Error("manual center sync configuration rejected", "error", syncErr)
 		}

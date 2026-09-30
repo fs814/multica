@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { parseWithFallback } from "./schema";
+import { contentMergeRequestSchema, mergeCenters, type ContentMergeConflict } from "./center-content-merge";
 
-export const centerSyncActions = ["info", "prepare", "pull", "push", "replica", "apply", "acknowledge", "edit"] as const;
+export const centerSyncActions = ["info", "prepare", "pull", "push", "replica", "apply", "acknowledge", "edit", "merge-list", "merge-export", "merge-apply"] as const;
 export type CenterSyncAction = typeof centerSyncActions[number];
 
 export async function readCenterSyncResponse(response: Response): Promise<unknown> {
@@ -88,9 +89,10 @@ const sourceRequestSchema = z.discriminatedUnion("action", [
   const allowed = writableFields[op.kind];
   if (!Object.keys(op.patch).length || Object.entries(op.patch).some(([key, value]) => !allowed.includes(key) || (value !== null && typeof value !== "string"))) ctx.addIssue({ code: "custom", message: "Unsafe edit fields" });
 });
-export type CenterSyncSourceRequest = z.infer<typeof sourceRequestSchema>;
+const sourceAndMergeSchema = z.union([sourceRequestSchema, contentMergeRequestSchema]);
+export type CenterSyncSourceRequest = z.infer<typeof sourceAndMergeSchema>;
 export function validateCenterSyncSourceRequest(value: unknown): CenterSyncSourceRequest {
-  return sourceRequestSchema.parse(value);
+  return sourceAndMergeSchema.parse(value);
 }
 
 function parse<S extends z.ZodType>(value: unknown, schema: S, endpoint: string): z.infer<S> {
@@ -115,9 +117,11 @@ function sameScope(a: Prepared["scope"], b: Prepared["scope"]): boolean {
 
 export interface CenterSyncResult {
   cursor: number;
-  records: z.infer<typeof recordSchema>[];
+  records: unknown[];
   pending: number;
   conflicts: number;
+  review?: ContentMergeConflict[];
+  workspaces?: string[];
 }
 
 export interface CenterSyncProgress {
@@ -125,12 +129,14 @@ export interface CenterSyncProgress {
   batches: number;
   records: number;
   edits: number;
+  percent?: number;
 }
 
 /** One bounded, explicit run. No timers schedule new runs and no credentials
  * enter the transferred payload. Durable cursors/outbox belong to the servers.
  */
-export async function syncCenters(source: CenterSyncEndpoint, destination: CenterSyncEndpoint, workspace: string, signal: AbortSignal, onProgress?: (progress: CenterSyncProgress) => void): Promise<CenterSyncResult> {
+export async function syncCenters(source: CenterSyncEndpoint, destination: CenterSyncEndpoint, workspace: string, signal: AbortSignal, onProgress?: (progress: CenterSyncProgress) => void, merge = false): Promise<CenterSyncResult> {
+  if (merge) return mergeCenters(source, destination, workspace, signal, onProgress);
   const sourceOrigin = checkedOrigin(source.origin);
   const destinationOrigin = checkedOrigin(destination.origin);
   if (sourceOrigin === destinationOrigin || !z.string().uuid().safeParse(workspace).success) throw new Error("Select a source workspace and a different sync server");

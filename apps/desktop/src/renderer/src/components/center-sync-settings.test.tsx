@@ -110,10 +110,12 @@ describe("center sync settings", () => {
     await login(sourceSection, "Connect source for sync");
     await waitFor(() => expect(peerSection.getByRole("combobox")).toBeEnabled());
     fireEvent.click(peerSection.getByRole("combobox"));
-    fireEvent.click(await screen.findByRole("option", { name: workspace.name }));
+    const workspaceOption = await screen.findByRole("option", { name: workspace.name });
+    fireEvent.mouseMove(workspaceOption);
+    fireEvent.click(workspaceOption);
     expect(syncCenters).not.toHaveBeenCalled();
     fireEvent.click(peerSection.getByRole("button", { name: "Sync between center servers" }));
-    await peerSection.findByText(/records through cursor 0/);
+    await peerSection.findByText(/Merge finished for 1 workspace/);
     expect(syncCenters).toHaveBeenCalledOnce();
     expect(vi.mocked(syncCenters).mock.calls[0]![0].origin).toBe(source);
     expect(center.syncSourceRequest).toHaveBeenCalledWith(expect.objectContaining({ origin: source, path: "/api/workspaces", token: "source-https-token" }));
@@ -281,7 +283,7 @@ describe("center sync settings", () => {
     const section = await show();
     const sync = section.getByRole("button", { name: "Sync between center servers" });
     expect(sync).toBeDisabled();
-    expect(section.getByText(/Sync requires HTTPS/)).toHaveTextContent("not a full database copy");
+    expect(section.getByText(/Requires HTTPS/)).toHaveTextContent("Credentials, runtime connections and execution state stay local");
     fireEvent.click(sync);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(section.queryByLabelText(/token/i)).not.toBeInTheDocument();

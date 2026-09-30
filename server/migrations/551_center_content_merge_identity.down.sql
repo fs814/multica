@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY center_content_merge_identity;

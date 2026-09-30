@@ -29,6 +29,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"agent_task_queue":                   workspaceDelete,
 	"agent_to_label":                     workspaceDelete,
 	"attachment":                         workspaceDelete,
+	"center_content_merge":               workspaceDeleteSettle, // Content cleared; workspace tombstone prevents resurrection.
 	"autopilot":                          workspaceDelete,
 	"autopilot_collaborator":             workspaceDelete,
 	"autopilot_quota_period":             workspaceDelete,
@@ -142,6 +143,9 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"verification_code":                  workspaceDeleteKeep,
 	"webhook_delivery":                   workspaceDelete,
 	"work_sync_recovery":                 workspaceDelete,
+	"work_sync_recovery_authority":       workspaceDelete,
+	"work_sync_recovery_deployment":      workspaceDeleteKeep,
+	"work_sync_recovery_fence":           workspaceDeleteSettle, // Historical recovery fence deliberately survives UUID deletion.
 	"work_sync_grant":                    workspaceDelete,
 	"work_sync_scope":                    workspaceDelete,
 	"work_sync_change":                   workspaceDelete,

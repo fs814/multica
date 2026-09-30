@@ -28,7 +28,10 @@ async function show(select = true, peer = "https://peer.example") {
   if (select) {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Source workspace" })).toBeEnabled());
     fireEvent.click(screen.getByRole("combobox", { name: "Source workspace" }));
-    fireEvent.click(await screen.findByRole("option", { name: "Fixture workspace" }));
+    const option = await screen.findByRole("option", { name: "Fixture workspace" });
+    fireEvent.mouseMove(option);
+    fireEvent.click(option);
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveTextContent("Fixture workspace"));
   }
   return { ...view, busy, client };
 }
@@ -50,7 +53,8 @@ describe("Desktop manual sync action", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
     await waitFor(() => expect(syncCenters).toHaveBeenCalledOnce());
     expect(vi.mocked(syncCenters).mock.calls[0]?.[2]).toBe(otherId);
-    await screen.findByText(/records through cursor 0/);
+    await screen.findByText(/Merge finished for 1 workspace/);
+    expect(vi.mocked(syncCenters).mock.calls[0]?.[5]).toBe(true);
   });
 
   it("explains the HTTP prerequisite before starting a run", async () => {
@@ -83,8 +87,8 @@ describe("Desktop manual sync action", () => {
     expect(screen.getByRole("combobox")).toHaveTextContent("Fixture workspace");
     vi.spyOn(getApi(), "listWorkspaces").mockResolvedValue([]);
     fireEvent.click(screen.getByRole("button", { name: "Refresh workspaces" }));
-    expect(await screen.findByText(/No workspaces are available on the current server/)).toBeVisible();
-    expect(screen.getByRole("combobox")).toBeDisabled();
+    expect(await screen.findByText(/No source workspaces/)).toBeVisible();
+    expect(screen.getByRole("combobox")).toBeEnabled();
     expect(screen.getByRole("combobox")).not.toHaveTextContent("Fixture workspace");
     expect(screen.getByRole("button", { name: "Sync between center servers" })).toBeDisabled();
     expect(syncCenters).not.toHaveBeenCalled();
@@ -95,7 +99,7 @@ describe("Desktop manual sync action", () => {
     await show();
     expect(syncCenters).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("cursor 7; 0 pending edits, 2 items needing review"));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2 conflicts need review"));
     expect(syncCenters).toHaveBeenCalledOnce();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -129,8 +133,8 @@ describe("Desktop manual sync action", () => {
     act(() => update({ phase: "pulling", batches: 3, records: 42, edits: 0 }));
     expect(bar).toHaveAttribute("aria-valuenow", "2");
     expect(bar).toHaveAttribute("aria-valuemax", "5");
-    expect(screen.getByRole("status")).toHaveTextContent("Stage 3 of 5: Copying records to the peer");
-    expect(screen.getByText(/42 record updates copied/)).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent("Stage 3 of 5: Reading content from both centers");
+    expect(screen.getByText(/42 record updates/)).toBeVisible();
     act(() => update({ phase: "verifying", batches: 3, records: 42, edits: 2 }));
     expect(bar).toHaveAttribute("aria-valuenow", "4");
     expect(screen.queryByText("Sync complete")).not.toBeInTheDocument();
@@ -150,11 +154,11 @@ describe("Desktop manual sync action", () => {
     await show();
     fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Destination offline");
-    expect(screen.getByText(/10 record updates copied/)).toBeVisible();
+    expect(screen.getByText(/10 record updates/)).toBeVisible();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
     fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
     await waitFor(() => expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0"));
-    expect(screen.queryByText(/10 record updates copied/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/10 record updates/)).not.toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     await screen.findByRole("alert");
   });

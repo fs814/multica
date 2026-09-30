@@ -6,15 +6,15 @@ mounted behind normal authentication at `/api/center-sync/{action}`. The Desktop
 coordinator and Sync action are implemented. Servers disable this API unless
 explicitly configured. There is no sync worker and no automatic run.
 
-The handler's local-only tests cover configuration rejection, wrong-account and
-machine-actor rejection before database access, durable isolated replica state,
-rejection of execution-field edits, node binding, private-directory permissions,
-and sanitized errors. These tests use synthetic records and temporary directories;
-they do not establish authenticated end-to-end synchronization or database-backed
-workspace authorization. An authenticated database round-trip test is included,
-but requires a managed test database and has not run in this environment. The
-core and Desktop tests use mocked transports; live two-server validation remains
-outstanding.
+Current Desktop uses the `content_merge: 1` capability to merge into normal
+workspace tables. Both backends must support it and have migrations 550–551.
+Older replica endpoints remain available for installed older clients; the new
+Desktop does not silently fall back to them. Unit tests cover authorization,
+field allowlists, conflict detection and cancellation. The two-database test
+`TestContentMergeTwoDatabases` exercises normal workspace visibility, account
+mapping, agent instructions, attachments, chat history and credential isolation.
+It requires two explicitly provisioned managed test databases; never pass live
+database URLs. Live user-data synchronization is not part of the test suite.
 
 ## Server setup
 
@@ -141,19 +141,56 @@ Merely editing the URL scheme does not configure TLS. The source workspace
 picker uses a connection-scoped query, shows loading/empty/error states, and
 offers manual refresh. A removed selection cannot start a run.
 
-The receiving center stores an isolated replica, not normal workspace rows.
-The result includes a preview of its first 50 records. This does not migrate
-users, credentials, attachments, comments, runtime bindings, or execution state,
-and does not make a destination workspace automatically appear in its task list.
-Safe descriptive edits queued through the replica API are pushed back on the next
-manual run; the Desktop preview itself is read-only. Conflict receipts remain in
-the replica and are counted separately from successful edits.
+The default selection is **All owned workspaces on both centers**. An individual
+source workspace can also be selected. IDs are preserved: independent workspaces
+are not merged merely because their names match. The configured account must own
+an existing workspace on either receiving center; a missing workspace is created
+and the local configured account becomes its owner. Existing unrelated data stays.
+The two configured accounts must have the same email, but may have different UUIDs.
 
-Each run lasts at most two minutes, with up to 40 pull batches and 256 pending
-edits. Each request has a 30-second timeout; wire payloads and checkpoints are
-limited to 32 MiB. Initial snapshots support at most 10,000 records. There is no
-automatic retry after a failed or cancelled run. Another click resumes from the
-durable cursor and outbox, reusing operation IDs for idempotent retries.
+Content includes workspace identity/context, projects, user-defined agent
+instructions and model preferences, skills and skill files, squads, issue
+statuses/properties/labels, issues and relationships, comments, user-agent chat
+history, and locally stored issue/chat attachments. Account profiles and workspace
+memberships are mapped by case-insensitive email; existing accounts keep their
+local authentication data. The configured owner's onboarding is completed once
+the imported workspace commits, so another client can open it normally.
+
+Credentials, agent environment/arguments/MCP configuration, runtime bindings,
+provider sessions, permission settings, task queues and execution state are never
+copied. Newly imported agents are private, offline and unbound. Content is written
+directly without invoking task dispatch, notification delivery or schedules.
+Credentials embedded manually inside prose or uploaded documents are content,
+not detectable credential fields; review such content before syncing.
+
+This is a content merge, not a complete database/deployment copy. Workflow and
+automation definitions, integration setup, plugin-managed skills, system agents,
+execution history, personal preferences, workspace settings/repository bindings,
+and S3 storage are outside this version. References to excluded entities fail
+closed rather than being silently rewritten. Avatar URLs are preserved, not
+downloaded from arbitrary remote hosts. Use separate machine-local configuration
+for runtime/integration setup.
+
+Each workspace is applied in a serializable database transaction. Field-level
+baselines retain concurrent edits for review rather than overwriting either side.
+Physical deletions are not propagated or resurrected; a record deletion conflict
+holds the entire workspace unchanged, including its relationships. Unique name/number/ID
+collisions return a conflict and roll back the entire workspace transaction.
+Review the returned conflicts and edit the corresponding normal records before
+another run; no automatic winner is chosen. Immutable attachment files may remain
+after a rolled-back database transaction, but no attachment row is published by
+that failed transaction. Existing files are never overwritten.
+Workspace deletion clears content baselines and retains only an empty workspace
+tombstone per known peer, preventing a later click from recreating that workspace.
+Merge takes the workspace row lock used by the normal deletion flow.
+
+Each click lasts at most two minutes; requests time out after 30 seconds. A center
+lists at most 100 owned workspaces. A workspace bundle supports 10,000 records,
+8 MiB of content fields, 32 MiB on the wire, local files up to 8 MiB each and 16 MiB of attachment bytes per
+workspace. Limits are errors, not truncated successful copies. Larger workspaces
+need a future paginated/chunked protocol; clicking again cannot bypass a per-bundle
+limit. There is no automatic retry. Committed workspaces stay committed if a later
+workspace fails; reruns compare durable baselines and do not duplicate records.
 
 ## User requirement
 
@@ -181,17 +218,15 @@ credential may be sent to the other origin.
 
 The operator must designate which local account may use sync. Source workspace
 ownership must also be checked live, including retries. Receiving-center access
-must cover the specific isolated replica namespace, not arbitrary database
-writes. Ordinary members, agents and daemon credentials cannot initiate sync.
+must cover the selected workspace and the explicit portable field allowlist, not
+arbitrary database writes. Ordinary members, agents and daemon credentials cannot initiate sync.
 API authentication can restrict access to that person, but proving a physical
 click on one particular Desktop requires separate device enrollment/attestation;
 a spoofable “Desktop” header cannot provide that guarantee.
 
-First-release scope remains the existing Work Sync projection: allowlisted issue,
-project and user-defined agent fields. Exclude credentials, other workspaces,
-deployment settings and execution. Show the bounded scope beside the action; do not
-label it a complete server copy. Import into an isolated owner-only replica view,
-never replace the destination database or silently merge independent workspaces.
+The content merge supersedes the isolated Work Sync projection for the current
+Desktop action. Show its supported scope; do not label it a complete server copy.
+Never replace the destination database or merge independent workspace identities.
 
 ## One-run lifecycle
 
@@ -203,24 +238,25 @@ never replace the destination database or silently merge independent workspaces.
 4. Desktop coordinates bounded, authenticated requests for that run. Servers do
    not dial each other or retain authority to run autonomously. Credentials from
    one origin are never sent to another. Require verified HTTPS.
-5. Use the existing snapshot, cursor, outbox and idempotent receipt algorithms.
-   Commit replica data with its cursor. Preserve same-field conflicts for review;
-   do not claim a conflict was successfully synchronized.
-6. Finish with counts, pending conflicts and the confirmed boundary. Concurrent
+5. Fetch both workspace snapshots before either apply. Merge both ways with
+   per-field baselines and transactional writes, then exchange again to acknowledge
+   common values. Preserve same-field conflicts; never report them as resolved.
+6. Finish with confirmed update counts and conflicts. Concurrent
    edits beyond that boundary wait for another user-triggered run.
 
 Cancel or closing Desktop stops new requests; a transaction already committed
 is not rolled back by cancelling the client. Retain enough durable state to
 resume safely with valid sessions on another click. Do not automatically retry
 an expired run or replay queued work after restart. Concurrent clicks must not
-start overlapping runs against the same replica. Set explicit request, byte,
+start overlapping runs against the same workspace. Set explicit request, byte,
 record and run-duration limits; reaching one preserves progress and requires a
 new click rather than silently extending the run indefinitely.
 
 Desktop displays five stages: server identity checks, workspace preparation,
-copying records, returning queued edits, and final verification. The bar measures
-completed stages, not estimated time or a guessed total record count. Live counts
-advance only after the destination confirms a batch checkpoint or edit receipt.
+reading both snapshots, merging both ways, and final verification. The bar measures
+completed requests across all selected workspaces, not estimated time or bytes.
+It never moves backwards when the next workspace begins. Live update counts
+advance only after a center confirms a workspace transaction.
 Cancellation/failure keeps the last confirmed counts visible; only a successful
 run completes the bar. A new click resets the display for that run.
 
@@ -232,7 +268,7 @@ run completes the bar. A new click resets the display for that run.
 - Prove there is no sync after startup, reconnect, Desktop closure or completion
   without another click and valid sessions.
 - Prove unselected data and credentials never enter the payload, the destination
-  is not replaced, and applying a replica never triggers agent runs or schedules.
+  is not replaced, and applying content never triggers agent runs or schedules.
 - Verify cancellation, partial progress, lost successful responses, conflicts,
   duplicate clicks and separate-session credential isolation using fixture-only
   servers and managed isolated test databases.
