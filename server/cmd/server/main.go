@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
+	"github.com/multica-ai/multica/server/internal/centerrecovery"
 	"github.com/multica-ai/multica/server/internal/daemonws"
 	"github.com/multica-ai/multica/server/internal/database"
 	"github.com/multica-ai/multica/server/internal/dbreader"
@@ -307,6 +308,20 @@ func newMainHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 func main() {
+	root := centerrecovery.StateDir()
+	if root != "" && os.Getenv(centerrecovery.ChildEnvironment) != "1" {
+		os.Exit(centerrecovery.Supervise(root))
+	}
+	if err := centerrecovery.ApplyActivation(root); err != nil {
+		slog.Error("cannot load recovered center configuration")
+		os.Exit(1)
+	}
+	if runServer() {
+		os.Exit(centerrecovery.RestartExitCode)
+	}
+}
+
+func runServer() bool {
 	logger.Init()
 	// Read the opt-out before constructing any telemetry dependency. In the
 	// disabled case no collector or HTTP client is ever created.
@@ -657,7 +672,14 @@ func main() {
 		readRecorder = dbRoutingMetrics
 	}
 
+	recoveryRestart := make(chan struct{}, 1)
 	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
+		RecoveryRestart: func() {
+			select {
+			case recoveryRestart <- struct{}{}:
+			default:
+			}
+		},
 		HTTPMetrics:         httpMetrics,
 		BusinessMetrics:     businessMetrics,
 		IssuePoolMetrics:    issuePoolMetrics,
@@ -868,8 +890,13 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	holdBeforeShutdown(sig, quit, shutdownHoldDuration)
+	restart := false
+	select {
+	case sig := <-quit:
+		holdBeforeShutdown(sig, quit, shutdownHoldDuration)
+	case <-recoveryRestart:
+		restart = true
+	}
 	// Restore the default behavior so another signal during graceful shutdown
 	// can still terminate the process instead of being left unread in quit.
 	signal.Stop(quit)
@@ -960,4 +987,5 @@ func main() {
 		},
 	}.run()
 	slog.Info("server stopped")
+	return restart
 }

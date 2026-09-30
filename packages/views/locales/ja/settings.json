@@ -1289,7 +1289,23 @@
       "reconnecting": "Reconnecting / select workspace",
       "sign_in": "Sign-in required",
       "disconnected": "Not connected",
-      "unknown": "Unknown; update CLI"
+      "unknown": "Unknown; update CLI",
+      "recovery_hint": "センターのアドレスを変更しても、エージェント、スクワッド、タスクは移行されません。移行先に接続する前にセンターのバックアップを復元してください。デーモンのキャッシュは完全なバックアップではありません。",
+      "export_data": "センターデータをエクスポート",
+      "import_data": "センターデータをインポートして使用",
+      "export_description": "現在のセンターのワークスペース、エージェント、スクワッド、タスク、認証情報をパスワードで保護されたバックアップに保存します。パスワードは再発行できません。",
+      "import_description": "エクスポートしたバックアップを現在のセンターに復元して使用します。センターは再起動し、元のデータベースは保持されます。先に移行元を停止し、実行中のタスクを完了してください。",
+      "backup_password": "バックアップのパスワード（12文字以上）",
+      "confirm_password": "パスワードを確認",
+      "recovery_token": "現在のセンターの復元トークン",
+      "recovery_token_hint": "空欄の場合、このデスクトップに保存された現在のセンターの復元トークンを使用します。ログイン情報やプロバイダーの API キーとは異なります。",
+      "recovery_cancel": "キャンセル",
+      "recovery_working": "処理中...",
+      "export_success": "バックアップをエクスポートしました。",
+      "import_progress": "データの復元とセンターの再起動中です。数分かかる場合があります。",
+      "import_success": "インポートしたデータが有効になりました。再度ログインしてください。",
+      "import_failed": "インポートに失敗しました。元のセンター設定は保持されています。",
+      "import_timeout": "完了が確認できません。インポートが続いている可能性があるため、再試行前に状態を確認してください。"
     }
   },
   "members": {

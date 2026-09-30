@@ -1289,7 +1289,23 @@
       "reconnecting": "重连中 / 请选择工作区",
       "sign_in": "需要登录",
       "disconnected": "未连接",
-      "unknown": "连接状态未知，请更新 CLI"
+      "unknown": "连接状态未知，请更新 CLI",
+      "recovery_hint": "修改中心服务器地址不会迁移智能体、小队或任务。连接新中心服务器前，请先恢复中心备份；守护进程缓存不是完整备份。",
+      "export_data": "导出中心数据",
+      "import_data": "导入并使用中心数据",
+      "export_description": "将当前中心的工作区、智能体、小队、任务和凭据保存为受密码保护的备份文件。请保管好密码，密码无法找回。",
+      "import_description": "选择已导出的备份，在当前中心恢复并使用。中心将重启并保留原数据库。请先停止源中心，并等待运行中的任务结束。",
+      "backup_password": "备份密码（至少 12 个字符）",
+      "confirm_password": "确认备份密码",
+      "recovery_token": "当前中心的恢复令牌",
+      "recovery_token_hint": "留空则使用此桌面端为当前中心保存的恢复令牌。这是中心管理员的恢复令牌，不是登录凭据或提供商 API 密钥。",
+      "recovery_cancel": "取消",
+      "recovery_working": "处理中...",
+      "export_success": "中心备份已导出。",
+      "import_progress": "正在恢复数据并重启中心，可能需要几分钟。",
+      "import_success": "导入的中心数据已启用，请重新登录。",
+      "import_failed": "导入失败，原中心配置仍然保留。",
+      "import_timeout": "中心尚未报告完成。请先检查状态再重试，导入可能仍在进行。"
     }
   },
   "members": {
