@@ -354,6 +354,17 @@ func TestRunMigrationsConcurrentAlreadyApplied(t *testing.T) {
 func TestRunMigrationsAdvisoryLockSerializes(t *testing.T) {
 	f := newFixture(t)
 
+	// Identify this fixture's waiting sessions without depending on a blocking
+	// lock statement (which deadlocks with CREATE INDEX CONCURRENTLY).
+	cfg := f.pool.Config()
+	cfg.ConnConfig.RuntimeParams["application_name"] = f.schema
+	contenders, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer contenders.Close()
+	f.pool = contenders
+
 	ctx, cancel := context.WithTimeout(context.Background(), raceTestTimeout)
 	defer cancel()
 
@@ -386,9 +397,11 @@ func TestRunMigrationsAdvisoryLockSerializes(t *testing.T) {
 		})
 	}
 
-	// Wait until PostgreSQL confirms that a contender is blocked on this exact
-	// advisory lock. This proves serialization directly without making the
-	// passing path pay a fixed observation delay.
+	// Observe an actual contender between try-lock calls: its statement is
+	// finished and has no snapshot. No runner may finish while the side session
+	// owns this fixture's lock. The complete-history test additionally proves
+	// that concurrent index builds can progress under contention.
+
 	const observeWindow = 2 * time.Second
 	const observeStep = 10 * time.Millisecond
 	deadline := time.Now().Add(observeWindow)
@@ -399,22 +412,10 @@ func TestRunMigrationsAdvisoryLockSerializes(t *testing.T) {
 				n, concurrentRunners, time.Since(startedAt))
 		}
 		if err := holder.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1
-				FROM pg_locks AS held
-				JOIN pg_locks AS waiter
-				  ON waiter.locktype = held.locktype
-				 AND waiter.database IS NOT DISTINCT FROM held.database
-				 AND waiter.classid IS NOT DISTINCT FROM held.classid
-				 AND waiter.objid IS NOT DISTINCT FROM held.objid
-				 AND waiter.objsubid IS NOT DISTINCT FROM held.objsubid
-				 AND waiter.mode = held.mode
-				WHERE held.pid = pg_backend_pid()
-				  AND held.locktype = 'advisory'
-				  AND held.granted
-				  AND NOT waiter.granted
-			)
-		`).Scan(&blocked); err != nil {
+ SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+ WHERE application_name=$1 AND query='SELECT pg_try_advisory_lock($1)'
+ AND state='idle' AND backend_xmin IS NULL)
+ `, f.schema).Scan(&blocked); err != nil {
 			t.Fatalf("observe advisory-lock waiter: %v", err)
 		}
 		if blocked {
@@ -423,7 +424,7 @@ func TestRunMigrationsAdvisoryLockSerializes(t *testing.T) {
 		time.Sleep(observeStep)
 	}
 	if !blocked {
-		t.Fatal("no runMigrations contender reached the held advisory lock")
+		t.Fatal("no runMigrations contender observed waiting without a snapshot")
 	}
 
 	// Release the side lock and wait for all goroutines to finish.

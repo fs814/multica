@@ -16,6 +16,7 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/multica-ai/multica/server/internal/worksync"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/multica-ai/multica/server/internal/analytics"
@@ -1580,6 +1581,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Auth group made a missing cookie a hard 401, breaking the flow for exactly
 	// the browsers above; the other four composio endpoints stay session-gated.
 	r.Get("/api/integrations/composio/callback", h.ComposioCallback)
+
+	// Work replication uses uncached, grant-bound daemon credentials only.
+	r.Mount("/api/daemon/sync", worksync.NewHTTPHandler(pool, os.Getenv("MULTICA_WORK_SYNC_ENABLED") == "1"))
+	// Recovery has an independent operator credential and deployment binding.
+	// Enabling normal replication never exposes recovery.
+	r.Mount("/api/recovery/work", worksync.NewRecoveryHTTPHandler(pool, worksync.RecoveryHTTPConfig{
+		Enabled:          os.Getenv("MULTICA_WORK_RECOVERY_ENABLED") == "1",
+		TargetDeployment: os.Getenv("MULTICA_WORK_RECOVERY_TARGET_ID"),
+		SourceDeployment: os.Getenv("MULTICA_WORK_RECOVERY_SOURCE_ID"),
+		SourceURL:        os.Getenv("MULTICA_WORK_RECOVERY_SOURCE_DATABASE_URL"),
+	}))
 
 	// Daemon API routes (require daemon token or valid user token)
 	r.Route("/api/daemon", func(r chi.Router) {

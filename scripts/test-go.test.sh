@@ -25,6 +25,8 @@ trap cleanup EXIT
 
 mkdir -p "$BIN_DIR"
 export MULTICA_TEST_GO_CALLS="$CALLS_FILE"
+# Exercise cache discovery even when the caller already configured Go.
+unset GOPATH GOMODCACHE GOCACHE
 : >"$CALLS_FILE"
 
 cat >"$BIN_DIR/go" <<'FAKE'
@@ -32,6 +34,23 @@ cat >"$BIN_DIR/go" <<'FAKE'
 set -eu
 
 case "${1:-}" in
+  env)
+    if [ "$#" -ne 2 ]; then
+      echo "unexpected go env arguments: $*" >&2
+      exit 2
+    fi
+    case "$2" in
+      GOPATH) printf '%s\n' "${MULTICA_TEST_GO_CALLS%/*}/gopath" ;;
+      GOMODCACHE) printf '%s\n' "${MULTICA_TEST_GO_CALLS%/*}/gopath/pkg/mod" ;;
+      GOCACHE) printf '%s\n' "${MULTICA_TEST_GO_CALLS%/*}/go-build" ;;
+      # This fake never compiles; keep its target independent of the host.
+      GOOS) printf '%s\n' linux ;;
+      *)
+        echo "unexpected go env variable: $2" >&2
+        exit 2
+        ;;
+    esac
+    ;;
   list)
     if [ "$#" -ne 2 ] || [ "$2" != "./..." ]; then
       echo "unexpected go list arguments: $*" >&2

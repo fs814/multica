@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_work_sync_recovery_authority_identity ON work_sync_recovery_authority(token_hash);

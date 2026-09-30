@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -141,20 +142,29 @@ var pgBigmOperatorClass = extensionOperatorClass{
 // they are still pending: a fresh self-hosted install, which is exactly where an
 // interrupted build would otherwise leave a permanently unusable index.
 var concurrentIndexCleanups = map[string]string{
-	"502_workflow_debug_snapshot_id":          "idx_workflow_debug_snapshot_id",
-	"503_workflow_debug_quota_workspace":      "idx_workflow_debug_quota_workspace",
-	"504_workflow_debug_policy_workspace":     "idx_workflow_debug_policy_workspace",
-	"505_workflow_debug_execution_id":         "idx_workflow_debug_execution_id",
-	"506_workflow_debug_execution_generation": "idx_workflow_debug_execution_generation",
-	"507_workflow_debug_execution_run":        "idx_workflow_debug_execution_run",
-	"508_workflow_debug_stop_id":              "idx_workflow_debug_stop_id",
-	"509_workflow_debug_stop_claim":           "idx_workflow_debug_stop_claim",
-	"510_workflow_debug_cleanup_id":           "idx_workflow_debug_cleanup_id",
-	"511_workflow_debug_cleanup_object":       "idx_workflow_debug_cleanup_object",
-	"512_workflow_debug_run_quota":            "idx_workflow_debug_run_quota",
-	"513_workflow_debug_run_deadline":         "idx_workflow_debug_run_deadline",
-	"514_workflow_debug_run_cleanup":          "idx_workflow_debug_run_cleanup",
-	"516_workflow_debug_upload_id":            "idx_workflow_debug_upload_id",
+	"545_work_sync_recovery_identity":           "idx_work_sync_recovery_identity",
+	"547_work_sync_recovery_authority_identity": "idx_work_sync_recovery_authority_identity",
+	"548_work_sync_recovery_fence_identity":     "idx_work_sync_recovery_fence_identity",
+	"543_work_sync_grant_identity":              "idx_work_sync_grant_identity",
+	"534_work_sync_scope_identity":              "work_sync_scope_identity",
+	"535_work_sync_change_position":             "work_sync_change_position",
+	"536_work_sync_operation_identity":          "work_sync_operation_identity",
+	"537_work_sync_node_sequence":               "work_sync_node_sequence",
+	"539_work_sync_entity_history":              "work_sync_entity_history",
+	"502_workflow_debug_snapshot_id":            "idx_workflow_debug_snapshot_id",
+	"503_workflow_debug_quota_workspace":        "idx_workflow_debug_quota_workspace",
+	"504_workflow_debug_policy_workspace":       "idx_workflow_debug_policy_workspace",
+	"505_workflow_debug_execution_id":           "idx_workflow_debug_execution_id",
+	"506_workflow_debug_execution_generation":   "idx_workflow_debug_execution_generation",
+	"507_workflow_debug_execution_run":          "idx_workflow_debug_execution_run",
+	"508_workflow_debug_stop_id":                "idx_workflow_debug_stop_id",
+	"509_workflow_debug_stop_claim":             "idx_workflow_debug_stop_claim",
+	"510_workflow_debug_cleanup_id":             "idx_workflow_debug_cleanup_id",
+	"511_workflow_debug_cleanup_object":         "idx_workflow_debug_cleanup_object",
+	"512_workflow_debug_run_quota":              "idx_workflow_debug_run_quota",
+	"513_workflow_debug_run_deadline":           "idx_workflow_debug_run_deadline",
+	"514_workflow_debug_run_cleanup":            "idx_workflow_debug_run_cleanup",
+	"516_workflow_debug_upload_id":              "idx_workflow_debug_upload_id",
 
 	"518_project_memory_binding_key":                            "project_memory_binding_key",
 	"519_project_memory_scope_key":                              "project_memory_scope_key",
@@ -1059,10 +1069,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
 	// *pgxpool.Conn for the whole run — calling pool.Exec would attach the
 	// lock to a random connection that pgxpool could hand back out before
 	// the loop finishes, making the lock effectively a no-op. We use the
-	// blocking pg_advisory_lock (not pg_try_*) so a late-arriving runner
-	// queues behind the current one instead of crash-looping; once it
-	// acquires the lock the EXISTS checks below turn finished migrations
-	// into no-op skips.
+	// retrying pg_try_advisory_lock so waiting callers release their statement
+	// snapshot between attempts. A blocked statement can otherwise deadlock
+	// against the lock owner's concurrent index build. Once acquired, each
+	// finished migration becomes a no-op skip.
 	//
 	// We deliberately do NOT wrap the loop in a single transaction: the
 	// repo already ships migrations using CREATE INDEX CONCURRENTLY,
@@ -1073,7 +1083,7 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
+	if err := acquireMigrationLock(ctx, conn, lockKey); err != nil {
 		return fmt.Errorf("acquire migration advisory lock: %w", err)
 	}
 	// Best-effort explicit unlock on the success path. On error returns
@@ -1082,7 +1092,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
 	// the connection closes at process exit, so the next runner is never
 	// permanently blocked.
 	defer func() {
-		if _, err := conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey); err != nil {
+		unlockCtx, cancelUnlock := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelUnlock()
+		if _, err := conn.Exec(unlockCtx, "SELECT pg_advisory_unlock($1)", lockKey); err != nil {
 			slog.Warn("failed to release migration advisory lock", "error", err)
 		}
 	}()
@@ -1100,6 +1112,23 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool, opts runOptions) err
 	existsSQL := fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s WHERE version = $1)", tableIdent)
 	insertSQL := fmt.Sprintf("INSERT INTO %s (version) VALUES ($1)", tableIdent)
 	deleteSQL := fmt.Sprintf("DELETE FROM %s WHERE version = $1", tableIdent)
+
+	// Check before any pending DDL and while holding the migration lock, even
+	// when 507 is already recorded and would otherwise be skipped.
+	if opts.Direction == "up" {
+		for _, file := range opts.Files {
+			if migrations.ExtractVersion(file) == deliveryMigrationVersion {
+				var recorded bool
+				if err := conn.QueryRow(ctx, existsSQL, deliveryMigrationVersion).Scan(&recorded); err != nil {
+					return err
+				}
+				if err := validateHistoricalDelivery(ctx, conn, recorded); err != nil {
+					return err
+				}
+				break
+			}
+		}
+	}
 
 	for _, file := range opts.Files {
 		version := migrations.ExtractVersion(file)
@@ -1197,4 +1226,27 @@ func quoteQualifiedIdentifier(name string) (string, error) {
 		}
 	}
 	return pgx.Identifier(parts).Sanitize(), nil
+}
+
+// A blocked pg_advisory_lock statement keeps a virtual transaction active.
+// CREATE INDEX CONCURRENTLY can wait for that transaction while its caller
+// owns the advisory lock, producing a deadlock. Finish each try-lock statement
+// before waiting, while keeping ownership on the same pinned session.
+func acquireMigrationLock(ctx context.Context, conn *pgxpool.Conn, key int64) error {
+	for {
+		var acquired bool
+		if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", key).Scan(&acquired); err != nil {
+			return err
+		}
+		if acquired {
+			return nil
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

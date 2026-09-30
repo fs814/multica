@@ -604,26 +604,32 @@ func TestTaskMulticaEnvironmentIncludesPrivateConfigRoot(t *testing.T) {
 		workspacesRoot = "/daemon/multica_workspaces_staging"
 	)
 	task := Task{
-		ID:          "task-test",
-		AgentID:     "agent-test",
-		WorkspaceID: "workspace-test",
+		ID:                  "task-test",
+		AgentID:             "agent-test",
+		WorkspaceID:         "workspace-test",
+		ProjectID:           "project-test",
+		WorkflowExecutionID: "workflow-test",
 	}
 	env := taskMulticaEnvironment(task, "agent-name", fakeToken, taskRoot, workspacesRoot, "https://task.example", 19514, 3, "/task/tmp")
 
 	want := map[string]string{
-		"MULTICA_TOKEN":                fakeToken,
-		"MULTICA_TASK_CONFIG_ROOT":     taskRoot,
-		"MULTICA_TASK_WORKSPACES_ROOT": workspacesRoot,
-		"MULTICA_SERVER_URL":           "https://task.example",
-		"MULTICA_DAEMON_PORT":          "19514",
-		"MULTICA_WORKSPACE_ID":         "workspace-test",
-		"MULTICA_AGENT_NAME":           "agent-name",
-		"MULTICA_AGENT_ID":             "agent-test",
-		"MULTICA_TASK_ID":              "task-test",
-		"MULTICA_TASK_SLOT":            "3",
-		"TMPDIR":                       "/task/tmp",
-		"TMP":                          "/task/tmp",
-		"TEMP":                         "/task/tmp",
+		"MULTICA_TOKEN":                   fakeToken,
+		"MULTICA_TASK_CONFIG_ROOT":        taskRoot,
+		"MULTICA_TASK_WORKSPACES_ROOT":    workspacesRoot,
+		"MULTICA_SERVER_URL":              "https://task.example",
+		"MULTICA_DAEMON_PORT":             "19514",
+		"MULTICA_WORKSPACE_ID":            "workspace-test",
+		"MULTICA_AGENT_NAME":              "agent-name",
+		"MULTICA_AGENT_ID":                "agent-test",
+		"MULTICA_TASK_ID":                 "task-test",
+		"MULTICA_PROJECT_ID":              "project-test",
+		"MULTICA_WORKFLOW_EXECUTION_ID":   "workflow-test",
+		"MULTICA_PROJECT_MEMORY_CONTEXT":  filepath.Join("/task", "project-memory", "context.json"),
+		"MULTICA_PROJECT_MEMORY_SNAPSHOT": filepath.Join("/task", "project-memory", "snapshot.json"),
+		"MULTICA_TASK_SLOT":               "3",
+		"TMPDIR":                          "/task/tmp",
+		"TMP":                             "/task/tmp",
+		"TEMP":                            "/task/tmp",
 	}
 	if !maps.Equal(env, want) {
 		t.Fatalf("taskMulticaEnvironment() = %#v, want %#v", env, want)

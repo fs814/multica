@@ -1089,7 +1089,12 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	cfg.AllowOffline = allowOffline
 	if allowOffline {
 		// No implicit localhost/public fallback while waiting for configuration.
-		cfg.ServerBaseURL = ""
+		// An explicitly enabled sync target needs its explicitly configured
+		// origin before Run starts the durable loop, even without task login.
+		explicitOrigin := flagString(cmd, "server-url") != "" || strings.TrimSpace(os.Getenv("MULTICA_SERVER_URL")) != "" || fileCfg.ServerURL != ""
+		if cfg.WorkSync == nil || !explicitOrigin {
+			cfg.ServerBaseURL = ""
+		}
 		configPath, err := cli.CLIConfigPathForProfile(profile)
 		if err != nil {
 			return err

@@ -67,11 +67,13 @@ ORDER BY w.updated_at,w.id LIMIT 100;
 SELECT * FROM issue_wakeup_receipt WHERE wakeup_id= @wakeup_id AND revision= @revision AND processed_at IS NULL ORDER BY created_at,id LIMIT 100 FOR UPDATE;
 
 -- name: DeleteExpiredWakeupReceipts :execrows
--- Pending inputs are never expired. Bound work and avoid waiting on dispatch.
-DELETE FROM issue_wakeup_receipt WHERE id IN (
+-- Materialize the locked batch once. A rescan of a LIMIT/SKIP LOCKED subquery
+-- in a nested-loop semi join can otherwise keep selecting more expired rows.
+WITH expired_batch AS MATERIALIZED (
  SELECT expired.id FROM issue_wakeup_receipt expired WHERE expired.processed_at < @cutoff
  ORDER BY expired.processed_at,expired.id LIMIT 1000 FOR UPDATE SKIP LOCKED
-);
+)
+DELETE FROM issue_wakeup_receipt WHERE id IN (SELECT id FROM expired_batch);
 -- name: RecordWakeupReceipt :one
 INSERT INTO issue_wakeup_receipt(id,wakeup_id,revision,event_key,event_type,payload)
 VALUES(@id,@wakeup_id,@revision,@event_key,@event_type,@payload)

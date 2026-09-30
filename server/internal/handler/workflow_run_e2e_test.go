@@ -457,7 +457,12 @@ func (env *workflowE2EEnv) finishStep(
 		t.Fatalf("%s: step has no task; no agent was asked to do anything", nodeKey)
 	}
 	if wantAgentID != "" && (step.AgentID == nil || *step.AgentID != wantAgentID) {
-		t.Fatalf("%s: routed to %v, want %s", nodeKey, step.AgentID, wantAgentID)
+		// Preserve values, not pointer addresses, for independent CI diagnosis.
+		trace, err := json.Marshal(run.Steps)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Fatalf("%s: expected agent %s; persisted trace=%s", nodeKey, wantAgentID, trace)
 	}
 
 	claimed := env.claimNextTask(t)
@@ -525,7 +530,8 @@ func e2eTaskResult(t *testing.T, taskID, stepID, artifactType, summary string) [
 // TestWorkflowRunExecutesBugFixEndToEnd walks the built-in Bug Fix template from
 // "press Run" to "Run completed", asserting each hop.
 func TestWorkflowRunExecutesBugFixEndToEnd(t *testing.T) {
-	withWorkflowEngineForTest(t)
+	engine := withWorkflowEngineForTest(t)
+	engine.Router = workflowRoutingTrace{t: t, router: engine.Router}
 	env := newWorkflowE2EEnv(t, "happy")
 
 	const (

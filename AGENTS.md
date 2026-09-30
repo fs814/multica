@@ -71,7 +71,8 @@ Installed desktop clients may talk to newer backends. Preserve response compatib
 ## Database and Migration Rules
 
 - Do not add foreign keys, cascading deletes, or cascading updates. Validate relationships and clean up dependents in application code, using a transaction when the operation must be atomic.
-- Every migration-created index, including indexes on new tables, uses `CREATE [UNIQUE] INDEX CONCURRENTLY`. Each concurrent index build gets its own single-statement migration file; the runner executes files outside an explicit transaction.
+- Historical migration artifacts through 541 are immutable and pinned to commit `e641ee11836fff0ee479d855237c259e059ac3fc` in `server/internal/migrations/testdata/frozen-migrations.json`. Preserve full stems, both SQL directions, and execution order. The accepted historical debt includes 53 collision-set changes and the original 507 primary key; do not regenerate the manifest from HEAD. See `server/migrations/COMPATIBILITY.md` for validation and unsupported states. New migrations must use a unique numeric prefix above the frozen boundary and pass all current DDL rules.
+- Every new migration-created index, including indexes on new tables, uses `CREATE [UNIQUE] INDEX CONCURRENTLY`. Each concurrent index build gets its own single-statement migration file; the runner executes files outside an explicit transaction.
 - Conditionally skipped migrations are still recorded in `schema_migrations`. Later DDL touching conditional objects must be idempotent (`IF EXISTS` / `IF NOT EXISTS`); document recovery if the missing object would break runtime behavior.
 
 ## Backend UUID Rules

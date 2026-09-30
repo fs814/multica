@@ -102,8 +102,9 @@ var DefaultGCArtifactPatterns = []string{"node_modules", ".next", ".turbo"}
 
 // Config holds all daemon configuration.
 type Config struct {
-	AllowOffline                   bool // serve local control endpoints before Center configuration/authentication
-	NoTaskClaims                   bool // startup-only: keep control/memory channels, never claim business tasks
+	WorkSync                       *WorkSyncSettings // explicit, disabled-by-default replication targets
+	AllowOffline                   bool              // serve local control endpoints before Center configuration/authentication
+	NoTaskClaims                   bool              // startup-only: keep control/memory channels, never claim business tasks
 	ServerBaseURL                  string
 	DaemonID                       string
 	LegacyDaemonIDs                []string // historical daemon_ids this machine may have registered under; reported at register time so the server can merge old runtime rows
@@ -206,6 +207,10 @@ type Overrides struct {
 // LoadConfig builds the daemon configuration from environment variables
 // and optional CLI flag overrides.
 func LoadConfig(overrides Overrides) (Config, error) {
+	workSync, syncErr := loadWorkSyncSettings()
+	if syncErr != nil {
+		return Config{}, syncErr
+	}
 	// Server URL: override > env > default
 	rawServerURL := envOrDefault("MULTICA_SERVER_URL", DefaultServerURL)
 	if overrides.ServerURL != "" {
@@ -626,6 +631,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 	}
 
 	return Config{
+		WorkSync:                        workSync,
 		ServerBaseURL:                   serverBaseURL,
 		DaemonID:                        daemonID,
 		LegacyDaemonIDs:                 legacyDaemonIDs,
