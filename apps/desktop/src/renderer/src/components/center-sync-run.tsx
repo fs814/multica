@@ -15,12 +15,17 @@ interface Props {
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
   onExpired: () => void;
+  sourceSession?: CenterSyncSession;
+  onSourceExpired?: () => void;
 }
 
-export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, onExpired }: Props) {
+export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, onExpired, sourceSession, onSourceExpired }: Props) {
   const { t } = useT("settings");
   const [connection] = useState(() => crypto.randomUUID());
-  const workspaces = useQuery(centerSyncWorkspaceListOptions(sourceAddress, connection));
+  const workspaces = useQuery(centerSyncWorkspaceListOptions(sourceAddress, connection, sourceSession));
+  useEffect(() => {
+    if (workspaces.isError && sourceSession && !sourceSession.currentUser) onSourceExpired?.();
+  }, [workspaces.isError, sourceSession, onSourceExpired]);
   const workspaceLabel = useId();
   const prerequisiteId = useId();
   const [workspace, setWorkspace] = useState<string | null>(null);
@@ -38,23 +43,26 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
     onMutate: () => setProgress({ phase: "checking", batches: 0, records: 0, edits: 0 }),
     mutationFn: async () => {
       if (!httpsReady || !selectedWorkspace || !workspaces.isSuccess || workspaces.isFetching || controller.current) throw new Error("Check server addresses and select an available source workspace");
-      const api = getApi();
+      const api = sourceSession ? null : getApi();
       if (!lifetime.current || lifetime.current.signal.aborted) throw new Error("Sync settings closed");
-      const credential = api.getToken();
+      const credential = api?.getToken();
+      const sourceOwner = sourceSession?.currentUser;
       const owner = session.currentUser;
-      if (api.getBaseUrl().replace(/\/$/, "") !== sourceAddress || !owner) throw new Error("Server connection changed; reconnect before syncing");
+      if (!owner || (sourceSession ? sourceSession.origin !== sourceAddress || !sourceOwner : api?.getBaseUrl().replace(/\/$/, "") !== sourceAddress)) throw new Error("Server connection changed; reconnect before syncing");
       const active = new AbortController(); controller.current = active;
       const signal = AbortSignal.any([active.signal, lifetime.current.signal]);
       const checkSessions = () => {
         signal.throwIfAborted();
-        if (getApi() !== api || api.getToken() !== credential || session.currentUser !== owner) throw new Error("Server login changed; start a new sync run");
+        if ((sourceSession ? sourceSession.currentUser !== sourceOwner : getApi() !== api || api?.getToken() !== credential) || session.currentUser !== owner) throw new Error("Server login changed; start a new sync run");
       };
       try {
         return await syncCenters({
           origin: sourceAddress,
           request: (action, body, signal) => {
             checkSessions();
-            return api.centerSyncSourceRequest(validateCenterSyncSourceRequest({ action, body }), signal);
+            const request = validateCenterSyncSourceRequest({ action, body });
+            if (sourceSession) return sourceSession.syncRequest(request.action, request.body, signal);
+            return api!.centerSyncSourceRequest(request, signal);
           },
         }, {
           origin: session.origin,
@@ -68,6 +76,7 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
       } finally {
         controller.current = null;
         if (!session.currentUser) onExpired();
+        if (sourceSession && !sourceSession.currentUser) onSourceExpired?.();
       }
     },
   });

@@ -24,6 +24,9 @@ interface DesktopAPI {
     get: () => Promise<import('../shared/center-settings').CenterSettingsState>;
     save: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
     saveTransfer: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
+    saveSyncSource: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
+    syncSourceRequest: import('../shared/center-sync-transport').CenterSyncTransport['syncRequest'];
+    cancelSyncSourceRequest: import('../shared/center-sync-transport').CenterSyncTransport['cancelSyncRequest'];
     transferData: (request: import('../shared/center-recovery').CenterTransferRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
     test: (url: string) => Promise<import('../shared/center-settings').CenterTestResult>;
     connect: (enterServerMode?: boolean) => Promise<void>;

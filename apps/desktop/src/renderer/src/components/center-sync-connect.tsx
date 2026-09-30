@@ -13,15 +13,22 @@ interface Props {
   disabled: boolean;
   sourceAddress: string;
   onBusyChange: (busy: boolean) => void;
+  role?: "source" | "peer";
+  sourceSession?: CenterSyncSession | null;
+  onSessionChange?: (session: CenterSyncSession | null) => void;
+  onSourceExpired?: () => void;
 }
 
 // The parent keys this component by source + destination. Changing either
 // tears down the destination session and aborts any outstanding login request.
-export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChange }: Props) {
+export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChange, role = "peer", sourceSession, onSessionChange, onSourceExpired }: Props) {
   const { t } = useT("settings");
   const queryClient = useContext(QueryClientContext);
   const [session] = useState(() => new CenterSyncSession(address,
-    createCenterSyncFetch(new URL(address).origin, window.desktopAPI.center)));
+    createCenterSyncFetch(new URL(address).origin, role === "source" ? {
+      syncRequest: request => window.desktopAPI.center.syncSourceRequest(request),
+      cancelSyncRequest: id => window.desktopAPI.center.cancelSyncSourceRequest(id),
+    } : window.desktopAPI.center)));
   const [user, setUser] = useState<CenterSyncUser | null>(null);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
@@ -30,11 +37,15 @@ export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChan
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const attempt = useRef(0);
-  useEffect(() => () => { attempt.current++; session.disconnect(); }, [session]);
+  useEffect(() => () => { attempt.current++; session.disconnect(); onSessionChange?.(null); }, [session, onSessionChange]);
+  const connected = user && session.currentUser;
+  const connectLabel = role === "source" ? t(($) => $.desktop.center.sync_source_connect) : t(($) => $.desktop.center.sync_connect);
+  const disconnectLabel = role === "source" ? t(($) => $.desktop.center.sync_source_disconnect) : t(($) => $.desktop.center.sync_disconnect);
 
   function close() {
     attempt.current++;
     session.disconnect();
+    onSessionChange?.(null);
     setOpen(false); setPending(false); setCode(""); setSent(false); setError("");
   }
 
@@ -50,6 +61,7 @@ export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChan
         const connected = await session.verifyCode(email.trim(), code.trim());
         if (current !== attempt.current) return;
         setUser(connected); setOpen(false); setCode(""); setSent(false);
+        onSessionChange?.(session);
       }
     } catch (failure) {
       if (current === attempt.current) {
@@ -75,10 +87,10 @@ export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChan
   return <div className="w-full max-w-full space-y-2">
     <div className="flex flex-wrap gap-2">
     <Dialog open={open} onOpenChange={value => { if (value) setOpen(true); else close(); }}>
-    <DialogTrigger render={<Button variant="outline" disabled={disabled || !!user} />}>{t(($) => $.desktop.center.sync_connect)}</DialogTrigger>
+    <DialogTrigger render={<Button variant="outline" disabled={disabled || !!connected} />}>{connectLabel}</DialogTrigger>
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>{t(($) => $.desktop.center.sync_connect)}</DialogTitle>
+        <DialogTitle>{connectLabel}</DialogTitle>
         <DialogDescription>{t(($) => $.desktop.center.sync_connect_description, { address: session.origin })}</DialogDescription>
       </DialogHeader>
       <form className="space-y-4" onSubmit={event => { event.preventDefault(); void submit(); }}>
@@ -99,19 +111,19 @@ export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChan
       </form>
     </DialogContent>
     </Dialog>
-    <Button variant="outline" disabled={!user} onClick={() => {
+    <Button variant="outline" disabled={!connected} onClick={() => {
       close(); setUser(null); setEmail("");
     }}>
-      {t(($) => $.desktop.center.sync_disconnect)}
+      {disconnectLabel}
     </Button>
     </div>
-    {user && <>
-      <p role="status" className="break-all text-body">{t(($) => $.desktop.center.sync_connected, { address: session.origin, email: user.email })}</p>
+    {connected && <>
+      <p role="status" className="break-all text-body">{t(($) => $.desktop.center.sync_connected, { address: session.origin, email: connected.email })}</p>
       <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_connection_lifetime)}</p>
-      {queryClient && sourceAddress
-        ? <CenterSyncRun sourceAddress={sourceAddress} session={session} disabled={disabled} onBusyChange={onBusyChange} onExpired={() => setUser(null)} />
-        : <><p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_source_required)}</p><Button disabled>{t(($) => $.desktop.center.sync_data)}</Button></>}
+      {role === "peer" && (queryClient && sourceAddress && sourceSession !== null && (!sourceSession || sourceSession.currentUser)
+        ? <CenterSyncRun key={sourceSession ? `${sourceSession.origin}:${sourceSession.currentUser?.id}` : "primary"} sourceAddress={sourceAddress} sourceSession={sourceSession} session={session} disabled={disabled} onBusyChange={onBusyChange} onExpired={() => setUser(null)} onSourceExpired={onSourceExpired} />
+        : <><p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_source_required)}</p><Button disabled>{t(($) => $.desktop.center.sync_data)}</Button></>)}
     </>}
-    {!user && <Button disabled>{t(($) => $.desktop.center.sync_data)}</Button>}
+    {!connected && role === "peer" && <Button disabled>{t(($) => $.desktop.center.sync_data)}</Button>}
   </div>;
 }

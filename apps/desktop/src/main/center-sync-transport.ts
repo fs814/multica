@@ -1,4 +1,5 @@
-import { centerSyncActions } from "@multica/core/api/center-sync";
+import { centerSyncActions, validateCenterSyncSourceRequest } from "@multica/core/api/center-sync";
+import { centerCertificateFetch } from "./center-certificate-fetch";
 import type { BrowserWindow, IpcMain, IpcMainInvokeEvent, WebContents } from "electron";
 import { normalizeCenterUrl } from "../shared/center-settings";
 import type { CenterSyncTransportRequest, CenterSyncTransportResult } from "../shared/center-sync-transport";
@@ -6,11 +7,12 @@ import type { CenterSyncTransportRequest, CenterSyncTransportResult } from "../s
 const capacity = 32 * 1024 * 1024;
 const requestID = /^[a-f0-9-]{36}$/;
 
-function parseRequest(raw: unknown, peer: string, source: string): CenterSyncTransportRequest {
+function parseRequest(raw: unknown, peer: string, source: string, role: "peer" | "source"): CenterSyncTransportRequest {
   if (!raw || typeof raw !== "object") throw new Error("Invalid request");
   const value = raw as Record<string, unknown>;
   if (typeof value.id !== "string" || !requestID.test(value.id) || typeof value.path !== "string" ||
       value.origin !== peer || peer === source || normalizeCenterUrl(peer) !== peer ||
+      (role === "source" && !peer.startsWith("https:")) ||
       (value.body !== undefined && (typeof value.body !== "string" || Buffer.byteLength(value.body) > capacity)) ||
       (value.token !== undefined && (typeof value.token !== "string" || !value.token || value.token.length > 8192 || /\s/.test(value.token)))) {
     throw new Error("Invalid request");
@@ -25,7 +27,7 @@ function parseRequest(raw: unknown, peer: string, source: string): CenterSyncTra
     if (typeof input.email !== "string" || !input.email || input.email.length > 320 ||
         Object.keys(input).some(key => !["email", ...(verify ? ["code"] : [])].includes(key)) ||
         (verify && (typeof input.code !== "string" || !/^\d{6}$/.test(input.code)))) throw new Error("Invalid sign-in request");
-  } else if (path === "/api/me") {
+  } else if (path === "/api/me" || (role === "source" && path === "/api/workspaces")) {
     if (!value.token || value.body !== undefined) throw new Error("Invalid identity request");
   } else {
     // No recovery, arbitrary proxy paths, URL parameters, redirects or cookies.
@@ -33,14 +35,15 @@ function parseRequest(raw: unknown, peer: string, source: string): CenterSyncTra
         !centerSyncActions.some(action => path === `/api/center-sync/${action}`)) throw new Error("Invalid sync request");
     const body: unknown = JSON.parse(value.body);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid sync request");
+    if (role === "source") validateCenterSyncSourceRequest({ action: path.slice('/api/center-sync/'.length), body });
   }
   return { id: value.id, origin: peer, path, body: value.body as string | undefined, token: value.token as string | undefined };
 }
 
-/** Native requests are bound to the user-saved peer, not a renderer-provided URL.
+/** Native requests are bound to the role's saved origin, not a renderer-provided URL.
  * No credentials are persisted, borrowed from the source or sent in redirects.
  */
-export function createCenterSyncTransport(target: () => { peer: string; source: string }, fetcher: typeof fetch = fetch) {
+export function createCenterSyncTransport(target: () => { peer: string; source: string }, fetcher: typeof fetch = centerCertificateFetch, role: "peer" | "source" = "peer") {
   const pending = new Map<string, AbortController>();
   return {
     cancel(id: unknown) { if (typeof id === "string") pending.get(id)?.abort(); },
@@ -48,7 +51,7 @@ export function createCenterSyncTransport(target: () => { peer: string; source: 
     async request(raw: unknown): Promise<CenterSyncTransportResult> {
       const selected = target();
       let input: CenterSyncTransportRequest;
-      try { input = parseRequest(raw, selected.peer, selected.source); }
+      try { input = parseRequest(raw, selected.peer, selected.source, role); }
       catch { return { ok: false, reason: "invalid_request" }; }
       if (pending.size >= 4 || pending.has(input.id)) return { ok: false, reason: "capacity" };
       const controller = new AbortController();
@@ -85,13 +88,13 @@ export function createCenterSyncTransport(target: () => { peer: string; source: 
   };
 }
 
-export function registerCenterSyncTransport(ipc: Pick<IpcMain, "handle">, window: () => BrowserWindow | null, transport: ReturnType<typeof createCenterSyncTransport>) {
+export function registerCenterSyncTransport(ipc: Pick<IpcMain, "handle">, window: () => BrowserWindow | null, transport: ReturnType<typeof createCenterSyncTransport>, channel: "center:sync" | "center:sync-source" = "center:sync") {
   const senders = new WeakSet<WebContents>();
   const authorize = (event: IpcMainInvokeEvent) => {
     const main = window()?.webContents;
     if (!main || event.sender !== main || event.senderFrame !== main.mainFrame) throw new Error("Sync requires the main Desktop window");
   };
-  ipc.handle("center:sync-request", (event, request: unknown) => {
+  ipc.handle(`${channel}-request`, (event, request: unknown) => {
     authorize(event);
     if (!senders.has(event.sender)) {
       senders.add(event.sender);
@@ -102,5 +105,5 @@ export function registerCenterSyncTransport(ipc: Pick<IpcMain, "handle">, window
     }
     return transport.request(request);
   });
-  ipc.handle("center:sync-cancel", (event, id: unknown) => { authorize(event); transport.cancel(id); });
+  ipc.handle(`${channel}-cancel`, (event, id: unknown) => { authorize(event); transport.cancel(id); });
 }

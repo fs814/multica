@@ -1,7 +1,7 @@
 import type { RuntimeConfig } from "./runtime-config";
 
 export interface CenterSettings { version: 1; url: string; profile: string }
-export interface CenterSettingsState { saved: CenterSettings | null; activeUrl: string; error?: string; transferUrl?: string; transferError?: string }
+export interface CenterSettingsState { saved: CenterSettings | null; activeUrl: string; error?: string; transferUrl?: string; transferError?: string; syncSourceUrl?: string; syncSourceError?: string }
 export interface CenterTestResult { reachable: boolean; message: string }
 
 export function normalizeCenterUrl(value: unknown): string {

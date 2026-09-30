@@ -4,10 +4,27 @@ import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createServer } from 'http';
-import { readCenterSettings, saveCenterSettings, testCenterConnection } from './center-settings';
+import { readCenterSettings, saveCenterSettings, saveSyncSourceSettings, testCenterConnection } from './center-settings';
 import { centerRuntimeConfig, normalizeCenterUrl } from '../shared/center-settings';
 
 describe('saved center preferences', () => {
+  it('saves the HTTPS sync source independently and rejects HTTP and the peer origin', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sync-source-settings-'));
+    try {
+      const mainFile = join(dir, 'center.json'), sourceFile = join(dir, 'center-sync-source.json');
+      const main = { version: 1 as const, url: 'http://source.example:18080', profile: 'desktop-main' };
+      await saveCenterSettings(main, mainFile);
+      const saved = await saveSyncSourceSettings(' https://source.example:18082/ ', 'https://peer.example', sourceFile);
+      expect(saved.url).toBe('https://source.example:18082');
+      const before = await readFile(sourceFile, 'utf8');
+      for (const url of ['http://source.example:18080', 'https://peer.example', 'https://user:secret@source.example', 'https://source.example/path']) {
+        await expect(saveSyncSourceSettings(url, 'https://peer.example', sourceFile)).rejects.toThrow();
+        expect(await readFile(sourceFile, 'utf8')).toBe(before);
+      }
+      expect(await readCenterSettings(mainFile)).toEqual(main);
+      expect(before).not.toMatch(/token|password/i);
+    } finally { await rm(dir, { recursive: true }); }
+  });
   it('persists the transfer destination separately without changing the active server preference', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'center-transfer-settings-'));
     try {

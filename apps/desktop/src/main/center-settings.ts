@@ -2,10 +2,17 @@ import { readFile, writeFile, mkdir, rename } from "fs/promises";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { randomUUID } from "crypto";
+import { centerCertificateFetch } from "./center-certificate-fetch";
 import { normalizeCenterUrl, parseCenterSettings, type CenterSettings, type CenterTestResult } from "../shared/center-settings";
 
 export function centerSettingsPath(): string { return join(homedir(), '.multica', 'center.json'); }
 export function centerTransferSettingsPath(): string { return join(homedir(), '.multica', 'center-transfer.json'); }
+export function centerSyncSourceSettingsPath(): string { return join(homedir(), '.multica', 'center-sync-source.json'); }
+export async function saveSyncSourceSettings(value: unknown, peer: string, file = centerSyncSourceSettingsPath()): Promise<CenterSettings> {
+  const url = normalizeCenterUrl(value);
+  if (!url.startsWith('https:') || url === peer) throw new Error('Use an HTTPS source address different from the peer');
+  return saveCenterSettings({ version: 1, url, profile: 'desktop-sync-source' }, file);
+}
 export async function readCenterSettings(file = centerSettingsPath()): Promise<CenterSettings | null> {
   try { return parseCenterSettings(JSON.parse(await readFile(file, 'utf8'))); }
   catch (error) {
@@ -25,7 +32,7 @@ export async function testCenterConnection(value: string): Promise<CenterTestRes
   try {
     const url = normalizeCenterUrl(value);
     // No credentials, no redirects, and no lifecycle side effects.
-    const response = await fetch(url + '/api/me', { redirect: 'error', signal: AbortSignal.timeout(5000) });
+    const response = await centerCertificateFetch(url + '/api/me', { redirect: 'error', signal: AbortSignal.timeout(5000) });
     const body: unknown = await response.json();
     const apiResponse = body && typeof body === 'object' && ('error' in body || 'id' in body);
     if ([200, 401, 403].includes(response.status) && apiResponse) {

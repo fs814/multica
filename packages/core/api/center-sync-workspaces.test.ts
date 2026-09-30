@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getApi } from "./index";
 import { centerSyncWorkspaceListOptions } from "./center-sync-workspaces";
+import { CenterSyncSession } from "./center-sync-session";
 
 const origin = "https://source.example";
 const workspace = { id: "12345678-1234-4234-8234-123456789012", name: "Fixture" };
@@ -13,6 +14,20 @@ vi.mock("./index", () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("sync workspace query", () => {
+  it("uses only the separate source session and discards results after it disconnects", async () => {
+    const client = new QueryClient();
+    const session = new CenterSyncSession(origin);
+    const user = { id: workspace.id, email: 'fixture@example.test' };
+    const identity = vi.spyOn(session, 'currentUser', 'get').mockReturnValue(user);
+    const primary = vi.spyOn(getApi(), 'listWorkspaces');
+    const list = vi.spyOn(session, 'listWorkspaces').mockResolvedValue([workspace]);
+    try {
+      expect(await client.fetchQuery(centerSyncWorkspaceListOptions(origin, 'separate', session))).toEqual([workspace]);
+      expect(primary).not.toHaveBeenCalled();
+      list.mockImplementation(async () => { identity.mockReturnValue(null); return [workspace]; });
+      await expect(client.fetchQuery(centerSyncWorkspaceListOptions(origin, 'changed', session))).rejects.toThrow('Source connection changed');
+    } finally { client.clear(); }
+  });
   it("does not reuse global or previous connection workspace caches", async () => {
     const client = new QueryClient();
     try {

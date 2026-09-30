@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -34,7 +35,54 @@ func NewFromEnvironment(pool *pgxpool.Pool) (*Handler, error) {
 	if os.Getenv("MULTICA_CENTER_SYNC_ENABLED") != "1" {
 		return nil, nil
 	}
-	return New(pool, Config{Owner: os.Getenv("MULTICA_CENTER_SYNC_OWNER_ID"), Root: os.Getenv("MULTICA_CENTER_SYNC_DIR"), Origin: os.Getenv("MULTICA_CENTER_SYNC_ORIGIN")})
+	owner, err := resolveOwner(os.Getenv("MULTICA_CENTER_SYNC_OWNER_ID"), os.Getenv("MULTICA_CENTER_SYNC_OWNER_EMAIL"), func(email string) ([]string, error) {
+		if pool == nil {
+			return nil, errors.New("database unavailable")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		rows, err := pool.Query(ctx, `SELECT id::text FROM "user" WHERE lower(email)=lower($1) LIMIT 2`, email)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var ids []string
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				return nil, err
+			}
+			ids = append(ids, id)
+		}
+		return ids, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return New(pool, Config{Owner: owner, Root: os.Getenv("MULTICA_CENTER_SYNC_DIR"), Origin: os.Getenv("MULTICA_CENTER_SYNC_ORIGIN")})
+}
+
+// Resolve once against this center's database, never from a client request or
+// another server's account ID. An explicit ID must agree with the email.
+func resolveOwner(id, email string, lookup func(string) ([]string, error)) (string, error) {
+	if email == "" {
+		return id, nil
+	}
+	parsed, err := mail.ParseAddress(email)
+	if err != nil || parsed.Address != email || (id != "" && !validID(id)) {
+		return "", errors.New("manual center sync requires a plain owner email and valid optional owner UUID")
+	}
+	ids, err := lookup(email)
+	if err != nil {
+		return "", errors.New("manual center sync owner lookup failed; check this center's database")
+	}
+	if len(ids) != 1 || !validID(ids[0]) {
+		return "", errors.New("manual center sync owner email must match exactly one existing local account; sign in first, then restart the center")
+	}
+	if id != "" && id != ids[0] {
+		return "", errors.New("manual center sync owner UUID does not match the configured email on this center")
+	}
+	return ids[0], nil
 }
 
 type Handler struct {

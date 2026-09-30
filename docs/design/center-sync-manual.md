@@ -53,10 +53,37 @@ When TLS is enabled, this origin must match the listener port and certificate
 SAN. After binding, the API prints `Center HTTPS (Desktop/API and sync only)`
 and its configured `Network: https://HOST:18082` address separately from Next's
 HTTP Web banner. This confirms local binding, not remote reachability or trust.
-In Desktop, connect the primary **Server address** to the source's HTTPS origin
-and **Connect for sync** to the other center's HTTPS origin. Both connections
-must use HTTPS; an HTTP primary connection does not silently switch to port
-18082. This port serves the API, not the Next.js web page.
+In Desktop, **Source HTTPS connection for sync** can connect separately to the
+source's HTTPS origin while the normal **Server address** stays unchanged,
+including an HTTP connection on 18080. **Connect for sync** connects to the other
+center's HTTPS origin. Both sync connections must use HTTPS. Without a saved
+separate source, sync uses the existing primary login and requires it to be
+HTTPS. Port 18082 serves the API, not the Next.js web page.
+
+### Native peer certificate trust
+
+For a self-signed source or peer certificate, Desktop's native connection test
+and separate sign-in/sync can use `~/.multica/center-certificates.json` (user profile on Windows):
+
+```json
+{
+  "version": 1,
+  "centers": [{
+    "origin": "https://192.0.2.10:18082",
+    "certificateFile": "/absolute/path/to/peer-fullchain.pem",
+    "fingerprint256": "VERIFIED_COLON_SEPARATED_SHA256_FINGERPRINT"
+  }]
+}
+```
+
+Supply exactly one public leaf certificate, not its private key. Verify the
+SHA-256 fingerprint directly on the server before adding it. Trust applies only
+to the exact HTTPS origin and leaf fingerprint; signatures, hostname and expiry
+are still checked and redirects remain rejected. Desktop supports up to 16
+entries. Restart Desktop after adding, renewing or removing an entry. A missing
+configuration uses normal public trust; malformed configuration fails closed.
+This does not install OS/browser/daemon trust or enable sync. The primary
+renderer connection still needs its ordinary certificate trust configured.
 
 ### Manual sync authorization
 
@@ -69,11 +96,19 @@ MULTICA_CENTER_SYNC_ORIGIN=https://this-center.example.com
 MULTICA_CENTER_SYNC_DIR=/absolute/private/center-sync
 ```
 
-Use that center's own account ID (available from authenticated `/api/me`), not an
-email, password or recovery token. The source account must also own the selected
+For `MULTICA_CENTER_SYNC_OWNER_ID`, use that center's own account UUID (available
+from authenticated `/api/me`), not an email, password or recovery token. The source account must also own the selected
 workspace. The two servers may have different local account IDs. Existing account
 authentication is still required; no `RECOVERY_TOKEN` is used by this feature.
 Do not disable or repurpose authentication on the separate recovery endpoints.
+
+Alternatively, set `MULTICA_CENTER_SYNC_OWNER_EMAIL` to the intended account's
+plain email address instead of setting `MULTICA_CENTER_SYNC_OWNER_ID`. At backend
+startup, the center resolves exactly one existing local account by case-insensitive
+email. No account is created and no workspace role is changed. Missing/ambiguous
+matches or database lookup failures disable sync; sign in to create the account
+first, then restart the center. If both email and UUID are configured, they must
+identify the same local account. Never copy another center's UUID.
 
 Origins must be HTTPS origins without trailing paths. The state directory must
 be private (Unix mode `0700`), durable across restarts, and writable by the server.
@@ -83,15 +118,25 @@ Desktop peer requests use a native, origin-bound transport; no Desktop CORS
 allowlist change is needed for that connection. Browser clients still follow
 the server's existing CORS policy.
 
-In Desktop Settings → Desktop app → Center server, save the peer address, choose
-**Connect for sync**, and sign in there. Select the source workspace and press
+In Desktop Settings → Desktop app → Center server, optionally save the HTTPS
+source address under **Source HTTPS connection for sync**, then choose
+**Connect source for sync** and sign in. Only the address is saved in
+`~/.multica/center-sync-source.json`; credentials stay in memory while settings
+are open. Workspace listing uses this source session, not the normal Desktop
+session. **Disconnect sync source** cancels the run and drops this login without
+disconnecting Desktop or the peer. A configured but disconnected source never
+falls back to the normal login. Changing either saved sync address resets sync
+sessions; merely saving, testing or signing in never starts a sync run.
+
+Save the peer address, choose **Connect for sync**, and sign in there.
+Select the source workspace and press
 **Sync between center servers**. There is no second approval dialog. Cancel,
 Disconnect, changing servers, and closing settings stop further requests; already
 committed progress remains on the receiving server. HTTP connections may be
 tested or signed into, but data sync requires HTTPS on both servers.
 
-The Sync button stays disabled for HTTP connections and explains that both
-centers need valid TLS configuration before reconnecting at HTTPS addresses.
+The Sync button stays disabled if either sync connection uses HTTP and explains
+that both centers need valid TLS configuration before connecting at HTTPS addresses.
 Merely editing the URL scheme does not configure TLS. The source workspace
 picker uses a connection-scoped query, shows loading/empty/error states, and
 offers manual refresh. A removed selection cannot start a run.

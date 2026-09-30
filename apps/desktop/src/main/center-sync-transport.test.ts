@@ -11,6 +11,20 @@ const id = "12345678-1234-4234-8234-123456789012";
 const input = { id, origin: peer, path: "/auth/send-code", body: JSON.stringify({ email: "owner@example.test" }) };
 
 describe("native peer transport", () => {
+  it('isolates the HTTPS source channel, permits authenticated workspace reads only there, and rejects HTTP', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json([]));
+    const transport = createCenterSyncTransport(() => ({ peer: source, source: 'https://peer.example' }), fetcher, 'source');
+    const workspaces = { id, origin: source, path: '/api/workspaces', token: 'source-https-login' };
+    expect(await transport.request(workspaces)).toMatchObject({ ok: true, status: 200 });
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(source + '/api/workspaces', expect.objectContaining({ method: 'GET', credentials: 'omit', redirect: 'error', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer source-https-login' } }));
+    for (const request of [{ ...workspaces, token: undefined }, { ...workspaces, body: '{}' }, { ...workspaces, origin: peer }, { ...workspaces, path: '/api/workspaces?all=1' }, { ...workspaces, path: '/api/issues' }]) {
+      expect(await transport.request(request)).toEqual({ ok: false, reason: 'invalid_request' });
+    }
+    expect(await createCenterSyncTransport(() => ({ peer: source, source: peer }), fetcher).request(workspaces)).toEqual({ ok: false, reason: 'invalid_request' });
+    expect(await createCenterSyncTransport(() => ({ peer, source }), fetcher, 'source').request(input)).toEqual({ ok: false, reason: 'invalid_request' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(await transport.request({ id, origin: source, path: '/api/center-sync/apply', body: '{}', token: 'source-https-login' })).toEqual({ ok: false, reason: 'invalid_request' });
+  });
   it("uses the saved HTTP peer without browser cookies, redirects or source credentials", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ message: "sent" }));
     const transport = createCenterSyncTransport(() => ({ peer, source }), fetcher);
@@ -112,24 +126,24 @@ describe("native peer transport", () => {
     } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 
-  it("allows IPC only from the main window's top-level frame", async () => {
+  it.each(["center:sync", "center:sync-source"] as const)("allows %s IPC only from the main window's top-level frame", async prefix => {
     const handlers = new Map<string, Parameters<IpcMain["handle"]>[1]>();
     const ipc = { handle: vi.fn<IpcMain["handle"]>((channel, handler) => { handlers.set(channel, handler); }) };
     const frame = {};
     const sender = { mainFrame: frame, on: vi.fn(), once: vi.fn() };
     const main = { webContents: sender } as unknown as BrowserWindow;
     const transport = { request: vi.fn().mockResolvedValue({ ok: true, status: 200, body: "{}" }), cancel: vi.fn(), cancelAll: vi.fn() };
-    registerCenterSyncTransport(ipc, () => main, transport);
+    registerCenterSyncTransport(ipc, () => main, transport, prefix);
     const event = { sender, senderFrame: frame } as unknown as IpcMainInvokeEvent;
-    for (const channel of ["center:sync-request", "center:sync-cancel"]) {
+    for (const channel of [`${prefix}-request`, `${prefix}-cancel`]) {
       const handler = handlers.get(channel)!;
       expect(() => handler({ ...event, senderFrame: null }, input)).toThrow("main Desktop window");
       expect(() => handler({ ...event, sender: {} as IpcMainInvokeEvent["sender"] }, input)).toThrow("main Desktop window");
     }
     expect(transport.request).not.toHaveBeenCalled();
     expect(transport.cancel).not.toHaveBeenCalled();
-    await handlers.get("center:sync-request")!(event, input);
-    await handlers.get("center:sync-request")!(event, input);
+    await handlers.get(`${prefix}-request`)!(event, input);
+    await handlers.get(`${prefix}-request`)!(event, input);
     expect(transport.request).toHaveBeenCalledTimes(2);
     expect(sender.once).toHaveBeenCalledTimes(1);
     const navigation = sender.on.mock.calls.find(([name]) => name === "did-start-navigation")![1];

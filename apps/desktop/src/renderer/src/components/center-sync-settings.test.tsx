@@ -6,6 +6,10 @@ import { RESOURCES } from "@multica/views/locales";
 import { CenterSettingsTab } from "./center-settings-tab";
 import { CenterSyncConnect } from "./center-sync-connect";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { syncCenters } from "@multica/core/api/center-sync";
+import { getApi } from "@multica/core/api";
+
+vi.mock("@multica/core/api/center-sync", async importOriginal => ({ ...await importOriginal<object>(), syncCenters: vi.fn() }));
 
 vi.mock("@multica/core/api", () => {
   const api = { listWorkspaces: async () => [], getToken: () => "source-login", getBaseUrl: () => "https://source.example" };
@@ -14,7 +18,7 @@ vi.mock("@multica/core/api", () => {
 
 const source = "https://source.example";
 const peer = "https://peer.example";
-const center = { get: vi.fn(), save: vi.fn(), connect: vi.fn(), test: vi.fn(), saveTransfer: vi.fn(), transferData: vi.fn(), syncRequest: vi.fn(), cancelSyncRequest: vi.fn() };
+const center = { get: vi.fn(), save: vi.fn(), connect: vi.fn(), test: vi.fn(), saveTransfer: vi.fn(), saveSyncSource: vi.fn(), transferData: vi.fn(), syncRequest: vi.fn(), cancelSyncRequest: vi.fn(), syncSourceRequest: vi.fn(), cancelSyncSourceRequest: vi.fn() };
 const state = { saved: { version: 1 as const, url: source, profile: "desktop-services" }, activeUrl: source, transferUrl: peer };
 
 beforeEach(() => {
@@ -22,6 +26,7 @@ beforeEach(() => {
   center.get.mockResolvedValue(state);
   center.saveTransfer.mockImplementation(async (url: string) => ({ ...state, transferUrl: new URL(url.trim()).origin }));
   center.cancelSyncRequest.mockResolvedValue(undefined);
+  center.cancelSyncSourceRequest.mockResolvedValue(undefined);
   // Model the native bridge; component tests assert the IPC wiring, while the
   // main-process transport tests own origin and endpoint enforcement.
   center.syncRequest.mockImplementation(async (request: { origin: string; path: string; body?: string; token?: string }) => {
@@ -31,9 +36,10 @@ beforeEach(() => {
       return { ok: true, status: response.status, body: await response.text() };
     } catch { return { ok: false, reason: "network" }; }
   });
+  center.syncSourceRequest.mockImplementation(request => center.syncRequest.getMockImplementation()!(request));
   Object.defineProperty(window, "desktopAPI", { configurable: true, value: { center } });
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 async function show(locale: SupportedLocale = "en", title = "Sync between center servers") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -44,6 +50,91 @@ async function show(locale: SupportedLocale = "en", title = "Sync between center
 }
 
 describe("center sync settings", () => {
+  it("saves and tests a separate HTTPS source without changing the HTTP Desktop connection", async () => {
+    const http = "http://source.example:18080";
+    const current = { ...state, activeUrl: http, saved: { ...state.saved, url: http } };
+    center.get.mockResolvedValue(current);
+    center.saveSyncSource.mockImplementation(async url => ({ ...current, syncSourceUrl: url }));
+    center.test.mockResolvedValue({ reachable: true });
+    await show();
+    const section = within(screen.getByRole("region", { name: "Source HTTPS connection for sync" }));
+    const input = section.getByLabelText("Source HTTPS address");
+    expect(input).toHaveValue("");
+    for (const address of [http, peer]) {
+      fireEvent.change(input, { target: { value: address } });
+      expect(section.getByRole("button", { name: "Save" })).toBeDisabled();
+      expect(section.getByRole("button", { name: "Connect source for sync" })).toBeDisabled();
+    }
+    fireEvent.change(input, { target: { value: source + "/" } });
+    fireEvent.click(section.getByRole("button", { name: "Test server connection" }));
+    await waitFor(() => expect(center.test).toHaveBeenCalledWith(source));
+    await waitFor(() => expect(section.getByRole("button", { name: "Save" })).toBeEnabled());
+    fireEvent.click(section.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(section.getByRole("button", { name: "Connect source for sync" })).toBeEnabled());
+    expect(center.saveSyncSource).toHaveBeenCalledWith(source);
+    expect(screen.getByLabelText("Server address")).toHaveValue(http);
+    expect(center.save).not.toHaveBeenCalled(); expect(center.connect).not.toHaveBeenCalled();
+    expect(center.syncSourceRequest).not.toHaveBeenCalled();
+  });
+
+  it("syncs over two separate HTTPS sessions while Desktop stays on HTTP, then disconnects only the source", async () => {
+    const http = "http://source.example:18080";
+    center.get.mockResolvedValue({ ...state, activeUrl: http, saved: { ...state.saved, url: http }, syncSourceUrl: source });
+    const user = { id: "12345678-1234-4234-8234-123456789012", email: "owner@example.test" };
+    const workspace = { id: "22345678-1234-4234-8234-123456789012", name: "HTTPS source workspace" };
+    vi.stubGlobal("fetch", vi.fn(async (address: string) => {
+      const url = new URL(address);
+      if (url.pathname === "/auth/verify-code") return Response.json({ token: url.origin === source ? "source-https-token" : "peer-https-token", user });
+      if (url.pathname === "/api/me") return Response.json(user);
+      if (url.pathname === "/api/workspaces") return Response.json([workspace]);
+      return Response.json({});
+    }));
+    const primaryList = vi.spyOn(getApi(), "listWorkspaces");
+    vi.mocked(syncCenters).mockImplementation(async (src, dst, _workspace, signal) => {
+      await src.request("info", {}, signal); await dst.request("info", {}, signal);
+      return { records: [], cursor: 0, conflicts: 0, pending: 0 };
+    });
+    const peerSection = await show();
+    const sourceSection = within(screen.getByRole("region", { name: "Source HTTPS connection for sync" }));
+    async function login(section: typeof peerSection, button: string) {
+      fireEvent.click(section.getByRole("button", { name: button }));
+      const dialog = within(await screen.findByRole("dialog"));
+      fireEvent.change(dialog.getByLabelText("Email"), { target: { value: user.email } });
+      fireEvent.click(dialog.getByRole("button", { name: "Send sign-in code" }));
+      fireEvent.change(await dialog.findByLabelText("Verification code"), { target: { value: "123456" } });
+      fireEvent.click(dialog.getByRole("button", { name: "Sign in" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    }
+    await login(peerSection, "Connect for sync");
+    expect(peerSection.getByRole("button", { name: "Sync between center servers" })).toBeDisabled();
+    await login(sourceSection, "Connect source for sync");
+    await waitFor(() => expect(peerSection.getByRole("combobox")).toBeEnabled());
+    fireEvent.click(peerSection.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: workspace.name }));
+    expect(syncCenters).not.toHaveBeenCalled();
+    fireEvent.click(peerSection.getByRole("button", { name: "Sync between center servers" }));
+    await peerSection.findByText(/records through cursor 0/);
+    expect(syncCenters).toHaveBeenCalledOnce();
+    expect(vi.mocked(syncCenters).mock.calls[0]![0].origin).toBe(source);
+    expect(center.syncSourceRequest).toHaveBeenCalledWith(expect.objectContaining({ origin: source, path: "/api/workspaces", token: "source-https-token" }));
+    expect(center.syncSourceRequest).toHaveBeenCalledWith(expect.objectContaining({ origin: source, path: "/api/center-sync/info", token: "source-https-token" }));
+    expect(center.syncRequest).toHaveBeenCalledWith(expect.objectContaining({ origin: peer, path: "/api/center-sync/info", token: "peer-https-token" }));
+    expect(primaryList).not.toHaveBeenCalled();
+    expect(center.connect).not.toHaveBeenCalled(); expect(center.save).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Server address")).toHaveValue(http);
+    let aborted = false;
+    vi.mocked(syncCenters).mockImplementation((_src, _dst, _workspace, signal) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => { aborted = true; reject(new Error('cancelled fixture')); }, { once: true });
+    }));
+    fireEvent.click(peerSection.getByRole("button", { name: "Sync between center servers" }));
+    await waitFor(() => expect(syncCenters).toHaveBeenCalledTimes(2));
+    fireEvent.click(sourceSection.getByRole("button", { name: "Disconnect sync source" }));
+    await waitFor(() => expect(aborted).toBe(true));
+    expect(peerSection.getByRole("button", { name: "Sync between center servers" })).toBeDisabled();
+    expect(peerSection.getByText(`Connected to ${peer} as ${user.email}.`)).toBeVisible();
+    expect(sourceSection.queryByText(`Connected to ${source} as ${user.email}.`)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Server address")).toHaveValue(http);
+  });
   it("does not mount server-data hooks in offline settings without a Query provider", async () => {
     const user = { id: "12345678-1234-4234-8234-123456789012", email: "owner@example.test" };
     const fetcher = vi.fn()
@@ -168,7 +259,7 @@ describe("center sync settings", () => {
     await waitFor(() => expect(section.getByRole("button", { name: "Save" })).toBeEnabled());
     fireEvent.click(section.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(address).toHaveValue("https://another.example"));
-    expect(await section.findByText("Peer address saved on this Desktop. No sync connection has been created.")).toBeVisible();
+    expect(await section.findByText("Peer address saved on this Desktop.")).toBeVisible();
     expect(center.saveTransfer).toHaveBeenCalledWith("https://another.example/");
     expect(center.save).not.toHaveBeenCalled();
     expect(center.connect).not.toHaveBeenCalled();

@@ -8,7 +8,7 @@ import { setupAutoUpdater } from "./updater";
 import { setupDaemonManager, switchCenterTarget, resetDaemonAfterCenterImport } from "./daemon-manager";
 import { createCenterRecovery } from "./center-recovery";
 import { createCenterSyncTransport, registerCenterSyncTransport } from "./center-sync-transport";
-import { centerTransferSettingsPath, readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
+import { centerTransferSettingsPath, centerSyncSourceSettingsPath, readCenterSettings, saveCenterSettings, saveSyncSourceSettings, testCenterConnection } from "./center-settings";
 import { centerRuntimeConfig, type CenterSettings } from "../shared/center-settings";
 import { parseTransferRequest } from "../shared/center-recovery";
 import { deriveProfileName } from "./daemon-profile";
@@ -671,9 +671,17 @@ if (!gotTheLock) {
     let transferError: string | undefined;
     try { transferCenter = await readCenterSettings(centerTransferSettingsPath()); }
     catch { transferError = 'Cannot read the transfer destination; save a valid transfer server address'; }
-    const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError, transferUrl: transferCenter?.url ?? '', transferError });
-    const syncTransport = createCenterSyncTransport(() => ({ peer: transferCenter?.url ?? '', source: centerState().activeUrl }));
+    let syncSourceCenter: CenterSettings | null = null;
+    let syncSourceError: string | undefined;
+    try {
+      syncSourceCenter = await readCenterSettings(centerSyncSourceSettingsPath());
+      if (syncSourceCenter && !syncSourceCenter.url.startsWith('https:')) throw new Error('HTTPS required');
+    } catch { syncSourceCenter = null; syncSourceError = 'Cannot read the sync source; save a valid HTTPS source address'; }
+    const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError, transferUrl: transferCenter?.url ?? '', transferError, syncSourceUrl: syncSourceCenter?.url ?? '', syncSourceError });
+    const syncTransport = createCenterSyncTransport(() => ({ peer: transferCenter?.url ?? '', source: syncSourceCenter?.url ?? centerState().activeUrl }));
+    const syncSourceTransport = createCenterSyncTransport(() => ({ peer: syncSourceCenter?.url ?? '', source: transferCenter?.url ?? '' }), undefined, 'source');
     registerCenterSyncTransport(ipcMain, () => mainWindow, syncTransport);
+    registerCenterSyncTransport(ipcMain, () => mainWindow, syncSourceTransport, 'center:sync-source');
     let centerBusy = false;
     // Preserve the explicit mode choice across a connection reload, not app restarts.
     let centerInitialMode: 'choose' | 'center' = 'choose';
@@ -712,7 +720,17 @@ if (!gotTheLock) {
       const profile = savedCenter?.profile ?? deriveProfileName(centerState().activeUrl, process.env.MULTICA_DESKTOP_DAEMON_PROFILE ?? (centerState().activeUrl ? undefined : 'desktop-services'));
       transferCenter = await saveCenterSettings({ version: 1, url, profile }, centerTransferSettingsPath());
       syncTransport.cancelAll();
+      syncSourceTransport.cancelAll();
       transferError = undefined;
+      return centerState();
+    }));
+    ipcMain.handle('center:save-sync-source', (event, value: unknown) => recoveryOperation(async () => {
+      const main = mainWindow?.webContents;
+      if (!main || event.sender !== main || event.senderFrame !== main.mainFrame) throw new Error('Sync requires the main Desktop window');
+      syncSourceCenter = await saveSyncSourceSettings(value, transferCenter?.url ?? '');
+      syncSourceTransport.cancelAll();
+      syncTransport.cancelAll();
+      syncSourceError = undefined;
       return centerState();
     }));
     let importingJob: string | undefined;

@@ -17,7 +17,7 @@ export class CenterSyncRequestError extends Error {
   }
 }
 
-/** A second-center login, deliberately independent of the primary ApiClient.
+/** A source or peer sync login, independent of the primary ApiClient.
  * Never reads shared cookies, workspace headers, auth stores or local storage.
  * Credentials stay in memory and are sent only to this instance's fixed origin.
  */
@@ -45,6 +45,11 @@ export class CenterSyncSession {
   }
 
   get currentUser(): CenterSyncUser | null { return this.user; }
+
+  async listWorkspaces(signal?: AbortSignal): Promise<unknown> {
+    if (!this.token || !this.user) throw new Error("Connect to the sync source first");
+    return this.request("/api/workspaces", undefined, this.token, signal);
+  }
 
   async syncRequest(action: CenterSyncAction, body: unknown, signal: AbortSignal): Promise<unknown> {
     if (!this.token || !this.user || !centerSyncActions.includes(action)) throw new Error("Connect for sync first");

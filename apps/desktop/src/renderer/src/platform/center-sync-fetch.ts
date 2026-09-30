@@ -1,7 +1,7 @@
 import { CenterSyncRequestError } from "@multica/core/api/center-sync-session";
 import type { CenterSyncTransport } from "../../../shared/center-sync-transport";
 
-/** Only used by the independent peer session; never replaces the source API. */
+/** Used by independent source/peer sync sessions; never replaces Desktop's API. */
 export function createCenterSyncFetch(origin: string, transport: CenterSyncTransport): typeof fetch {
   return async (input, init) => {
     if (typeof input !== "string") throw new Error("Invalid sync URL");

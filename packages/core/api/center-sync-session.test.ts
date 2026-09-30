@@ -6,6 +6,24 @@ const user = { id: "12345678-1234-4234-8234-123456789012", email: "owner@example
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 
 describe("independent sync-center sign-in", () => {
+  it("lists workspaces with only its own source login and clears an expired source session", async () => {
+    const workspaces = [{ id: user.id, name: 'Source workspace' }];
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ token: 'source-https-session', user }))
+      .mockResolvedValueOnce(json(user))
+      .mockResolvedValueOnce(json(workspaces))
+      .mockResolvedValueOnce(json({}, 401));
+    const session = new CenterSyncSession('https://source.example', fetcher);
+    await expect(session.listWorkspaces()).rejects.toThrow('Connect to the sync source first');
+    expect(fetcher).not.toHaveBeenCalled();
+    await session.verifyCode(user.email, '123456');
+    expect(await session.listWorkspaces()).toEqual(workspaces);
+    expect(fetcher).toHaveBeenLastCalledWith('https://source.example/api/workspaces', expect.objectContaining({
+      method: 'GET', credentials: 'omit', redirect: 'error', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer source-https-session' },
+    }));
+    await expect(session.listWorkspaces()).rejects.toThrow('401');
+    expect(session.currentUser).toBeNull();
+  });
   it("authenticates only at the chosen origin without ambient cookies or workspace headers", async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(json({}))
@@ -23,9 +41,9 @@ describe("independent sync-center sign-in", () => {
       expect(init?.headers).not.toHaveProperty("X-Workspace-Slug");
       expect(init?.headers).not.toHaveProperty("X-CSRF-Token");
     }
-    expect(fetcher.mock.calls[0][1]?.headers).not.toHaveProperty("Authorization");
-    expect(fetcher.mock.calls[1][1]?.headers).not.toHaveProperty("Authorization");
-    expect(fetcher.mock.calls[2][1]?.headers).toHaveProperty("Authorization", "Bearer destination-session");
+    expect(fetcher.mock.calls[0]![1]?.headers).not.toHaveProperty("Authorization");
+    expect(fetcher.mock.calls[1]![1]?.headers).not.toHaveProperty("Authorization");
+    expect(fetcher.mock.calls[2]![1]?.headers).toHaveProperty("Authorization", "Bearer destination-session");
     session.disconnect();
     expect(session.currentUser).toBeNull();
   });
@@ -93,7 +111,7 @@ describe("independent sync-center sign-in", () => {
     const session = new CenterSyncSession("https://peer.example", fetcher);
     await session.verifyCode(user.email, "123456");
     const pending = session.syncRequest("info", {}, new AbortController().signal);
-    expect(fetcher.mock.calls[2][1]?.headers).toHaveProperty("Authorization", "Bearer peer-only-session");
+    expect(fetcher.mock.calls[2]![1]?.headers).toHaveProperty("Authorization", "Bearer peer-only-session");
     session.disconnect();
     await expect(pending).rejects.toThrow(/abort/i);
     expect(requestSignal?.aborted).toBe(true);
