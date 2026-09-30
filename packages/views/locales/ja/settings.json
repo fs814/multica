@@ -1273,6 +1273,7 @@
       "settings": "Center server settings",
       "description": "Desktop displays and schedules work. The daemon registers this machine and runs assigned tasks. Both connect to the center.",
       "address": "Server address",
+      "save_and_enter": "保存してサーバーモードに入る",
       "save": "Save",
       "test": "Test server connection",
       "connect": "Connect server",

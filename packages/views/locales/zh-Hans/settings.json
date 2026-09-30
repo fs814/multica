@@ -1273,6 +1273,7 @@
       "settings": "中心服务器设置",
       "description": "Desktop 展示与调度工作；daemon 注册本机并执行分配的任务。两端都会连接中心。",
       "address": "服务器地址",
+      "save_and_enter": "保存并进入服务器模式",
       "save": "保存",
       "test": "测试服务器连接",
       "connect": "连接服务器",

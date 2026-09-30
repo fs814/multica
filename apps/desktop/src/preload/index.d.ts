@@ -20,10 +20,11 @@ import type { TabSelectionShortcutKey } from "../shared/main-renderer-messages";
 
 interface DesktopAPI {
   center: {
+    initialMode: 'choose' | 'center';
     get: () => Promise<import('../shared/center-settings').CenterSettingsState>;
     save: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
     test: (url: string) => Promise<import('../shared/center-settings').CenterTestResult>;
-    connect: () => Promise<void>;
+    connect: (enterServerMode?: boolean) => Promise<void>;
   };
   /** App version + normalized OS, captured synchronously at preload time. */
   appInfo: {

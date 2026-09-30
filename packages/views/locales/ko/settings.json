@@ -1014,6 +1014,7 @@
       "settings": "Center server settings",
       "description": "Desktop displays and schedules work. The daemon registers this machine and runs assigned tasks. Both connect to the center.",
       "address": "Server address",
+      "save_and_enter": "저장하고 서버 모드로 들어가기",
       "save": "Save",
       "test": "Test server connection",
       "connect": "Connect server",

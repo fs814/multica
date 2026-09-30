@@ -666,6 +666,9 @@ if (!gotTheLock) {
     }
     const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError });
     let centerBusy = false;
+    // Preserve the explicit mode choice across a connection reload, not app restarts.
+    let centerInitialMode: 'choose' | 'center' = 'choose';
+    ipcMain.on('center:initial-mode', event => { event.returnValue = centerInitialMode; });
     ipcMain.handle('center:get', centerState);
     ipcMain.handle('center:test', (_event, url: string) => testCenterConnection(url));
     ipcMain.handle('center:save', async (_event, url: string) => {
@@ -678,13 +681,14 @@ if (!gotTheLock) {
         return centerState();
       } finally { centerBusy = false; }
     });
-    ipcMain.handle('center:connect', async () => {
+    ipcMain.handle('center:connect', async (_event, enterServerMode: unknown) => {
       if (centerBusy) throw new Error('A connection change is in progress');
       if (!savedCenter) throw new Error('Save a server address first');
       centerBusy = true;
       try {
         await switchCenterTarget(savedCenter.url, savedCenter.profile);
         runtimeConfigResult = { ok: true, config: centerRuntimeConfig(savedCenter.url) };
+        centerInitialMode = enterServerMode === true ? 'center' : 'choose';
         // Recreate API/query/WS clients together. Preload receives the new target.
         for (const win of BrowserWindow.getAllWindows()) win.webContents.reload();
       } finally { centerBusy = false; }

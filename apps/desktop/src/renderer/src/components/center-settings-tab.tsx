@@ -31,15 +31,16 @@ export function LocalDaemonConnection() {
   return <p data-testid="local-daemon-connection">{t(($) => $.desktop.center.local_daemon)}: {daemon.state === 'running' ? t(($) => $.desktop.center.connected) : daemonStateLabel(daemon.state, t)}</p>;
 }
 
-export function CenterSettingsTab() {
+export function CenterSettingsTab({ enterServerMode = false }: { enterServerMode?: boolean } = {}) {
   const { t } = useT("settings");
   const [settings, setSettings] = useState<CenterSettingsState | null>(null);
   const [url, setUrl] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   useEffect(() => { void window.desktopAPI.center.get().then(value => {
-    setSettings(value); setUrl(value.saved?.url ?? ''); setMessage(value.error ?? '');
-  }).catch(error => setMessage(String(error))); }, []);
+    setSettings(value); setUrl(value.saved?.url ?? value.activeUrl ?? ''); setMessage(value.error ?? '');
+  }).catch(error => setMessage(String(error))).finally(() => setLoading(false)); }, []);
   async function run(action: () => Promise<void>) {
     setBusy(true); setMessage('');
     try { await action(); } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
@@ -49,20 +50,21 @@ export function CenterSettingsTab() {
     <div><h2 className="text-title font-semibold">{t(($) => $.desktop.center.title)}</h2>
       <p className="text-body text-muted-foreground">{t(($) => $.desktop.center.description)}</p></div>
     <label className="block space-y-2"><span>{t(($) => $.desktop.center.address)}</span>
-      <Input aria-label={t(($) => $.desktop.center.address)} value={url} placeholder="http://192.168.1.20:18080" onChange={event => { setUrl(event.target.value); setMessage(''); }} />
+      <Input aria-label={t(($) => $.desktop.center.address)} disabled={busy || loading} value={url} placeholder="http://192.168.1.20:18080" onChange={event => { setUrl(event.target.value); setMessage(''); }} />
     </label>
     <div className="flex flex-wrap gap-2">
-      <Button disabled={busy || !url.trim()} onClick={() => void run(async () => {
+      <Button disabled={busy || loading || !url.trim()} aria-busy={busy} onClick={() => void run(async () => {
         setSettings(await window.desktopAPI.center.save(url));
-        setMessage(t(($) => $.desktop.center.saved_message));
-      })}>{t(($) => $.desktop.center.save)}</Button>
-      <Button variant="outline" disabled={busy || !url.trim()} onClick={() => void run(async () => {
+        if (enterServerMode) await window.desktopAPI.center.connect(true);
+        else setMessage(t(($) => $.desktop.center.saved_message));
+      })}>{enterServerMode ? t(($) => $.desktop.center.save_and_enter) : t(($) => $.desktop.center.save)}</Button>
+      <Button variant="outline" disabled={busy || loading || !url.trim()} onClick={() => void run(async () => {
         const result = await window.desktopAPI.center.test(url);
         setMessage(result.reachable ? t(($) => $.desktop.center.reachable) : t(($) => $.desktop.center.failed));
       })}>{t(($) => $.desktop.center.test)}</Button>
-      <Button variant="outline" disabled={busy || !settings?.saved} onClick={() => void run(async () => {
+      {!enterServerMode && <Button variant="outline" disabled={busy || !settings?.saved} onClick={() => void run(async () => {
         await window.desktopAPI.center.connect();
-      })}>{t(($) => $.desktop.center.connect)}</Button>
+      })}>{t(($) => $.desktop.center.connect)}</Button>}
     </div>
     <p className="break-all text-caption text-muted-foreground">{t(($) => $.desktop.center.saved)}: {settings?.saved?.url ?? t(($) => $.desktop.center.not_configured)}<br />{t(($) => $.desktop.center.active)}: {settings?.activeUrl ?? t(($) => $.desktop.center.none)}</p>
     <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.hint)}</p>

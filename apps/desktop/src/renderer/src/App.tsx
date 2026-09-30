@@ -395,7 +395,9 @@ export default function App() {
   const { version, os } = window.desktopAPI.appInfo;
   const systemLocale = window.desktopAPI.systemLocale;
   const runtimeConfigResult = window.desktopAPI.runtimeConfig;
-  const [desktopMode, setDesktopMode] = useState<"choose" | "local" | "center">("choose");
+  const [desktopMode, setDesktopMode] = useState<"choose" | "local" | "center">(
+    () => runtimeConfigResult.ok && window.desktopAPI.center.initialMode === "center" ? "center" : "choose",
+  );
   const [centerUserId, setCenterUserId] = useState<string | null>(null);
   const centerUrl = runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : null;
   // The daemon can connect to Center in the background even while local
@@ -520,10 +522,8 @@ export default function App() {
             <LocalDaemonMode centerConfigured={runtimeConfigResult.ok} centerUserId={centerUserId} onOpenCenter={() => setDesktopMode("center")} onBack={() => setDesktopMode("choose")} />
           ) : (
             <DesktopModePicker
-              centerConfigured={runtimeConfigResult.ok}
               centerError={runtimeConfigResult.ok || runtimeConfigResult.error.code === "center_unconfigured" ? undefined : runtimeConfigResult.error.message}
               onLocal={() => setDesktopMode("local")}
-              onCenter={() => setDesktopMode("center")}
             />
           )}
         </I18nProvider>

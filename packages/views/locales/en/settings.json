@@ -1280,6 +1280,7 @@
       "settings": "Center server settings",
       "description": "Desktop displays and schedules work. The daemon registers this machine and runs assigned tasks. Both connect to the center.",
       "address": "Server address",
+      "save_and_enter": "Save and enter server mode",
       "save": "Save",
       "test": "Test server connection",
       "connect": "Connect server",
