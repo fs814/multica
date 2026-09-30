@@ -10,7 +10,53 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	ws "github.com/multica-ai/multica/server/internal/worksync"
 )
+
+func TestContentReferencesSystemCommentAuthor(t *testing.T) {
+	issue, agent, member := uuid.NewString(), uuid.NewString(), canonicalUser("owner@example.test")
+	for _, tc := range []struct {
+		name, table string
+		fields      map[string]json.RawMessage
+		valid       bool
+	}{
+		{"system comment", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(uuid.Nil.String())}, true},
+		{"member comment", "comment", map[string]json.RawMessage{"author_type": rawValue("member"), "author_id": rawValue(member)}, true},
+		{"agent comment", "comment", map[string]json.RawMessage{"author_type": rawValue("agent"), "author_id": rawValue(agent)}, true},
+		{"system member ID", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(member)}, false},
+		{"system agent ID", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(agent)}, false},
+		{"null system ID", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(nil)}, false},
+		{"empty system ID", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue("")}, false},
+		{"malformed system ID", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue("not-a-uuid")}, false},
+		{"missing member", "comment", map[string]json.RawMessage{"author_type": rawValue("member"), "author_id": rawValue(uuid.Nil.String())}, false},
+		{"missing agent", "comment", map[string]json.RawMessage{"author_type": rawValue("agent"), "author_id": rawValue(uuid.NewString())}, false},
+		{"unknown actor type", "comment", map[string]json.RawMessage{"author_type": rawValue("plugin"), "author_id": rawValue(uuid.Nil.String())}, false},
+		{"system issue creator", "issue", map[string]json.RawMessage{"creator_type": rawValue("system"), "creator_id": rawValue(uuid.Nil.String())}, false},
+		{"system attachment uploader", "attachment", map[string]json.RawMessage{"uploader_type": rawValue("system"), "uploader_id": rawValue(uuid.Nil.String())}, false},
+		{"system resolver", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(uuid.Nil.String()), "resolved_by_type": rawValue("system"), "resolved_by_id": rawValue(uuid.Nil.String())}, false},
+		{"unselected issue", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(uuid.Nil.String()), "issue_id": rawValue(uuid.NewString())}, false},
+		{"unselected parent", "comment", map[string]json.RawMessage{"author_type": rawValue("system"), "author_id": rawValue(uuid.Nil.String()), "parent_id": rawValue(uuid.NewString())}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fields := map[string]json.RawMessage{"id": rawValue(uuid.NewString()), "issue_id": rawValue(issue)}
+			for key, value := range tc.fields {
+				fields[key] = value
+			}
+			b := contentBundle{Records: []contentRecord{
+				{"issue", map[string]json.RawMessage{"id": rawValue(issue)}},
+				{"agent", map[string]json.RawMessage{"id": rawValue(agent)}},
+				{tc.table, fields},
+			}, Users: []contentUser{{ID: member}}}
+			err := validateReferences(b)
+			if tc.valid && err != nil {
+				t.Fatalf("valid author rejected: %v", err)
+			}
+			if !tc.valid && !errors.Is(err, ws.ErrScope) {
+				t.Fatalf("unsafe reference not rejected: %v", err)
+			}
+		})
+	}
+}
 
 func TestContentThreeWayMerge(t *testing.T) {
 	fields := func(v string) map[string]json.RawMessage { return map[string]json.RawMessage{"title": rawValue(v)} }

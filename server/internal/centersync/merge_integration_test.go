@@ -56,6 +56,8 @@ func TestContentMergeTwoDatabases(t *testing.T) {
 	a.fx.Issue(t, "child", testutil.Cols{"parent_issue_id": issue})
 	comment := a.fx.Comment(t, issue, "portable comment")
 	a.fx.Comment(t, issue, "reply", testutil.Cols{"parent_id": comment})
+	systemComment := a.fx.Comment(t, issue, "portable system notice", testutil.Cols{"author_type": "system", "author_id": uuid.Nil.String(), "type": "system"})
+	a.fx.Comment(t, issue, "reply to system notice", testutil.Cols{"parent_id": systemComment})
 	skill := a.fx.Insert(t, "skill", testutil.Cols{"workspace_id": workspace, "name": "Portable skill", "content": "skill instructions", "created_by": a.fx.UserID})
 	a.fx.Insert(t, "skill_file", testutil.Cols{"skill_id": skill, "path": "references/example.txt", "content": "skill reference"})
 	a.fx.InsertNoID(t, "agent_skill", testutil.Cols{"agent_id": agent, "skill_id": skill, "enabled": true}, "agent_id=$1 AND skill_id=$2", agent, skill)
@@ -106,6 +108,10 @@ func TestContentMergeTwoDatabases(t *testing.T) {
 	round()
 	round()
 	var count int
+	b.fx.QueryRow(t, `SELECT count(*) FROM comment WHERE workspace_id=$1 AND id=$2 AND author_type='system' AND author_id=$3 AND content='portable system notice' AND type='system' AND source_task_id IS NULL`, workspace, systemComment, uuid.Nil.String()).Scan(&count)
+	if count != 1 {
+		t.Fatal("system comment was not merged as inert content")
+	}
 	b.fx.QueryRow(t, `SELECT count(*) FROM member WHERE workspace_id=$1 AND user_id=$2 AND role='owner'`, workspace, b.fx.UserID).Scan(&count)
 	if count != 1 {
 		t.Fatal("workspace not visible to destination account")

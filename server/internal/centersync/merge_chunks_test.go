@@ -105,6 +105,11 @@ func TestChunkedAttachmentsTwoDatabases(t *testing.T) {
 	workspace := a.fx.WorkspaceID
 	a.fx.Member(t, workspace, a.fx.UserID, "owner")
 	issue := a.fx.Issue(t, "chunk fixture")
+	// Match a normal workspace containing historical system notices alongside
+	// attachments. They are content, not account IDs or execution requests.
+	for i := 0; i < 18; i++ {
+		a.fx.Comment(t, issue, "system notice fixture", testutil.Cols{"author_type": "system", "author_id": uuid.Nil.String(), "type": "system"})
+	}
 	for _, table := range contentTables {
 		b.fx.Cleanup(t, "DELETE FROM "+quoted(table.name)+" t WHERE "+table.scope, workspace)
 	}
@@ -244,6 +249,10 @@ func TestChunkedAttachmentsTwoDatabases(t *testing.T) {
 	b.fx.QueryRow(t, `SELECT count(*) FROM attachment WHERE workspace_id=$1`, workspace).Scan(&count)
 	if count != 3 {
 		t.Fatal("attachment rows missing")
+	}
+	b.fx.QueryRow(t, `SELECT count(*) FROM comment WHERE workspace_id=$1 AND author_type='system' AND author_id=$2 AND content='system notice fixture' AND type='system' AND source_task_id IS NULL`, workspace, uuid.Nil.String()).Scan(&count)
+	if count != 18 {
+		t.Fatal("system comment content or sentinel identity was not preserved")
 	}
 	copy, err := b.h.exportContent(ctx, mergeInput{Workspace: workspace, Peer: a.h.config.Origin, AttachmentMode: "chunked"})
 	if err != nil || len(copy.Files) != 0 {

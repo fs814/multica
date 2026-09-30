@@ -721,6 +721,14 @@ func validateReferences(b contentBundle) error {
 	for _, r := range b.Records {
 		for field, value := range r.Fields {
 			id := textValue(value)
+			if r.Table == "comment" && field == "author_id" && textValue(r.Fields["author_type"]) == "system" {
+				// Native system notices use a zero-UUID sentinel, not an account
+				// or agent reference. Only this exact author pair is portable.
+				if id != uuid.Nil.String() {
+					return ws.ErrScope
+				}
+				continue
+			}
 			if id == "" {
 				continue
 			}
