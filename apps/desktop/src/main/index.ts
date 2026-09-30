@@ -7,6 +7,7 @@ import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
 import { setupDaemonManager, switchCenterTarget, resetDaemonAfterCenterImport } from "./daemon-manager";
 import { createCenterRecovery } from "./center-recovery";
+import { createCenterSyncTransport, registerCenterSyncTransport } from "./center-sync-transport";
 import { centerTransferSettingsPath, readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
 import { centerRuntimeConfig, type CenterSettings } from "../shared/center-settings";
 import { parseTransferRequest } from "../shared/center-recovery";
@@ -671,6 +672,8 @@ if (!gotTheLock) {
     try { transferCenter = await readCenterSettings(centerTransferSettingsPath()); }
     catch { transferError = 'Cannot read the transfer destination; save a valid transfer server address'; }
     const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError, transferUrl: transferCenter?.url ?? '', transferError });
+    const syncTransport = createCenterSyncTransport(() => ({ peer: transferCenter?.url ?? '', source: centerState().activeUrl }));
+    registerCenterSyncTransport(ipcMain, () => mainWindow, syncTransport);
     let centerBusy = false;
     // Preserve the explicit mode choice across a connection reload, not app restarts.
     let centerInitialMode: 'choose' | 'center' = 'choose';
@@ -708,6 +711,7 @@ if (!gotTheLock) {
     ipcMain.handle('center:save-transfer', (_event, url: string) => recoveryOperation(async () => {
       const profile = savedCenter?.profile ?? deriveProfileName(centerState().activeUrl, process.env.MULTICA_DESKTOP_DAEMON_PROFILE ?? (centerState().activeUrl ? undefined : 'desktop-services'));
       transferCenter = await saveCenterSettings({ version: 1, url, profile }, centerTransferSettingsPath());
+      syncTransport.cancelAll();
       transferError = undefined;
       return centerState();
     }));

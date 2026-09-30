@@ -120,14 +120,28 @@ export interface CenterSyncResult {
   conflicts: number;
 }
 
+export interface CenterSyncProgress {
+  phase: "checking" | "preparing" | "pulling" | "pushing" | "verifying" | "complete";
+  batches: number;
+  records: number;
+  edits: number;
+}
+
 /** One bounded, explicit run. No timers schedule new runs and no credentials
  * enter the transferred payload. Durable cursors/outbox belong to the servers.
  */
-export async function syncCenters(source: CenterSyncEndpoint, destination: CenterSyncEndpoint, workspace: string, signal: AbortSignal): Promise<CenterSyncResult> {
+export async function syncCenters(source: CenterSyncEndpoint, destination: CenterSyncEndpoint, workspace: string, signal: AbortSignal, onProgress?: (progress: CenterSyncProgress) => void): Promise<CenterSyncResult> {
   const sourceOrigin = checkedOrigin(source.origin);
   const destinationOrigin = checkedOrigin(destination.origin);
   if (sourceOrigin === destinationOrigin || !z.string().uuid().safeParse(workspace).success) throw new Error("Select a source workspace and a different sync server");
   const bounded = AbortSignal.any([signal, AbortSignal.timeout(120_000)]);
+  const progress: CenterSyncProgress = { phase: "checking", batches: 0, records: 0, edits: 0 };
+  const report = (phase: CenterSyncProgress["phase"]) => {
+    bounded.throwIfAborted();
+    progress.phase = phase;
+    onProgress?.({ ...progress });
+  };
+  report("checking");
   async function call<S extends z.ZodType>(server: CenterSyncEndpoint, action: CenterSyncAction, body: unknown, schema: S) {
     bounded.throwIfAborted();
     const payload = server === source ? validateCenterSyncSourceRequest({ action, body }).body : body;
@@ -138,6 +152,7 @@ export async function syncCenters(source: CenterSyncEndpoint, destination: Cente
   const sourceInfo = await call(source, "info", {}, infoSchema);
   const destinationInfo = await call(destination, "info", {}, infoSchema);
   if (sourceInfo.origin !== sourceOrigin || destinationInfo.origin !== destinationOrigin || sourceInfo.node === destinationInfo.node) throw new Error("Sync server identity mismatch");
+  report("preparing");
   const prepared = await call(source, "prepare", { workspace, principal: { Node: destinationInfo.node } }, preparedSchema);
   if (prepared.scope.workspace !== workspace || prepared.principal.Account !== sourceInfo.owner || prepared.principal.Actor !== sourceInfo.owner || prepared.principal.Node !== destinationInfo.node) throw new Error("Sync workspace identity mismatch");
   const binding = { source: sourceOrigin, ...prepared };
@@ -157,10 +172,17 @@ export async function syncCenters(source: CenterSyncEndpoint, destination: Cente
       const next = checkReplica(await call(destination, "apply", { ...binding, batch }, replicaSchema));
       if (!next.initialized || next.cursor !== batch.cursor) throw new Error("Sync checkpoint not confirmed");
       state = next;
+      // Count only batches whose checkpoint the destination confirmed. A lost
+      // response or failed apply must not look like a completed transfer.
+      progress.batches++;
+      progress.records += count;
+      report(progress.phase);
       if (!batch.snapshot && count < 256) return;
     }
   }
+  report("pulling");
   await pull();
+  report("pushing");
   let operations = 0;
   while (state.outbox?.length) {
     if (++operations > 256) throw new Error("Sync run limit reached; pending edits will resume on the next click");
@@ -171,7 +193,11 @@ export async function syncCenters(source: CenterSyncEndpoint, destination: Cente
     if (Object.keys(receipt.local_fields ?? {}).some(key => !writableFields[operation.kind].includes(key)) || receipt.conflicts?.some(conflict => !writableFields[operation.kind].includes(conflict.field))) throw new Error("Unselected receipt fields");
     state = checkReplica(await call(destination, "acknowledge", { ...binding, receipt }, replicaSchema));
     if (state.outbox?.some(item => item.id === operation.id)) throw new Error("Sync receipt not saved");
+    progress.edits++;
+    report("pushing");
   }
+  report("verifying");
   if (operations) await pull();
+  report("complete");
   return { cursor: state.cursor, records: Object.values(state.records).filter(record => !record.deleted), pending: state.outbox?.length ?? 0, conflicts: state.review?.length ?? 0 };
 }

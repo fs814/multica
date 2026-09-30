@@ -37,7 +37,9 @@ Origins must be HTTPS origins without trailing paths. The state directory must
 be private (Unix mode `0700`), durable across restarts, and writable by the server.
 The replica store currently requires Unix file-lock support. Existing Work Sync
 database migrations must be applied using the repository's migration workflow.
-The peer must allow the Desktop origin through its CORS configuration.
+Desktop peer requests use a native, origin-bound transport; no Desktop CORS
+allowlist change is needed for that connection. Browser clients still follow
+the server's existing CORS policy.
 
 In Desktop Settings → Desktop app → Center server, save the peer address, choose
 **Connect for sync**, and sign in there. Select the source workspace and press
@@ -45,6 +47,12 @@ In Desktop Settings → Desktop app → Center server, save the peer address, ch
 Disconnect, changing servers, and closing settings stop further requests; already
 committed progress remains on the receiving server. HTTP connections may be
 tested or signed into, but data sync requires HTTPS on both servers.
+
+The Sync button stays disabled for HTTP connections and explains that both
+centers need valid TLS configuration before reconnecting at HTTPS addresses.
+Merely editing the URL scheme does not configure TLS. The source workspace
+picker uses a connection-scoped query, shows loading/empty/error states, and
+offers manual refresh. A removed selection cannot start a run.
 
 The receiving center stores an isolated replica, not normal workspace rows.
 The result includes a preview of its first 50 records. This does not migrate
@@ -122,6 +130,13 @@ start overlapping runs against the same replica. Set explicit request, byte,
 record and run-duration limits; reaching one preserves progress and requires a
 new click rather than silently extending the run indefinitely.
 
+Desktop displays five stages: server identity checks, workspace preparation,
+copying records, returning queued edits, and final verification. The bar measures
+completed stages, not estimated time or a guessed total record count. Live counts
+advance only after the destination confirms a batch checkpoint or edit receipt.
+Cancellation/failure keeps the last confirmed counts visible; only a successful
+run completes the bar. A new click resets the display for that run.
+
 ## Implementation acceptance gates
 
 - Deny missing/wrong-account, agent, expired, revoked and cross-workspace access.
@@ -146,8 +161,16 @@ to call the destination's existing email-code sign-in endpoints, then validates
 `/api/me` before showing Connected. It never changes the primary auth store,
 active center, daemon connection or workspace. Fetch omits ambient cookies and
 rejects redirects; only the destination's own session is used for its identity
-check. The peer must permit the Desktop origin through its existing CORS policy
-and support email-code login. HTTP addresses display an unencrypted-transport
+check. Desktop injects `center-sync-fetch.ts`, which calls a narrow main-process
+IPC transport rather than browser fetch. The main process accepts only the main
+window's top-level frame, the currently saved peer origin (different from the
+source), email-code login, identity checks and allowlisted sync endpoints. It
+does not expose a general URL fetch proxy or recovery routes. Certificate checks
+remain enabled; neither origin headers nor CORS policies are modified. Login
+responses are limited to 64 KiB, sync responses to 32 MiB, and concurrent requests
+to four. Address changes, cancellation and main-window reload/closure abort
+pending requests. The destination must support email-code login.
+HTTP addresses display an unencrypted-transport
 warning; HTTPS is recommended.
 
 The session is intentionally memory-only while these settings remain mounted.

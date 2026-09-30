@@ -6,6 +6,7 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from "@multica/ui/components/ui/dialog";
 import { CenterSyncRun } from "./center-sync-run";
+import { createCenterSyncFetch } from "../platform/center-sync-fetch";
 
 interface Props {
   address: string;
@@ -19,7 +20,8 @@ interface Props {
 export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChange }: Props) {
   const { t } = useT("settings");
   const queryClient = useContext(QueryClientContext);
-  const [session] = useState(() => new CenterSyncSession(address));
+  const [session] = useState(() => new CenterSyncSession(address,
+    createCenterSyncFetch(new URL(address).origin, window.desktopAPI.center)));
   const [user, setUser] = useState<CenterSyncUser | null>(null);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");

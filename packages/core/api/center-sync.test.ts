@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { syncCenters, validateCenterSyncSourceRequest, type CenterSyncEndpoint } from "./center-sync";
+import { syncCenters, validateCenterSyncSourceRequest, type CenterSyncEndpoint, type CenterSyncProgress } from "./center-sync";
 
 const id = "12345678-1234-4234-8234-123456789012";
 const scope = { workspace: id, group: id, epoch: id };
@@ -41,6 +41,30 @@ describe("manual center sync coordinator", () => {
     expect(order).toEqual(["source:info", "destination:info", "source:prepare", "destination:replica", "source:pull", "destination:apply", "source:pull", "destination:apply"]);
   });
 
+  it("reports real stages and counts only destination-confirmed batches", async () => {
+    const { source, destination } = fixture();
+    const progress: CenterSyncProgress[] = [];
+    await syncCenters(source, destination, id, new AbortController().signal, update => progress.push(update));
+    expect(progress.map(update => update.phase)).toEqual(["checking", "preparing", "pulling", "pulling", "pulling", "pushing", "verifying", "complete"]);
+    expect(progress[0]).toEqual({ phase: "checking", batches: 0, records: 0, edits: 0 });
+    expect(progress.at(-1)).toEqual({ phase: "complete", batches: 2, records: 1, edits: 0 });
+    expect(progress[2]?.records).toBe(0);
+    expect(progress[3]?.records).toBe(1);
+  });
+
+  it("never reports a failed checkpoint as copied or completed", async () => {
+    const { source, destination } = fixture();
+    const original = destination.request;
+    destination.request = vi.fn(async (action, body, signal) => {
+      if (action === "apply") throw new Error("checkpoint not confirmed");
+      return original(action, body, signal);
+    });
+    const progress: CenterSyncProgress[] = [];
+    await expect(syncCenters(source, destination, id, new AbortController().signal, update => progress.push(update))).rejects.toThrow("checkpoint not confirmed");
+    expect(progress.at(-1)).toEqual({ phase: "pulling", batches: 0, records: 0, edits: 0 });
+    expect(progress.some(update => update.phase === "complete")).toBe(false);
+  });
+
   it.each(["http://source.example", "https://destination.example"])("rejects unsafe source %s before requests", async origin => {
     const { source, destination, order } = fixture(); source.origin = origin;
     await expect(syncCenters(source, destination, id, new AbortController().signal)).rejects.toThrow();
@@ -51,7 +75,9 @@ describe("manual center sync coordinator", () => {
     const { source, destination, order } = fixture();
     const controller = new AbortController();
     source.request = vi.fn(async () => { controller.abort(); return {}; });
-    await expect(syncCenters(source, destination, id, controller.signal)).rejects.toThrow();
+    const progress: CenterSyncProgress[] = [];
+    await expect(syncCenters(source, destination, id, controller.signal, update => progress.push(update))).rejects.toThrow();
+    expect(progress.map(update => update.phase)).toEqual(["checking"]);
     expect(order).toEqual([]);
   });
 
@@ -93,11 +119,14 @@ describe("manual center sync coordinator", () => {
       if (action === "acknowledge") acknowledged = true;
       return { schema: 1, ...prepared, initialized: true, cursor: 1, records: { [`issue/${id}`]: record }, outbox: acknowledged ? [] : [operation], review: acknowledged ? [{ operation }] : [] };
     });
-    const result = await syncCenters(source, destination, id, new AbortController().signal);
+    const progress: CenterSyncProgress[] = [];
+    const result = await syncCenters(source, destination, id, new AbortController().signal, update => progress.push(update));
     expect(result.conflicts).toBe(1);
     expect(result.pending).toBe(0);
     expect(order.filter(item => item === "source:push")).toHaveLength(1);
     expect(order.slice(-4)).toEqual(["source:push", "destination:acknowledge", "source:pull", "destination:apply"]);
+    expect(progress.find(update => update.phase === "verifying")?.edits).toBe(1);
+    expect(progress.at(-1)?.phase).toBe("complete");
   });
 
   it("does not acknowledge a failed push or retry it in the same run", async () => {

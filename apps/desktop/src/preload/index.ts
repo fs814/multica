@@ -131,6 +131,8 @@ const desktopAPI = {
     exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => ipcRenderer.invoke('center:export-data', request),
     importData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => ipcRenderer.invoke('center:import-data', request),
     importStatus: (jobId: string) => ipcRenderer.invoke('center:import-status', jobId),
+    syncRequest: (request: import('../shared/center-sync-transport').CenterSyncTransportRequest) => ipcRenderer.invoke('center:sync-request', request),
+    cancelSyncRequest: (id: string) => ipcRenderer.invoke('center:sync-cancel', id),
   },
   /** Identifies whether this renderer owns the main tabbed window or a
    *  dedicated issue window, parsed from validated launch arguments. */

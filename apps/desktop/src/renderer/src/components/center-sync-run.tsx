@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { getApi } from "@multica/core/api";
-import { syncCenters, validateCenterSyncSourceRequest } from "@multica/core/api/center-sync";
+import { syncCenters, validateCenterSyncSourceRequest, type CenterSyncProgress } from "@multica/core/api/center-sync";
 import type { CenterSyncSession } from "@multica/core/api/center-sync-session";
-import { workspaceListOptions } from "@multica/core/workspace/queries";
+import { centerSyncWorkspaceListOptions } from "@multica/core/api/center-sync-workspaces";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
+import { Progress } from "@multica/ui/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@multica/ui/components/ui/select";
 
 interface Props {
@@ -18,8 +19,14 @@ interface Props {
 
 export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, onExpired }: Props) {
   const { t } = useT("settings");
-  const workspaces = useQuery({ ...workspaceListOptions(), retry: false });
+  const [connection] = useState(() => crypto.randomUUID());
+  const workspaces = useQuery(centerSyncWorkspaceListOptions(sourceAddress, connection));
+  const workspaceLabel = useId();
+  const prerequisiteId = useId();
   const [workspace, setWorkspace] = useState<string | null>(null);
+  const selectedWorkspace = workspaces.data?.some(item => item.id === workspace) ? workspace : null;
+  const httpsReady = sourceAddress.startsWith("https:") && session.origin.startsWith("https:");
+  const [progress, setProgress] = useState<CenterSyncProgress | null>(null);
   const controller = useRef<AbortController | null>(null);
   const lifetime = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -28,8 +35,9 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
   }, []);
   const mutation = useMutation({
     retry: false,
+    onMutate: () => setProgress({ phase: "checking", batches: 0, records: 0, edits: 0 }),
     mutationFn: async () => {
-      if (!workspace || controller.current) throw new Error("Select a workspace; wait for the current run to finish");
+      if (!httpsReady || !selectedWorkspace || !workspaces.isSuccess || workspaces.isFetching || controller.current) throw new Error("Check server addresses and select an available source workspace");
       const api = getApi();
       if (!lifetime.current || lifetime.current.signal.aborted) throw new Error("Sync settings closed");
       const credential = api.getToken();
@@ -54,7 +62,9 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
             checkSessions();
             return session.syncRequest(action, body, signal);
           },
-        }, workspace, signal);
+        }, selectedWorkspace, signal, next => {
+          if (!signal.aborted && controller.current === active) setProgress(next);
+        });
       } finally {
         controller.current = null;
         if (!session.currentUser) onExpired();
@@ -68,22 +78,44 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
   }, [mutation.isPending, onBusyChange]);
   const items = (workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }));
   const result = mutation.data;
+  const phase = mutation.isSuccess ? "complete" : progress?.phase ?? "checking";
+  const stages = { checking: 0, preparing: 1, pulling: 2, pushing: 3, verifying: 4, complete: 5 };
+  const phaseLabels = {
+    checking: t(($) => $.desktop.center.sync_progress_checking),
+    preparing: t(($) => $.desktop.center.sync_progress_preparing),
+    pulling: t(($) => $.desktop.center.sync_progress_pulling),
+    pushing: t(($) => $.desktop.center.sync_progress_pushing),
+    verifying: t(($) => $.desktop.center.sync_progress_verifying),
+    complete: t(($) => $.desktop.center.sync_progress_complete),
+  };
+  const stage = phase === "complete" ? phaseLabels.complete : t(($) => $.desktop.center.sync_progress_stage, { current: stages[phase] + 1, total: 5, stage: phaseLabels[phase] });
+  const progressLabel = mutation.isError ? t(($) => $.desktop.center.sync_progress_stopped, { stage }) : stage;
 
-  return <div className="space-y-3">
+  return <div className="min-w-0 space-y-3">
     <p className="break-all text-caption text-muted-foreground">{sourceAddress} → {session.origin}</p>
-    <Select items={items} value={workspace} disabled={disabled || mutation.isPending} onValueChange={value => { setWorkspace(value); mutation.reset(); }}>
-      <SelectTrigger aria-label={t(($) => $.desktop.center.sync_workspace)} className="w-full">
-        <SelectValue placeholder={t(($) => $.desktop.center.sync_workspace)} />
+    <span id={workspaceLabel} className="block text-body">{t(($) => $.desktop.center.sync_workspace)}</span>
+    <Select items={items} value={selectedWorkspace} disabled={disabled || mutation.isPending || !workspaces.isSuccess || workspaces.isFetching || !items.length} onValueChange={value => { setWorkspace(value); mutation.reset(); setProgress(null); }}>
+      <SelectTrigger aria-labelledby={workspaceLabel} className="w-full min-w-0">
+        <SelectValue className="min-w-0 truncate" placeholder={t(($) => $.desktop.center.sync_workspace)} />
       </SelectTrigger>
-      <SelectContent>{items.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+      <SelectContent align="start" alignItemWithTrigger={false}>{items.map(item => <SelectItem key={item.value} value={item.value}><span className="truncate">{item.label}</span></SelectItem>)}</SelectContent>
     </Select>
+    {workspaces.isFetching && <p role="status" className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_workspace_loading)}</p>}
+    {workspaces.isSuccess && !workspaces.isFetching && !items.length && <p role="status" className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_workspace_empty)}</p>}
     {workspaces.isError && <p role="alert" className="text-body text-destructive">{t(($) => $.desktop.center.sync_workspace_error)}</p>}
+    <Button variant="outline" disabled={disabled || mutation.isPending || workspaces.isFetching} onClick={() => void workspaces.refetch()}>{t(($) => $.desktop.center.sync_workspace_refresh)}</Button>
+    {!httpsReady && <p id={prerequisiteId} className="break-words text-body text-destructive">{t(($) => $.desktop.center.sync_https_required)}</p>}
     <div className="flex flex-wrap gap-2">
-      <Button className="h-auto min-h-[var(--button-height-default)] max-w-full whitespace-normal" disabled={disabled || mutation.isPending || !workspace} aria-busy={mutation.isPending} onClick={() => mutation.mutate()}>
+      <Button className="h-auto min-h-[var(--button-height-default)] max-w-full whitespace-normal" disabled={disabled || mutation.isPending || !selectedWorkspace || !workspaces.isSuccess || workspaces.isFetching || !httpsReady} aria-describedby={!httpsReady ? prerequisiteId : undefined} aria-busy={mutation.isPending} onClick={() => mutation.mutate()}>
         {t(($) => $.desktop.center.sync_data)}
       </Button>
       {mutation.isPending && <Button variant="outline" onClick={() => controller.current?.abort()}>{t(($) => $.desktop.center.recovery_cancel)}</Button>}
     </div>
+    {progress && <div className="space-y-2">
+      <p role={mutation.isPending ? "status" : undefined} className="text-body">{progressLabel}</p>
+      <Progress value={stages[phase]} max={5} aria-label={t(($) => $.desktop.center.sync_progress)} aria-valuetext={progressLabel} />
+      <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_progress_counts, { batches: progress.batches, records: progress.records, edits: progress.edits })}</p>
+    </div>}
     {mutation.isError && <p role="alert" className="break-words text-body text-destructive">{t(($) => $.desktop.center.sync_run_error)} {mutation.error.message}</p>}
     {result && <>
       <p role="status" className="text-body">{t(($) => $.desktop.center.sync_result, { records: result.records.length, cursor: result.cursor, conflicts: result.conflicts, pending: result.pending })}</p>

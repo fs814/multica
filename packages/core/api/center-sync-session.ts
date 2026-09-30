@@ -110,9 +110,10 @@ export class CenterSyncSession {
         cache: "no-store",
         signal: requestSignal,
       });
-    } catch {
+    } catch (error) {
       controller.signal.throwIfAborted();
       signal?.throwIfAborted();
+      if (error instanceof CenterSyncRequestError) throw error;
       // Do not include arbitrary fetch errors: they may contain request data.
       throw new CenterSyncRequestError(requestSignal.aborted ? "timeout" : "network");
     }

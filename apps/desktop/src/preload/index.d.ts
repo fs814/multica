@@ -30,6 +30,8 @@ interface DesktopAPI {
     exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
     importData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
     importStatus: (jobId: string) => Promise<import('../shared/center-recovery').CenterRecoveryProgress>;
+    syncRequest: import('../shared/center-sync-transport').CenterSyncTransport['syncRequest'];
+    cancelSyncRequest: import('../shared/center-sync-transport').CenterSyncTransport['cancelSyncRequest'];
   };
   /** App version + normalized OS, captured synchronously at preload time. */
   appInfo: {

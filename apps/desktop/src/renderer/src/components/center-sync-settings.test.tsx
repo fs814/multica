@@ -7,17 +7,30 @@ import { CenterSettingsTab } from "./center-settings-tab";
 import { CenterSyncConnect } from "./center-sync-connect";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("@multica/core/api", () => ({ api: { listWorkspaces: async () => [] } }));
+vi.mock("@multica/core/api", () => {
+  const api = { listWorkspaces: async () => [], getToken: () => "source-login", getBaseUrl: () => "https://source.example" };
+  return { api, getApi: () => api };
+});
 
 const source = "https://source.example";
 const peer = "https://peer.example";
-const center = { get: vi.fn(), save: vi.fn(), connect: vi.fn(), test: vi.fn(), saveTransfer: vi.fn(), transferData: vi.fn() };
+const center = { get: vi.fn(), save: vi.fn(), connect: vi.fn(), test: vi.fn(), saveTransfer: vi.fn(), transferData: vi.fn(), syncRequest: vi.fn(), cancelSyncRequest: vi.fn() };
 const state = { saved: { version: 1 as const, url: source, profile: "desktop-services" }, activeUrl: source, transferUrl: peer };
 
 beforeEach(() => {
   vi.resetAllMocks();
   center.get.mockResolvedValue(state);
   center.saveTransfer.mockImplementation(async (url: string) => ({ ...state, transferUrl: new URL(url.trim()).origin }));
+  center.cancelSyncRequest.mockResolvedValue(undefined);
+  // Model the native bridge; component tests assert the IPC wiring, while the
+  // main-process transport tests own origin and endpoint enforcement.
+  center.syncRequest.mockImplementation(async (request: { origin: string; path: string; body?: string; token?: string }) => {
+    try {
+      const response = await fetch(request.origin + request.path, { method: request.body === undefined ? "GET" : "POST", body: request.body,
+        headers: request.token ? { Authorization: `Bearer ${request.token}` } : {} });
+      return { ok: true, status: response.status, body: await response.text() };
+    } catch { return { ok: false, reason: "network" }; }
+  });
   Object.defineProperty(window, "desktopAPI", { configurable: true, value: { center } });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -74,6 +87,8 @@ describe("center sync settings", () => {
     ]);
     expect(center.connect).not.toHaveBeenCalled();
     expect(center.transferData).not.toHaveBeenCalled();
+    expect(center.syncRequest).toHaveBeenCalledTimes(3);
+    expect(center.syncRequest).toHaveBeenNthCalledWith(1, expect.objectContaining({ origin: peer, path: "/auth/send-code", body: JSON.stringify({ email: user.email }), token: undefined }));
     expect(screen.getByRole("textbox", { name: "Server address" })).toHaveValue(source);
     expect(section.getByRole("button", { name: "Sync between center servers" })).toBeDisabled();
     fireEvent.click(section.getByRole("button", { name: "Disconnect sync server" }));
