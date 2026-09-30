@@ -5,6 +5,8 @@ import { I18nProvider } from "@multica/core/i18n/react";
 import { RESOURCES } from "@multica/views/locales";
 import { CenterRecoveryActions } from "./center-recovery-actions";
 const logout = vi.hoisted(() => vi.fn());
+const getToken = vi.hoisted(() => vi.fn((): string | null => "desktop-session"));
+vi.mock("@multica/core/api", () => ({ getApi: () => ({ getToken, getBaseUrl: () => "https://current.example" }) }));
 vi.mock("@multica/core/auth", () => ({ useAuthStore: { getState: () => ({ logout }) } }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 function setup() {
@@ -33,6 +35,15 @@ describe("center recovery settings actions", () => {
     const { api, message } = setup(); api.exportData.mockResolvedValue({ cancelled: true }); const dialog = await open("export");
     fireEvent.click(within(dialog).getByRole("button", { name: "Export center data" }));
     await waitFor(() => expect(api.exportData).toHaveBeenCalledOnce()); expect(message).not.toHaveBeenCalledWith("Center backup exported.");
+    expect(api.exportData).toHaveBeenCalledWith({ password: "portable backup password", session: { origin: "https://current.example", token: "desktop-session" } });
+    expect(within(dialog).queryByLabelText(/recovery token/i)).not.toBeInTheDocument();
+  });
+  it("requires the existing login without requesting a recovery token", async () => {
+    getToken.mockReturnValueOnce(null);
+    const { api } = setup(); const dialog = await open("export");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Export center data" }));
+    expect(await within(dialog).findByText("Sign in to the center before exporting or importing data.")).toBeVisible();
+    expect(api.exportData).not.toHaveBeenCalled();
   });
   it("signs out only after the imported center reports completion", async () => {
     const { api, message } = setup(); api.importData.mockResolvedValue({ cancelled: false, jobId: "a".repeat(32) });

@@ -23,15 +23,30 @@ const Endpoint = "/api/center/recovery/snapshot"
 // Handler is deliberately separate from workspace authentication: a recovery
 // credential authorizes export of the entire deployment, including credentials.
 func Handler(token string, capture func(context.Context) ([]byte, error)) http.HandlerFunc {
-	var busy sync.Mutex
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
+	return snapshotHandler(func(w http.ResponseWriter, r *http.Request) bool {
 		if len(token) < 32 {
 			http.NotFound(w, r)
-			return
+			return false
 		}
 		if !authorizedRecovery(r, token) {
 			http.Error(w, "recovery credential required", http.StatusUnauthorized)
+			return false
+		}
+		return true
+	}, capture)
+}
+
+// snapshotHandler shares capture mechanics, not authentication authority. Each
+// entry point must provide its own fail-closed authorization policy.
+func snapshotHandler(authorize func(http.ResponseWriter, *http.Request) bool, capture func(context.Context) ([]byte, error)) http.HandlerFunc {
+	var busy sync.Mutex
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if authorize == nil {
+			http.Error(w, "authorization unavailable", http.StatusForbidden)
+			return
+		}
+		if !authorize(w, r) {
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -64,6 +79,10 @@ func Handler(token string, capture func(context.Context) ([]byte, error)) http.H
 }
 
 func HandlerFromEnvironment(serverVersion string) http.HandlerFunc {
+	return Handler(os.Getenv("MULTICA_RECOVERY_TOKEN"), captureFromEnvironment(serverVersion))
+}
+
+func captureFromEnvironment(serverVersion string) func(context.Context) ([]byte, error) {
 	options := CaptureOptions{CenterID: os.Getenv("MULTICA_RECOVERY_CENTER_ID"), ServerVersion: serverVersion,
 		DatabaseURL: os.Getenv("DATABASE_URL"), UploadDir: os.Getenv("LOCAL_UPLOAD_DIR"), PGDump: os.Getenv("MULTICA_RECOVERY_PG_DUMP"), Secrets: map[string]string{}}
 	if options.UploadDir == "" {
@@ -73,12 +92,12 @@ func HandlerFromEnvironment(serverVersion string) http.HandlerFunc {
 		options.Secrets[key] = os.Getenv(key)
 	}
 	s3 := os.Getenv("S3_BUCKET") != ""
-	return Handler(os.Getenv("MULTICA_RECOVERY_TOKEN"), func(ctx context.Context) ([]byte, error) {
+	return func(ctx context.Context) ([]byte, error) {
 		if s3 {
 			return nil, errors.New("recovery requires local upload storage")
 		}
 		return Capture(ctx, options)
-	})
+	}
 }
 
 // Source never borrows a login token from another center or from the daemon.

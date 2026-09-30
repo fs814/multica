@@ -16,7 +16,7 @@ async function setup() {
   const controller = createCenterRecovery({ target: () => ({ url: "https://current.example", profile: "desktop-test" }), dialogs, fetch: request, profileRoot: root });
   return { root, file, dialogs, request, controller };
 }
-const input = { password: "a portable backup password", recoveryToken: "a".repeat(64) };
+const input = { password: "a portable backup password", session: { origin: "https://current.example", token: "desktop-session" } };
 const data = Buffer.from("504b030468656c6c6f", "hex");
 const jobId = "a".repeat(32);
 describe("center export and import", () => {
@@ -25,7 +25,7 @@ describe("center export and import", () => {
     dialogs.save.mockResolvedValueOnce(undefined);
     expect(await controller.exportData(input)).toEqual({ cancelled: true }); expect(request).not.toHaveBeenCalled();
     await writeFile(file, "existing backup"); request.mockResolvedValueOnce(new Response("unauthorized", { status: 401 }));
-    await expect(controller.exportData(input)).rejects.toThrow("token"); expect(await readFile(file, "utf8")).toBe("existing backup");
+    await expect(controller.exportData(input)).rejects.toThrow("Sign in"); expect(await readFile(file, "utf8")).toBe("existing backup");
   });
   it("exports the active center through the native save destination", async () => {
     const { file, request, controller } = await setup();
@@ -33,7 +33,8 @@ describe("center export and import", () => {
     expect((await controller.exportData(input)).cancelled).toBe(false);
     const backup = await openCenterBackup(await readFile(file), input.password); expect(backup.data).toEqual(data);
     expect(backup.metadata.sourceUrl).toBe("https://current.example");
-    expect(request).toHaveBeenCalledWith("https://current.example/api/center/recovery/snapshot", expect.objectContaining({ redirect: "error" }));
+    expect(request).toHaveBeenCalledWith("https://current.example/api/center/recovery/desktop/snapshot", expect.objectContaining({ headers: { Authorization: "Bearer desktop-session" }, redirect: "error" }));
+    expect(JSON.stringify(request.mock.calls)).not.toContain(input.password);
   });
   it("confirms the destination, tolerates restart, and accepts only matching completion", async () => {
     const { file, dialogs, request, controller } = await setup();
@@ -46,6 +47,7 @@ describe("center export and import", () => {
     request.mockRejectedValueOnce(new TypeError("offline")); expect(await controller.status(jobId)).toEqual({ state: "restarting" });
     request.mockResolvedValueOnce(Response.json({ job_id: jobId, state: "complete", center_id: "old-center" }));
     expect((await controller.status(jobId)).state).toBe("complete");
+    expect(request).toHaveBeenLastCalledWith(`https://current.example/api/center/recovery/desktop/import-status?job_id=${jobId}`, expect.objectContaining({ headers: { Authorization: "Bearer desktop-session" }, redirect: "error" }));
     await expect(controller.status(jobId)).rejects.toThrow("Unknown");
   });
   it("does not upload when the password is wrong", async () => {
@@ -53,6 +55,43 @@ describe("center export and import", () => {
     await writeFile(file, await sealCenterBackup(data, input.password, { version: 1, sourceUrl: "https://old.example", centerId: "old-center", createdAt: new Date().toISOString() }));
     await expect(controller.importData({ ...input, password: "a different password" })).rejects.toThrow("Incorrect");
     expect(request).not.toHaveBeenCalled();
+  });
+  it("requires a login bound to the connected center, not a recovery credential", async () => {
+    const { controller, request } = await setup();
+    await expect(controller.exportData({ password: input.password, recoveryToken: "a".repeat(64) })).rejects.toThrow("Sign in");
+    await expect(controller.exportData({ ...input, session: { ...input.session, token: "" } })).rejects.toThrow("Sign in");
+    await expect(controller.exportData({ ...input, session: { ...input.session, origin: "https://another.example" } })).rejects.toThrow("center changed");
+    expect(request).not.toHaveBeenCalled();
+  });
+  it("never falls back to operator recovery when the session is denied", async () => {
+    const { controller, request } = await setup();
+    request.mockResolvedValueOnce(new Response("forbidden", { status: 403 }));
+    await expect(controller.exportData(input)).rejects.toThrow("MULTICA_RECOVERY_OWNER_ID");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("rejects import acknowledgements for a different center", async () => {
+    const { controller, request, file } = await setup();
+    await writeFile(file, await sealCenterBackup(data, input.password, { version: 1, sourceUrl: "https://old.example", centerId: "old-center", createdAt: new Date().toISOString() }));
+    request.mockResolvedValueOnce(Response.json({ job_id: jobId, state: "pending", center_id: "different-center" }, { status: 202 }));
+    await expect(controller.importData(input)).rejects.toThrow("acknowledged");
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+  it("releases a denied or timed-out status session without claiming the restore failed", async () => {
+    const { controller, request, file } = await setup();
+    await writeFile(file, await sealCenterBackup(data, input.password, { version: 1, sourceUrl: "https://old.example", centerId: "old-center", createdAt: new Date().toISOString() }));
+    request.mockResolvedValueOnce(Response.json({ job_id: jobId, state: "pending", center_id: "old-center" }, { status: 202 }));
+    await controller.importData(input);
+    request.mockResolvedValueOnce(new Response("denied", { status: 403 }));
+    await expect(controller.status(jobId)).rejects.toThrow("Sign in");
+    await expect(controller.status(jobId)).rejects.toThrow("Unknown");
+    request.mockResolvedValueOnce(Response.json({ job_id: jobId, state: "pending", center_id: "old-center" }, { status: 202 }));
+    await controller.importData(input);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+      await expect(controller.status(jobId)).rejects.toThrow("may still be running");
+      await expect(controller.status(jobId)).rejects.toThrow("Unknown");
+    } finally { vi.useRealTimers(); }
   });
 });
 

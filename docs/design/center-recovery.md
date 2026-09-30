@@ -17,10 +17,11 @@ agents and their credentials, squads and membership, issue identifiers, comments
 history, workflows and relationships. Local uploaded files and the deployment
 keys needed to decrypt database secrets travel with the database snapshot.
 
-The center operator explicitly enables exports with a separate recovery bearer
-credential. This grants access to the entire center and is not a workspace
-member permission. It must only be provisioned to trusted backup daemons.
-Ordinary user, agent and task credentials do not authorize an export.
+The center operator explicitly enables daemon exports with a separate recovery
+bearer credential, or Desktop export/import by designating a recovery owner
+account as described below. Both grant access to the entire center, not just one
+workspace. Ordinary workspace membership, agent credentials and task credentials
+do not authorize recovery.
 
 The daemon keeps recovery credentials scoped to the exact source origin. A
 center switch never sends an old center's credential to the replacement center.
@@ -157,9 +158,31 @@ overwrite the restored database. Never point these test variables at live data.
 
 Settings → Desktop app → Center server has **Export center data** and **Import
 and use center data**. Both operate on the active center, not an edited but
-unconnected address. The dialogs accept the operator recovery token, or reuse
-one already saved for that exact center in the local daemon profile. Normal
-workspace sessions and provider API keys do not authorize a full-center export.
+unconnected address. The dialogs ask only for the backup password (and password
+confirmation on export). Desktop automatically uses the active center's existing
+signed-in session; it does not ask for, load, or substitute a recovery token.
+
+Before using these buttons, the center operator sets
+`MULTICA_RECOVERY_OWNER_ID` to the UUID of a trusted human account **on that center**
+in the private deployment environment and restarts the center. This is an account
+identifier, not a new secret. Sign in to Desktop as that account. Being an owner
+of a workspace does not automatically grant access to every workspace's data.
+Export/import verifies that the configured account still exists and is enabled.
+An unset or invalid owner setting denies access; there is no first-user fallback.
+Do not configure an account you do not trust with the entire deployment.
+
+Desktop uses these normal-authenticated routes:
+
+- `GET /api/center/recovery/desktop/snapshot`
+- `POST /api/center/recovery/desktop/import`
+- `GET /api/center/recovery/desktop/import-status?job_id=<accepted-job-id>`
+
+These routes require a valid human login session and the designated owner.
+They do not require `MULTICA_RECOVERY_TOKEN`. The operator/daemon routes and their
+separate recovery-token policy remain unchanged. Credentials are bound to the
+exact connected origin and redirects are rejected. Use HTTPS or a trusted
+private network; the backup password only protects the local backup file, not
+the transport connection, and is never sent to the server.
 
 Export opens the native save dialog and writes a `.multica-backup` file protected
 with a user-selected password (at least 12 characters). This portable format uses
@@ -172,6 +195,15 @@ Import opens the native file picker, verifies the password and archive, and asks
 for confirmation naming the source and active destination. On success it waits
 for the restarted center to become ready, then clears the Desktop session and
 its daemon's obsolete token/workspace selection. Sign in to use the restored data.
+Import status is bound to the exact initiating session and accepted job for at
+most 30 minutes (and never beyond the session's expiry). A private file stores
+only the session hash, job ID, owner ID and expiry, never the login credential.
+This narrow status permission survives a restored account table; it cannot
+authorize another export/import. The destination's JWT secret remains unchanged.
+If the importing account no longer exists after restore, the operator must update
+`MULTICA_RECOVERY_OWNER_ID` to the intended restored account before further backups.
+If status polling expires, check the center's private status file before retrying
+an import; loss of polling access does not cancel an already accepted restore.
 The UI keeps input on failure, displays progress and does not claim success while
 the center is restarting. An older center without these endpoints reports that
 it must be updated/configured; no partial API recreation is attempted.
@@ -197,7 +229,7 @@ and destination deployments should run matching schema versions for import.
 The center and migration command load the activation before opening database
 connections, so subsequent restarts/upgrades keep using the restored database.
 CLI local capture also honors activation when the state directory is configured.
-The recovery token and public URL stay under the destination operator's control.
+The recovery owner, operator recovery token and public URL stay under the destination operator's control.
 Source credentials are never sent to another URL; HTTP redirects are refused.
 
 Keep the source center stopped before activation to avoid duplicate scheduled

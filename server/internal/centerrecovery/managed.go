@@ -22,6 +22,9 @@ const StatusEndpoint = "/api/center/recovery/import-status"
 const RestartExitCode = 75
 const ChildEnvironment = "MULTICA_RECOVERY_MANAGED_CHILD"
 
+// Operator and Desktop routes stage into the same recovery directory.
+var managedImportMu sync.Mutex
+
 type ImportStatus struct {
 	JobID    string `json:"job_id"`
 	State    string `json:"state"`
@@ -120,7 +123,6 @@ func ApplyActivation(root string) error {
 // exit. The parent restores only after every child worker has exited.
 func ManagedHandlers(restart func()) (http.HandlerFunc, http.HandlerFunc) {
 	root, token := StateDir(), os.Getenv("MULTICA_RECOVERY_TOKEN")
-	var mu sync.Mutex
 	authenticated := func(w http.ResponseWriter, r *http.Request) bool {
 		w.Header().Set("Cache-Control", "no-store")
 		if !authorizedRecovery(r, token) {
@@ -129,8 +131,20 @@ func ManagedHandlers(restart func()) (http.HandlerFunc, http.HandlerFunc) {
 		}
 		return true
 	}
+	return managedHandlers(root, restart, authenticated, authenticated, nil)
+}
+
+// Desktop and operator entry points share staging and activation mechanics,
+// but retain separate authorization policies. A Desktop job binds its status
+// reader before staging is acknowledged or the server is restarted.
+func managedHandlers(root string, restart func(), authorizeImport, authorizeStatus func(http.ResponseWriter, *http.Request) bool, bindStatus func(*http.Request, string) error) (http.HandlerFunc, http.HandlerFunc) {
 	status := func(w http.ResponseWriter, r *http.Request) {
-		if !authenticated(w, r) {
+		w.Header().Set("Cache-Control", "no-store")
+		if authorizeStatus == nil {
+			http.Error(w, "authorization unavailable", http.StatusForbidden)
+			return
+		}
+		if !authorizeStatus(w, r) {
 			return
 		}
 		var state ImportStatus
@@ -138,22 +152,33 @@ func ManagedHandlers(restart func()) (http.HandlerFunc, http.HandlerFunc) {
 			http.Error(w, "no import status", 404)
 			return
 		}
+		// A subsequent import may replace status.json after authorization. Never
+		// expose its status through an earlier Desktop job's session grant.
+		if bindStatus != nil && state.JobID != r.URL.Query().Get("job_id") {
+			http.Error(w, "import status changed", http.StatusNotFound)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(state)
 	}
 	importData := func(w http.ResponseWriter, r *http.Request) {
-		if !authenticated(w, r) {
+		w.Header().Set("Cache-Control", "no-store")
+		if authorizeImport == nil {
+			http.Error(w, "authorization unavailable", http.StatusForbidden)
+			return
+		}
+		if !authorizeImport(w, r) {
 			return
 		}
 		if restart == nil || root == "" || !filepath.IsAbs(root) || os.Getenv(ChildEnvironment) != "1" || os.Getenv("REDIS_URL") != "" || os.Getenv("DATABASE_REPLICA_URL") != "" || os.Getenv("S3_BUCKET") != "" {
 			http.Error(w, "Desktop import requires a managed single-node center with MULTICA_RECOVERY_STATE_DIR and local uploads", 409)
 			return
 		}
-		if !mu.TryLock() {
+		if !managedImportMu.TryLock() {
 			http.Error(w, "another import is in progress", 409)
 			return
 		}
-		defer mu.Unlock()
+		defer managedImportMu.Unlock()
 		if _, err := os.Stat(filepath.Join(root, "pending.json")); !os.IsNotExist(err) {
 			http.Error(w, "another import is pending", 409)
 			return
@@ -183,6 +208,12 @@ func ManagedHandlers(restart func()) (http.HandlerFunc, http.HandlerFunc) {
 			return
 		}
 		id := hex.EncodeToString(idBytes)
+		if bindStatus != nil {
+			if err := bindStatus(r, id); err != nil {
+				http.Error(w, "could not authorize import status", 503)
+				return
+			}
+		}
 		plan := importPlan{JobID: id, Snapshot: snapshot, CenterID: manifest.CenterID}
 		state := ImportStatus{JobID: id, State: "pending", CenterID: manifest.CenterID}
 		if err = writePrivateJSON(filepath.Join(root, "status.json"), state); err == nil {

@@ -25,9 +25,9 @@ async function boundedBody(response: Response): Promise<Buffer> {
     return Buffer.concat(chunks);
   } finally { await reader.cancel(); }
 }
-function responseError(response: Response): Error {
+function responseError(response: Response, desktop = false): Error {
   if (response.status === 404) return new Error("This center needs the Multica recovery update and operator configuration before exporting or importing data.");
-  if (response.status === 401 || response.status === 403) return new Error("The center recovery token is missing or incorrect.");
+  if (response.status === 401 || response.status === 403) return new Error(desktop ? "Sign in as the account configured by MULTICA_RECOVERY_OWNER_ID on this center." : "The center recovery token is missing or incorrect.");
   if (response.status === 409) return new Error("Import is unavailable or another import is pending. Enable managed recovery on a single-node center with local uploads.");
   return new Error(`Center recovery failed (HTTP ${response.status}). Check the center's recovery configuration and PostgreSQL tools.`);
 }
@@ -35,7 +35,7 @@ function responseError(response: Response): Error {
 export function createCenterRecovery(options: Options) {
   const request = options.fetch ?? fetch;
   let busy = false;
-  const jobs = new Map<string, { target: Target; token: string; centerId?: string }>();
+  const jobs = new Map<string, { target: Target; token: string; centerId?: string; desktop?: boolean; deadline?: number }>();
   const target = (): Target => {
     const value = options.target();
     const parsed = parseCenterSettings({ version: 1, ...value });
@@ -56,9 +56,14 @@ export function createCenterRecovery(options: Options) {
     try { return await work(); } finally { busy = false; }
   }
   const headers = (token: string) => ({ Authorization: `Bearer ${token}` });
-  async function snapshot(t: Target, token: string) {
-    const response = await request(t.url + "/api/center/recovery/snapshot", { headers: headers(token), redirect: "error", signal: AbortSignal.timeout(360_000) });
-    if (!response.ok) throw responseError(response);
+  const desktopPrefix = "/api/center/recovery/desktop";
+  function sessionCredential(t: Target, session: { origin: string; token: string }): string {
+    if (session.origin !== t.url) throw new Error("The center changed. Sign in to the current center before exporting or importing data.");
+    return session.token;
+  }
+  async function snapshot(t: Target, token: string, desktop = false) {
+    const response = await request(t.url + (desktop ? desktopPrefix : "/api/center/recovery") + "/snapshot", { headers: headers(token), redirect: "error", signal: AbortSignal.timeout(360_000) });
+    if (!response.ok) throw responseError(response, desktop);
     const centerId = response.headers.get("X-Multica-Recovery-Center-ID");
     if (!centerId || response.headers.get("Content-Type") !== "application/zip") throw new Error("The center returned an unsupported backup response. Update the center and retry.");
     return { data: await boundedBody(response), centerId };
@@ -66,23 +71,32 @@ export function createCenterRecovery(options: Options) {
   async function status(jobId: unknown): Promise<CenterRecoveryProgress> {
     if (typeof jobId !== "string" || !jobs.has(jobId)) throw new Error("Unknown import operation");
     const job = jobs.get(jobId)!;
+    if (job.deadline && Date.now() >= job.deadline) {
+      jobs.delete(jobId);
+      throw new Error("Import has not reported completion. Check the center's import status before retrying; it may still be running.");
+    }
     let response: Response;
-    try { response = await request(job.target.url + "/api/center/recovery/import-status", { headers: headers(job.token), redirect: "error", signal: AbortSignal.timeout(5000) }); }
+    try { response = await request(job.target.url + (job.desktop ? desktopPrefix + "/import-status?job_id=" + jobId : "/api/center/recovery/import-status"), { headers: headers(job.token), redirect: "error", signal: AbortSignal.timeout(5000) }); }
     catch { return { state: "restarting" }; }
     if (response.status >= 500) return { state: "restarting" };
-    if (!response.ok) throw responseError(response);
-    const parsed = parseCenterImportStatus(await response.json());
-    if (!parsed || parsed.jobId !== jobId || (job.centerId && parsed.centerId !== job.centerId)) throw new Error("The center returned an unexpected import status");
-    if (!["pending", "activating", "complete", "failed"].includes(parsed.state)) throw new Error("The center returned an unsupported import state");
-    if (parsed.state === "complete" || parsed.state === "failed") jobs.delete(jobId);
-    return { state: parsed.state, message: parsed.message };
+    try {
+      if (!response.ok) throw responseError(response, job.desktop);
+      const parsed = parseCenterImportStatus(await response.json());
+      if (!parsed || parsed.jobId !== jobId || (job.centerId && parsed.centerId !== job.centerId)) throw new Error("The center returned an unexpected import status");
+      if (!["pending", "activating", "complete", "failed"].includes(parsed.state)) throw new Error("The center returned an unsupported import state");
+      if (parsed.state === "complete" || parsed.state === "failed") jobs.delete(jobId);
+      return { state: parsed.state, message: parsed.message };
+    } catch (error) {
+      jobs.delete(jobId);
+      throw error;
+    }
   }
   return {
     exportData: (raw: unknown): Promise<CenterRecoveryResult> => exclusive(async () => {
       const input = parseRecoveryRequest(raw), t = target();
       const destination = await options.dialogs.save(); if (!destination) return { cancelled: true };
-      const token = await credential(t, input.recoveryToken);
-      const { data, centerId } = await snapshot(t, token);
+      const token = sessionCredential(t, input.session);
+      const { data, centerId } = await snapshot(t, token, true);
       const encrypted = await sealCenterBackup(data, input.password, { version: 1, sourceUrl: t.url, centerId, createdAt: new Date().toISOString() });
       const temporary = join(dirname(destination), ".multica-backup-" + randomUUID());
       try { await writeFile(temporary, encrypted, { mode: 0o600, flag: "wx" }); await rename(temporary, destination); }
@@ -95,12 +109,12 @@ export function createCenterRecovery(options: Options) {
       if ((await stat(file)).size > MAX_CENTER_BACKUP + 8192) throw new Error("Backup exceeds the size limit");
       const backup = await openCenterBackup(await readFile(file), input.password);
       if (!await options.dialogs.confirm(backup.metadata.sourceUrl, t.url)) return { cancelled: true };
-      const token = await credential(t, input.recoveryToken);
-      const response = await request(t.url + "/api/center/recovery/import", { method: "POST", headers: { ...headers(token), "Content-Type": "application/zip", "X-Multica-Recovery-Confirm": "replace-and-use" }, body: new Uint8Array(backup.data), redirect: "error", signal: AbortSignal.timeout(360_000) });
-      if (response.status !== 202) throw responseError(response);
+      const token = sessionCredential(t, input.session);
+      const response = await request(t.url + desktopPrefix + "/import", { method: "POST", headers: { ...headers(token), "Content-Type": "application/zip", "X-Multica-Recovery-Confirm": "replace-and-use" }, body: new Uint8Array(backup.data), redirect: "error", signal: AbortSignal.timeout(360_000) });
+      if (response.status !== 202) throw responseError(response, true);
       const status = parseCenterImportStatus(await response.json());
-      if (!status || status.state !== "pending") throw new Error("Import was not acknowledged by the center. Check its status before retrying.");
-      jobs.set(status.jobId, { target: t, token });
+      if (!status || status.state !== "pending" || status.centerId !== backup.metadata.centerId) throw new Error("Import was not acknowledged by the center. Check its status before retrying.");
+      jobs.set(status.jobId, { target: t, token, desktop: true, centerId: backup.metadata.centerId, deadline: Date.now() + 15 * 60 * 1000 });
       return { cancelled: false, jobId: status.jobId };
     }),
     transferData: (raw: unknown): Promise<CenterRecoveryResult> => exclusive(async () => {

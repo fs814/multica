@@ -719,7 +719,14 @@ if (!gotTheLock) {
       finally { if (!importingJob) centerBusy = false; }
     });
     ipcMain.handle('center:import-status', async (_event, jobId: unknown) => {
-      const status = await recovery.status(jobId);
+      let status;
+      try { status = await recovery.status(jobId); }
+      catch (error) {
+        // Lost polling authority does not cancel a restore, but must not leave
+        // Desktop permanently locked against signing in or reconnecting.
+        if (jobId === importingJob) { importingJob = undefined; centerBusy = false; }
+        throw error;
+      }
       if (jobId === importingJob && (status.state === 'complete' || status.state === 'failed')) {
         importingJob = undefined; centerBusy = false;
         if (status.state === 'complete') {

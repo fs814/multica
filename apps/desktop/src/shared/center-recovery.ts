@@ -19,16 +19,18 @@ export function parseTransferRequest(value: unknown): CenterTransferRequest {
 
 export interface CenterRecoveryRequest {
   password: string;
-  recoveryToken: string;
+  session: { origin: string; token: string };
 }
 export interface CenterRecoveryResult { cancelled: boolean; filePath?: string; jobId?: string }
 export interface CenterRecoveryProgress { state: string; message?: string }
 export function parseRecoveryRequest(value: unknown): CenterRecoveryRequest {
   if (!value || typeof value !== "object") throw new Error("Invalid recovery request");
   const request = value as Record<string, unknown>;
+  const session = request.session;
   if (typeof request.password !== "string" || request.password.length < 12 || request.password.length > 1024 ||
-      typeof request.recoveryToken !== "string" || request.recoveryToken.length > 4096 || /[\r\n]/.test(request.recoveryToken)) {
-    throw new Error("Use a backup password of at least 12 characters and a valid recovery token");
+      !session || typeof session !== "object" || !("origin" in session) || typeof session.origin !== "string" ||
+      !("token" in session) || typeof session.token !== "string" || !session.token || session.token.length > 8192 || /\s/.test(session.token)) {
+    throw new Error("Sign in to the center and use a backup password of at least 12 characters");
   }
-  return { password: request.password, recoveryToken: request.recoveryToken.trim() };
+  return { password: request.password, session: { origin: normalizeCenterUrl(session.origin), token: session.token } };
 }

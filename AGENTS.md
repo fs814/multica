@@ -94,6 +94,7 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 - Workspace delete awaits the server. Existing workspace leave clears/navigates first to avoid the `member:removed` race; this is known debt in `packages/views/settings/components/workspace-tab.tsx`, not a pattern for new flows.
 - Full-window views outside the dashboard shell mount `<DragStrip />` from `@multica/views/platform` as the first flex child. Interactive controls in the top 48px need `WebkitAppRegion: "no-drag"`.
 - Center sync is an explicit Desktop-coordinated run with separate sessions for each origin. Keep it behind normal human authentication and configured owner checks; never route it through recovery/database replacement or start it on connection, reconnect, or a timer. See `docs/design/center-sync-manual.md` for scope and setup.
+- Desktop full-center export/import uses the normal session of `MULTICA_RECOVERY_OWNER_ID`, not workspace ownership or a recovery-token substitution. Backup passwords protect files only. Keep operator/daemon recovery-token routes separate and post-import status limited to its initiating session/job. See `docs/design/center-recovery.md`.
 
 ## UI Copy
 

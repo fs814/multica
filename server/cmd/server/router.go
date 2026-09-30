@@ -1689,6 +1689,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Use(middleware.Auth(queries, patCache, cloudPATVerifier, cfSigner))
 		r.Use(middleware.RefreshCloudFrontCookies(cfSigner))
 
+		// Desktop backup uses the designated recovery owner's normal session.
+		// Legacy operator-token endpoints above retain their original policy.
+		desktopExport, desktopImport, desktopImportStatus := centerrecovery.DesktopHandlers(pool, version, opts.RecoveryRestart)
+		r.With(handler.RequireHumanActor).Get(centerrecovery.DesktopPrefix+"/snapshot", desktopExport)
+		r.With(handler.RequireHumanActor).Post(centerrecovery.DesktopPrefix+"/import", desktopImport)
+		r.With(handler.RequireHumanActor).Get(centerrecovery.DesktopPrefix+"/import-status", desktopImportStatus)
+
 		// Manual center sync uses the normal human session on each center.
 		// It never exposes recovery APIs or starts a background transfer.
 		manualSync, syncErr := centersync.NewFromEnvironment(pool)
