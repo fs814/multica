@@ -10,6 +10,13 @@ const userSchema = z.object({
 
 export type CenterSyncUser = z.infer<typeof userSchema>;
 
+export class CenterSyncRequestError extends Error {
+  constructor(readonly reason: "network" | "timeout" | "http" | "invalid_response", readonly status?: number) {
+    super(status ? `Sync server request failed (HTTP ${status})` : `Sync server request failed: ${reason}`);
+    this.name = "CenterSyncRequestError";
+  }
+}
+
 /** A second-center login, deliberately independent of the primary ApiClient.
  * Never reads shared cookies, workspace headers, auth stores or local storage.
  * Credentials stay in memory and are sent only to this instance's fixed origin.
@@ -91,22 +98,37 @@ export class CenterSyncSession {
 
   private async request(path: string, body: unknown, token: string | null, signal?: AbortSignal): Promise<unknown> {
     const controller = this.generation;
-    const response = await this.fetcher(this.origin + path, {
-      method: body === undefined ? "GET" : "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      credentials: "omit",
-      redirect: "error",
-      cache: "no-store",
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30_000), ...(signal ? [signal] : [])]),
-    });
+    const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000), ...(signal ? [signal] : [])]);
+    let response: Response;
+    try {
+      response = await this.fetcher(this.origin + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+        signal: requestSignal,
+      });
+    } catch {
+      controller.signal.throwIfAborted();
+      signal?.throwIfAborted();
+      // Do not include arbitrary fetch errors: they may contain request data.
+      throw new CenterSyncRequestError(requestSignal.aborted ? "timeout" : "network");
+    }
     controller.signal.throwIfAborted();
     if (!response.ok) {
-      if (response.status === 401 && token === this.token) this.disconnect();
-      throw new Error(`Server request failed (${response.status}); check sign-in, sync configuration and owner permissions`);
+      if (response.status === 401 && token && token === this.token) this.disconnect();
+      throw new CenterSyncRequestError("http", response.status);
     }
     if (response.status === 204) return null;
-    const raw: unknown = path.startsWith("/api/center-sync/") ? await readCenterSyncResponse(response) : await response.json();
+    let raw: unknown;
+    try { raw = path.startsWith("/api/center-sync/") ? await readCenterSyncResponse(response) : await response.json(); }
+    catch {
+      controller.signal.throwIfAborted();
+      signal?.throwIfAborted();
+      throw new CenterSyncRequestError(requestSignal.aborted ? "timeout" : "invalid_response");
+    }
     controller.signal.throwIfAborted();
     return raw;
   }

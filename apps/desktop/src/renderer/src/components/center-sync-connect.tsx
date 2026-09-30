@@ -1,6 +1,6 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { QueryClientContext } from "@tanstack/react-query";
-import { CenterSyncSession, type CenterSyncUser } from "@multica/core/api/center-sync-session";
+import { CenterSyncRequestError, CenterSyncSession, type CenterSyncUser } from "@multica/core/api/center-sync-session";
 import { useT } from "@multica/views/i18n";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -49,8 +49,22 @@ export function CenterSyncConnect({ address, disabled, sourceAddress, onBusyChan
         if (current !== attempt.current) return;
         setUser(connected); setOpen(false); setCode(""); setSent(false);
       }
-    } catch {
-      if (current === attempt.current) setError(t(($) => $.desktop.center.sync_sign_in_error));
+    } catch (failure) {
+      if (current === attempt.current) {
+        let reason = t(($) => $.desktop.center.sync_sign_in_error);
+        if (failure instanceof CenterSyncRequestError) {
+          if (failure.reason === "network") reason = t(($) => $.desktop.center.sync_login_network);
+          else if (failure.reason === "timeout") reason = t(($) => $.desktop.center.sync_login_timeout);
+          else if (failure.reason === "invalid_response") reason = t(($) => $.desktop.center.sync_login_response);
+          else if (failure.status === 429) reason = t(($) => $.desktop.center.sync_login_rate_limited);
+          else if (failure.status === 403) reason = t(($) => $.desktop.center.sync_login_forbidden);
+          else if (failure.status === 400 && sent) reason = t(($) => $.desktop.center.sync_login_code);
+          else reason = t(($) => $.desktop.center.sync_login_http, { status: failure.status });
+        }
+        setError(t(($) => $.desktop.center.sync_login_failed, {
+          step: sent ? t(($) => $.desktop.center.sync_sign_in) : t(($) => $.desktop.center.sync_send_code), reason,
+        }));
+      }
     } finally {
       if (current === attempt.current) setPending(false);
     }

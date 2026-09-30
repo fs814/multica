@@ -92,11 +92,44 @@ describe("center sync settings", () => {
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.change(dialog.getByLabelText("Email"), { target: { value: "owner@example.test" } });
     fireEvent.click(dialog.getByRole("button", { name: "Send sign-in code" }));
-    expect(await dialog.findByRole("alert")).toHaveTextContent("Could not sign in");
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Send sign-in code failed. The destination returned HTTP 503.");
     expect(dialog.getByRole("button", { name: "Send sign-in code" })).toBeEnabled();
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(section.getByRole("button", { name: "Connect for sync" })).toBeEnabled();
+  });
+
+  it("distinguishes rate limiting and transport failures while preserving the email", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("private backend detail", { status: 429 }))
+      .mockRejectedValueOnce(new TypeError("private fetch detail"));
+    vi.stubGlobal("fetch", fetcher);
+    const section = await show();
+    fireEvent.click(section.getByRole("button", { name: "Connect for sync" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Email"), { target: { value: "owner@example.test" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Send sign-in code" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("HTTP 429");
+    expect(dialog.getByLabelText("Email")).toHaveValue("owner@example.test");
+    fireEvent.click(dialog.getByRole("button", { name: "Send sign-in code" }));
+    await waitFor(() => expect(dialog.getByRole("alert")).toHaveTextContent("No readable response from the server"));
+    expect(dialog.getByRole("alert")).not.toHaveTextContent("private");
+    expect(center.connect).not.toHaveBeenCalled();
+  });
+
+  it("identifies a rejected verification code without discarding the email or code", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response("{}", { status: 400 })));
+    const section = await show();
+    fireEvent.click(section.getByRole("button", { name: "Connect for sync" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.change(dialog.getByLabelText("Email"), { target: { value: "owner@example.test" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Send sign-in code" }));
+    fireEvent.change(await dialog.findByLabelText("Verification code"), { target: { value: "123456" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Sign in" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Sign in failed. The server rejected the code (HTTP 400).");
+    expect(dialog.getByLabelText("Verification code")).toHaveValue("123456");
+    expect(dialog.getByRole("button", { name: "Sign in" })).toBeEnabled();
+    expect(center.connect).not.toHaveBeenCalled();
   });
 
   it("requires a saved, different destination before connecting", async () => {
