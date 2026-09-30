@@ -8,6 +8,19 @@ import { readCenterSettings, saveCenterSettings, testCenterConnection } from './
 import { centerRuntimeConfig, normalizeCenterUrl } from '../shared/center-settings';
 
 describe('saved center preferences', () => {
+  it('persists the transfer destination separately without changing the active server preference', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'center-transfer-settings-'));
+    try {
+      const activeFile = join(dir, 'center.json'), transferFile = join(dir, 'center-transfer.json');
+      const active = { version: 1 as const, url: 'https://source.example', profile: 'desktop-services' };
+      await saveCenterSettings(active, activeFile);
+      await saveCenterSettings({ ...active, url: 'https://destination.example/' }, transferFile);
+      expect(await readCenterSettings(activeFile)).toEqual(active);
+      expect(await readCenterSettings(transferFile)).toEqual({ ...active, url: 'https://destination.example' });
+      await expect(saveCenterSettings({ ...active, url: 'https://destination.example/path' }, transferFile)).rejects.toThrow();
+      expect((await readCenterSettings(transferFile))?.url).toBe('https://destination.example');
+    } finally { await rm(dir, { recursive: true }); }
+  });
   it('persists independently of a connection and preserves the local IPv6 profile across address changes', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'center-settings-')); const file = join(dir, 'center.json');
     try {

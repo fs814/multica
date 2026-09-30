@@ -7,8 +7,9 @@ import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
 import { setupDaemonManager, switchCenterTarget, resetDaemonAfterCenterImport } from "./daemon-manager";
 import { createCenterRecovery } from "./center-recovery";
-import { readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
+import { centerTransferSettingsPath, readCenterSettings, saveCenterSettings, testCenterConnection } from "./center-settings";
 import { centerRuntimeConfig, type CenterSettings } from "../shared/center-settings";
+import { parseTransferRequest } from "../shared/center-recovery";
 import { deriveProfileName } from "./daemon-profile";
 import { setupLocalDirectory } from "./local-directory";
 import { openExternalSafely, downloadURLSafely } from "./external-url";
@@ -665,7 +666,11 @@ if (!gotTheLock) {
       centerError = (error as Error).message;
       runtimeConfigResult = { ok: false, error: { message: centerError } };
     }
-    const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError });
+    let transferCenter: CenterSettings | null = null;
+    let transferError: string | undefined;
+    try { transferCenter = await readCenterSettings(centerTransferSettingsPath()); }
+    catch { transferError = 'Cannot read the transfer destination; save a valid transfer server address'; }
+    const centerState = () => ({ saved: savedCenter, activeUrl: runtimeConfigResult.ok ? runtimeConfigResult.config.apiUrl : '', error: centerError, transferUrl: transferCenter?.url ?? '', transferError });
     let centerBusy = false;
     // Preserve the explicit mode choice across a connection reload, not app restarts.
     let centerInitialMode: 'choose' | 'center' = 'choose';
@@ -683,6 +688,10 @@ if (!gotTheLock) {
           const result = await dialog.showMessageBox({ type: "warning", title: "Import and use center data", message: `Use the backup from ${source} on ${destination}?`, detail: "The destination center will restart and use the imported data. Its previous database will be retained. Stop the source center and finish running tasks before continuing. You will need to sign in again.", buttons: ["Cancel", "Import and use"], defaultId: 0, cancelId: 0, noLink: true });
           return result.response === 1;
         },
+        confirmTransfer: async (source, destination) => {
+          const result = await dialog.showMessageBox({ type: "warning", title: "Transfer data to new center server", message: `Transfer all center data from ${source} to ${destination}?`, detail: "The destination will restart and replace its active data, retaining its previous database. Finish running tasks and pause changes on the source before transferring. Stop the source after transfer before using the destination. Desktop will stay connected to the source.", buttons: ["Cancel", "Transfer data"], defaultId: 0, cancelId: 0, noLink: true });
+          return result.response === 1;
+        },
       },
     });
     const recoveryOperation = async (operation: () => Promise<unknown>) => {
@@ -691,6 +700,17 @@ if (!gotTheLock) {
       try { return await operation(); } finally { centerBusy = false; }
     };
     ipcMain.handle('center:export-data', (_event, request: unknown) => recoveryOperation(() => recovery.exportData(request)));
+    ipcMain.handle('center:transfer-data', (_event, request: unknown) => recoveryOperation(async () => {
+      const input = parseTransferRequest(request);
+      if (!transferCenter || input.targetUrl !== transferCenter.url) throw new Error('Save the transfer server address before transferring data');
+      return recovery.transferData(input);
+    }));
+    ipcMain.handle('center:save-transfer', (_event, url: string) => recoveryOperation(async () => {
+      const profile = savedCenter?.profile ?? deriveProfileName(centerState().activeUrl, process.env.MULTICA_DESKTOP_DAEMON_PROFILE ?? (centerState().activeUrl ? undefined : 'desktop-services'));
+      transferCenter = await saveCenterSettings({ version: 1, url, profile }, centerTransferSettingsPath());
+      transferError = undefined;
+      return centerState();
+    }));
     let importingJob: string | undefined;
     ipcMain.handle('center:import-data', async (_event, request: unknown) => {
       if (centerBusy) throw new Error("A center operation is already in progress");

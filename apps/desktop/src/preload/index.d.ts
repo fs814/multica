@@ -23,6 +23,8 @@ interface DesktopAPI {
     initialMode: 'choose' | 'center';
     get: () => Promise<import('../shared/center-settings').CenterSettingsState>;
     save: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
+    saveTransfer: (url: string) => Promise<import('../shared/center-settings').CenterSettingsState>;
+    transferData: (request: import('../shared/center-recovery').CenterTransferRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;
     test: (url: string) => Promise<import('../shared/center-settings').CenterTestResult>;
     connect: (enterServerMode?: boolean) => Promise<void>;
     exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => Promise<import('../shared/center-recovery').CenterRecoveryResult>;

@@ -124,6 +124,8 @@ const desktopAPI = {
     initialMode: ipcRenderer.sendSync('center:initial-mode') as 'choose' | 'center',
     get: () => ipcRenderer.invoke('center:get'),
     save: (url: string) => ipcRenderer.invoke('center:save', url),
+    saveTransfer: (url: string) => ipcRenderer.invoke('center:save-transfer', url),
+    transferData: (request: import('../shared/center-recovery').CenterTransferRequest) => ipcRenderer.invoke('center:transfer-data', request),
     test: (url: string) => ipcRenderer.invoke('center:test', url),
     connect: (enterServerMode = false) => ipcRenderer.invoke('center:connect', enterServerMode),
     exportData: (request: import('../shared/center-recovery').CenterRecoveryRequest) => ipcRenderer.invoke('center:export-data', request),

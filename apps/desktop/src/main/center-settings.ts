@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { normalizeCenterUrl, parseCenterSettings, type CenterSettings, type CenterTestResult } from "../shared/center-settings";
 
 export function centerSettingsPath(): string { return join(homedir(), '.multica', 'center.json'); }
+export function centerTransferSettingsPath(): string { return join(homedir(), '.multica', 'center-transfer.json'); }
 export async function readCenterSettings(file = centerSettingsPath()): Promise<CenterSettings | null> {
   try { return parseCenterSettings(JSON.parse(await readFile(file, 'utf8'))); }
   catch (error) {

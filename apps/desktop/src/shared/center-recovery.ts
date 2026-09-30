@@ -1,3 +1,22 @@
+import { normalizeCenterUrl } from "./center-settings";
+
+export interface CenterTransferRequest {
+  targetUrl: string;
+  sourceRecoveryToken: string;
+  targetRecoveryToken: string;
+}
+export function parseTransferRequest(value: unknown): CenterTransferRequest {
+  if (!value || typeof value !== "object") throw new Error("Invalid transfer request");
+  const request = value as Record<string, unknown>;
+  const token = (raw: unknown): string => {
+    if (typeof raw !== "string" || raw.length > 4096 || /[\r\n]/.test(raw)) throw new Error("Invalid recovery token");
+    const trimmed = raw.trim();
+    if (trimmed && (trimmed.length < 32 || /\s/.test(trimmed))) throw new Error("Recovery token must contain at least 32 characters and no whitespace");
+    return trimmed;
+  };
+  return { targetUrl: normalizeCenterUrl(request.targetUrl), sourceRecoveryToken: token(request.sourceRecoveryToken), targetRecoveryToken: token(request.targetRecoveryToken) };
+}
+
 export interface CenterRecoveryRequest {
   password: string;
   recoveryToken: string;
