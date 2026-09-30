@@ -11,6 +11,10 @@ import (
 )
 
 func (h *Handler) serveMerge(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, Prefix+"/merge-file-") {
+		h.serveAttachmentChunk(ctx, w, r)
+		return
+	}
 	var input mergeInput
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, ws.MaxWireBytes))
 	d.DisallowUnknownFields()

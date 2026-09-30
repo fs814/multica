@@ -89,6 +89,7 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
   }, [mutation.isPending, onBusyChange]);
   const items = [{ value: "all", label: t(($) => $.desktop.center.sync_all_workspaces) }, ...(workspaces.data ?? []).map(item => ({ value: item.id, label: item.name }))];
   const result = mutation.data;
+  const warnings = result?.warnings ?? progress?.warnings ?? [];
   const phase = mutation.isSuccess ? "complete" : progress?.phase ?? "checking";
   const stages = { checking: 0, preparing: 1, pulling: 2, pushing: 3, verifying: 4, complete: 5 };
   const phaseLabels = {
@@ -127,8 +128,16 @@ export function CenterSyncRun({ sourceAddress, session, disabled, onBusyChange, 
       <p role={mutation.isPending ? "status" : undefined} className="text-body">{progressLabel}</p>
       <Progress value={mutation.isSuccess ? 5 : progress.percent === undefined ? stages[phase] : progress.percent / 20} max={5} aria-label={t(($) => $.desktop.center.sync_progress)} aria-valuetext={progressLabel} />
       <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_progress_counts, { batches: progress.batches, records: progress.records, edits: progress.edits })}</p>
+      <p className="text-caption text-muted-foreground">{t(($) => $.desktop.center.sync_progress_files, { chunks: progress.fileChunks ?? 0, mib: ((progress.fileBytes ?? 0) / 1048576).toFixed(1) })}</p>
     </div>}
     {mutation.isError && <p role="alert" className="break-words text-body text-destructive">{t(($) => $.desktop.center.sync_run_error)} {mutation.error.message}</p>}
+    {warnings.length > 0 && <div role="alert" className="space-y-2 text-body">
+      <p>{t(($) => $.desktop.center.sync_attachment_unavailable, { total: warnings.length })}</p>
+      <details>
+        <summary className="cursor-pointer">{t(($) => $.desktop.center.sync_attachment_warning_details)}</summary>
+        <pre className="max-h-64 max-w-full overflow-auto whitespace-pre-wrap break-all text-caption">{JSON.stringify(warnings, null, 2)}</pre>
+      </details>
+    </div>}
     {result && <>
       <p role="status" className="text-body">{t(($) => $.desktop.center.sync_result, { workspaces: result.workspaces?.length ?? 1, conflicts: result.conflicts })}</p>
       <details>

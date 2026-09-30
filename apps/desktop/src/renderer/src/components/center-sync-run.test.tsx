@@ -37,6 +37,30 @@ async function show(select = true, peer = "https://peer.example") {
 }
 
 describe("Desktop manual sync action", () => {
+  it("shows unavailable attachment warnings after an otherwise successful merge", async () => {
+    const warnings = [{ code: "attachment_unavailable" as const, origin: "https://source.example", workspace: id, attachment: id }];
+    vi.mocked(syncCenters).mockResolvedValue({ cursor: 0, records: [], pending: 0, conflicts: 0, warnings });
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveTextContent("Attachment unavailable warnings: 1");
+    expect(warning).toHaveTextContent("Missing files are skipped, not deleted");
+    expect(warning).toHaveTextContent("https://source.example");
+    expect(warning).toHaveTextContent(id);
+    expect(await screen.findByText(/Merge finished for 1 workspace/)).toBeVisible();
+  });
+
+  it("keeps attachment warnings visible when a later error stops the run", async () => {
+    vi.mocked(syncCenters).mockImplementation(async (_source, _peer, _workspace, _signal, report) => {
+      report?.({ phase: "pulling", batches: 0, records: 0, edits: 0, warnings: [{ code: "attachment_unavailable", origin: "https://source.example", workspace: id, attachment: id }] });
+      throw new Error("later request failed");
+    });
+    await show();
+    fireEvent.click(screen.getByRole("button", { name: "Sync between center servers" }));
+    expect(await screen.findByText(/Attachment unavailable warnings: 1/)).toBeVisible();
+    expect(await screen.findByText(/later request failed/)).toBeVisible();
+  });
+
   it("keeps the chosen workspace label and sends its ID, not the previous selection", async () => {
     const otherId = "22345678-1234-4234-8234-123456789012";
     vi.spyOn(getApi(), "listWorkspaces").mockResolvedValue([
@@ -130,11 +154,12 @@ describe("Desktop manual sync action", () => {
     const bar = await screen.findByRole("progressbar", { name: "Sync progress" });
     expect(bar).toHaveAttribute("aria-valuenow", "0");
     await waitFor(() => expect(update).toBeDefined());
-    act(() => update({ phase: "pulling", batches: 3, records: 42, edits: 0 }));
+    act(() => update({ phase: "pulling", batches: 3, records: 42, edits: 0, fileChunks: 18, fileBytes: 18 * 1048576 }));
     expect(bar).toHaveAttribute("aria-valuenow", "2");
     expect(bar).toHaveAttribute("aria-valuemax", "5");
     expect(screen.getByRole("status")).toHaveTextContent("Stage 3 of 5: Reading content from both centers");
     expect(screen.getByText(/42 record updates/)).toBeVisible();
+    expect(screen.getByText(/18 chunks, 18.0 MiB/)).toBeVisible();
     act(() => update({ phase: "verifying", batches: 3, records: 42, edits: 2 }));
     expect(bar).toHaveAttribute("aria-valuenow", "4");
     expect(screen.queryByText("Sync complete")).not.toBeInTheDocument();

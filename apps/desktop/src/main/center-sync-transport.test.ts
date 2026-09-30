@@ -11,6 +11,20 @@ const id = "12345678-1234-4234-8234-123456789012";
 const input = { id, origin: peer, path: "/auth/send-code", body: JSON.stringify({ email: "owner@example.test" }) };
 
 describe("native peer transport", () => {
+  it("allows bounded chunk actions only on the saved authenticated HTTPS channel", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json({}));
+    const body = { workspace: id, peer: "https://other.example", attachment: id, hash: "a".repeat(64), size: 3, offset: 0 };
+    for (const role of ["source", "peer"] as const) {
+      const transport = createCenterSyncTransport(() => ({ peer: source, source: "https://other.example" }), fetcher, role);
+      for (const action of ["merge-file-status", "merge-file-read", "merge-file-write"]) {
+        const request = { id, origin: source, path: `/api/center-sync/${action}`, token: "fixture-only-login", body: JSON.stringify({ ...body, ...(action === "merge-file-write" ? { data: "YWJj" } : {}) }) };
+        expect(await transport.request(request)).toMatchObject({ ok: true, status: 200 });
+        expect(await transport.request({ ...request, token: undefined })).toEqual({ ok: false, reason: "invalid_request" });
+        expect(await transport.request({ ...request, origin: "https://wrong.example" })).toEqual({ ok: false, reason: "invalid_request" });
+      }
+    }
+    expect(fetcher).toHaveBeenCalledTimes(6);
+  });
   it('isolates the HTTPS source channel, permits authenticated workspace reads only there, and rejects HTTP', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json([]));
     const transport = createCenterSyncTransport(() => ({ peer: source, source: 'https://peer.example' }), fetcher, 'source');

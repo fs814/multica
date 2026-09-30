@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { parseWithFallback } from "./schema";
-import { contentMergeRequestSchema, mergeCenters, type ContentMergeConflict } from "./center-content-merge";
+import { contentMergeRequestSchema, mergeCenters, type ContentMergeConflict, type ContentMergeWarning } from "./center-content-merge";
 
-export const centerSyncActions = ["info", "prepare", "pull", "push", "replica", "apply", "acknowledge", "edit", "merge-list", "merge-export", "merge-apply"] as const;
+export const centerSyncActions = ["info", "prepare", "pull", "push", "replica", "apply", "acknowledge", "edit", "merge-list", "merge-export", "merge-apply", "merge-file-status", "merge-file-read", "merge-file-write"] as const;
 export type CenterSyncAction = typeof centerSyncActions[number];
 
 export async function readCenterSyncResponse(response: Response): Promise<unknown> {
@@ -122,6 +122,7 @@ export interface CenterSyncResult {
   conflicts: number;
   review?: ContentMergeConflict[];
   workspaces?: string[];
+  warnings?: ContentMergeWarning[];
 }
 
 export interface CenterSyncProgress {
@@ -130,6 +131,9 @@ export interface CenterSyncProgress {
   records: number;
   edits: number;
   percent?: number;
+  fileBytes?: number;
+  fileChunks?: number;
+  warnings?: ContentMergeWarning[];
 }
 
 /** One bounded, explicit run. No timers schedule new runs and no credentials

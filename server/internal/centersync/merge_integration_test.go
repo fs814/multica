@@ -137,6 +137,52 @@ func TestContentMergeTwoDatabases(t *testing.T) {
 	if err != nil || string(data) != "attachment payload" {
 		t.Fatalf("attachment missing: %v", err)
 	}
+	// Missing files are reported, not fabricated, copied as broken rows, or
+	// interpreted as a request to delete an existing peer copy.
+	missing := a.fx.Insert(t, "attachment", testutil.Cols{"workspace_id": workspace, "issue_id": issue, "uploader_type": "member", "uploader_id": a.fx.UserID, "filename": "missing.txt", "url": "/uploads/missing-fixture", "content_type": "text/plain", "size_bytes": 50})
+	aa := export(a, b)
+	if len(aa.UnavailableAttachments) != 1 || aa.UnavailableAttachments[0] != missing {
+		t.Fatal("missing attachment warning absent")
+	}
+	for _, r := range aa.Records {
+		if r.Table == "attachment" && textValue(r.Fields["id"]) == missing {
+			t.Fatal("missing attachment exported as a broken row")
+		}
+	}
+	if result := apply(b, a, aa); len(result.Conflicts) != 0 {
+		t.Fatal("unavailable attachment stopped the merge")
+	}
+	b.fx.QueryRow(t, `SELECT count(*) FROM attachment WHERE id=$1`, missing).Scan(&count)
+	if count != 0 {
+		t.Fatal("created a broken destination attachment")
+	}
+	a.fx.Exec(t, `UPDATE attachment SET url='/uploads/another-missing-fixture' WHERE id=$1`, attachment)
+	a.fx.Exec(t, `UPDATE issue SET title='merges despite missing files' WHERE id=$1`, issue)
+	if result := apply(b, a, export(a, b)); len(result.Conflicts) != 0 || result.Updated == 0 {
+		t.Fatal("missing file blocked other content or was treated as deletion")
+	}
+	var preserved string
+	b.fx.QueryRow(t, `SELECT url FROM attachment WHERE id=$1`, attachment).Scan(&preserved)
+	if preserved != address {
+		t.Fatal("unavailable source replaced the healthy destination file")
+	}
+	if result := apply(a, b, export(b, a)); len(result.Conflicts) != 0 {
+		t.Fatal("healthy peer file did not repair unavailable local bytes")
+	}
+	a.fx.QueryRow(t, `SELECT url FROM attachment WHERE id=$1`, attachment).Scan(&preserved)
+	use(a)
+	data, err = readAttachment(preserved)
+	if err != nil || string(data) != "attachment payload" {
+		t.Fatal("missing local attachment not repaired from peer")
+	}
+	a.fx.QueryRow(t, `SELECT count(*) FROM attachment WHERE id=$1`, missing).Scan(&count)
+	if count != 1 {
+		t.Fatal("missing attachment metadata deleted")
+	}
+	// Return the original fixture to its initial URL for later edit tests.
+	a.fx.Exec(t, `UPDATE attachment SET url='https://a.example.test/uploads/fixture.txt' WHERE id=$1`, attachment)
+	round()
+	round()
 	b.fx.Exec(t, `UPDATE agent SET custom_env='{"SECRET":"destination-only"}'::jsonb WHERE id=$1`, agent)
 	a.fx.Exec(t, `UPDATE issue SET title='source edit' WHERE id=$1`, issue)
 	b.fx.Exec(t, `UPDATE project SET title='peer edit' WHERE id=$1`, project)

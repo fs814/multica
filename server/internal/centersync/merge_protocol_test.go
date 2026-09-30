@@ -2,6 +2,7 @@ package centersync
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func TestContentMergeActorPairsAreAtomic(t *testing.T) {
 
 func TestContentMergeRoutesRejectNonOwnerBeforeDatabase(t *testing.T) {
 	h, _ := fixture(t)
-	for _, action := range []string{"merge-list", "merge-export", "merge-apply"} {
+	for _, action := range []string{"merge-list", "merge-export", "merge-apply", "merge-file-status", "merge-file-read", "merge-file-write"} {
 		for _, actor := range []string{"missing", "other", "task_token", "cloud_pat"} {
 			r := httptest.NewRequest("POST", Prefix+"/"+action, strings.NewReader("{}"))
 			if actor == "other" {
@@ -85,6 +86,9 @@ func TestContentAttachmentsStayInsideUploadRootAndNeverClobber(t *testing.T) {
 	t.Setenv("LOCAL_UPLOAD_DIR", dir)
 	t.Setenv("LOCAL_UPLOAD_BASE_URL", "https://center.example.test")
 	t.Setenv("S3_BUCKET", "")
+	if _, err := readAttachment("/uploads/absent"); !errors.Is(err, errAttachmentUnavailable) {
+		t.Fatalf("missing file not classified: %v", err)
+	}
 	f := contentFile{uuid.NewString(), []byte("content")}
 	address, err := writeAttachment(f)
 	if err != nil {
@@ -102,7 +106,7 @@ func TestContentAttachmentsStayInsideUploadRootAndNeverClobber(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/uploads/escape", "/uploads/../private.txt", "/uploads/key.meta.json", "/uploads/.staging.tmp", "https://user:password@example.test/uploads/key"} {
-		if _, err := readAttachment(path); err == nil {
+		if _, err := readAttachment(path); err == nil || errors.Is(err, errAttachmentUnavailable) {
 			t.Fatalf("accepted unsafe attachment path %s", path)
 		}
 	}
@@ -112,5 +116,48 @@ func TestContentAttachmentsStayInsideUploadRootAndNeverClobber(t *testing.T) {
 	}
 	if _, err := writeAttachment(f); err == nil {
 		t.Fatal("accepted corrupt existing hash file")
+	}
+	t.Setenv("LOCAL_UPLOAD_DIR", filepath.Join(dir, "missing-root"))
+	if _, err := readAttachment("/uploads/absent"); err == nil || errors.Is(err, errAttachmentUnavailable) {
+		t.Fatal("a missing storage root must remain a configuration error")
+	}
+}
+
+func TestUnavailableAttachmentValidation(t *testing.T) {
+	workspace, attachment := uuid.NewString(), uuid.NewString()
+	owner := canonicalUser("owner@example.test")
+	fields := map[string]json.RawMessage{}
+	table, _ := tableFor("workspace")
+	for _, field := range strings.Split(table.columns, ",") {
+		fields[field] = rawValue(nil)
+	}
+	fields["id"] = rawValue(workspace)
+	bundle := contentBundle{Version: mergeVersion, Workspace: workspace, Owner: owner,
+		Records: []contentRecord{{"workspace", fields}}, Users: []contentUser{{owner, "owner@example.test", "owner", "owner"}}, UnavailableAttachments: []string{attachment}}
+	if err := validateBundle(bundle); err != nil {
+		t.Fatal(err)
+	}
+	for _, ids := range [][]string{{attachment, attachment}, {"bad-id"}, {""}} {
+		bad := bundle
+		bad.UnavailableAttachments = ids
+		if validateBundle(bad) == nil {
+			t.Fatal("invalid unavailable attachment accepted")
+		}
+	}
+	bad := bundle
+	bad.Files = []contentFile{{attachment, []byte("must not be present")}}
+	if validateBundle(bad) == nil {
+		t.Fatal("unavailable attachment also had bytes")
+	}
+	attachmentFields := map[string]json.RawMessage{}
+	table, _ = tableFor("attachment")
+	for _, field := range strings.Split(table.columns, ",") {
+		attachmentFields[field] = rawValue(nil)
+	}
+	attachmentFields["id"] = rawValue(attachment)
+	bad = bundle
+	bad.Records = append(append([]contentRecord{}, bundle.Records...), contentRecord{"attachment", attachmentFields})
+	if validateBundle(bad) == nil {
+		t.Fatal("unavailable attachment also had a record")
 	}
 }

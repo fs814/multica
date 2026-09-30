@@ -180,17 +180,58 @@ Review the returned conflicts and edit the corresponding normal records before
 another run; no automatic winner is chosen. Immutable attachment files may remain
 after a rolled-back database transaction, but no attachment row is published by
 that failed transaction. Existing files are never overwritten.
+
+Missing local attachment files no longer abort the run. Export omits their file
+bytes and attachment rows and includes their IDs in `unavailable_attachments`.
+Desktop shows an explicit **Attachment unavailable** warning with the origin,
+workspace and attachment ID, deduplicated across the two exchanges. Warnings
+already received remain visible if a later request fails. Missing files are not
+counted as copied, and no empty files or broken attachment rows are created on
+the receiving center. Existing local metadata, healthy peer files and shared
+baselines are preserved; an unavailable marker is never treated as a deletion.
+A healthy peer copy can repair a local attachment whose row still exists but
+whose bytes are missing. Restored files are eligible again on the next click.
+Receiving servers advertise `attachment_warnings: 1`; Desktop refuses to send
+unavailable markers to an older server. Unknown fields still fail closed.
+Only a missing file inside an accessible upload root is skippable. Missing upload
+roots, permission errors, invalid paths, unsupported storage and capacity limits
+remain errors. Missing files discovered while reading chunks produce the same
+warning and are omitted from that apply, without deleting a healthy peer copy.
+
 Workspace deletion clears content baselines and retains only an empty workspace
 tombstone per known peer, preventing a later click from recreating that workspace.
 Merge takes the workspace row lock used by the normal deletion flow.
 
-Each click lasts at most two minutes; requests time out after 30 seconds. A center
-lists at most 100 owned workspaces. A workspace bundle supports 10,000 records,
-8 MiB of content fields, 32 MiB on the wire, local files up to 8 MiB each and 16 MiB of attachment bytes per
-workspace. Limits are errors, not truncated successful copies. Larger workspaces
-need a future paginated/chunked protocol; clicking again cannot bypass a per-bundle
-limit. There is no automatic retry. Committed workspaces stay committed if a later
-workspace fails; reruns compare durable baselines and do not duplicate records.
+Desktop requires `attachment_chunks: 1` from both centers and exports with
+`attachment_mode: "chunked"`. Snapshots carry attachment metadata and SHA-256
+digests, never inline file bytes. `merge-file-status`, `merge-file-read` and
+`merge-file-write` relay at most 1 MiB decoded bytes per request. All endpoints
+retain the normal HTTPS, designated-owner and workspace ownership checks.
+There is no 16 MiB aggregate attachment limit on this path; older inline clients
+retain that limit. Each local file still has an 8 MiB limit.
+
+Receivers stage bytes privately in `MULTICA_CENTER_SYNC_DIR/attachment-chunks-v1`,
+scoped by owner, workspace, peer origin, attachment ID, size and digest. Sequential
+offsets and identical duplicate chunks support interruption/retry; conflicting
+duplicates and gaps fail. Whole-file SHA-256 verification is required before a
+workspace transaction can publish attachment rows. Staging never grants public
+access or starts execution. Completed matching local files need no network copy.
+
+Each click lasts at most 15 minutes, with at most 20,000 requests and 1 GiB newly
+transferred bytes; individual requests time out after 30 seconds. Private staging
+is capped at 1 GiB per center. Feature-owned staging files unused for 24 hours
+are reclaimed on explicit chunk requests, not by a background worker. A new
+manual click resumes retained staging, including after an API restart. No automatic
+retry or synchronization occurs. The progress bar and confirmed chunk/MiB counts
+advance after receiving write acknowledgments; staged bytes are not committed
+record updates.
+
+A center lists at most 100 owned workspaces. Metadata retains the 10,000-record,
+8 MiB content-field and 32 MiB wire limits per workspace. Limits are errors, not
+truncated successful copies; chunking does not bypass metadata or per-file limits.
+Committed workspaces stay committed if a later workspace fails; reruns compare
+durable baselines and do not duplicate records. Both centers and Desktop must be
+updated together; missing capabilities fail closed rather than using inline files.
 
 ## User requirement
 

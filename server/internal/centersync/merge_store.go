@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -20,10 +21,13 @@ import (
 )
 
 type mergeInput struct {
-	Workspace string         `json:"workspace"`
-	Peer      string         `json:"peer"`
-	Bundle    *contentBundle `json:"bundle,omitempty"`
+	Workspace      string         `json:"workspace"`
+	Peer           string         `json:"peer"`
+	Bundle         *contentBundle `json:"bundle,omitempty"`
+	AttachmentMode string         `json:"attachment_mode,omitempty"`
 }
+
+var errAttachmentUnavailable = errors.New("attachment unavailable")
 
 func quoted(s string) string { return pgx.Identifier{s}.Sanitize() }
 func projection(t contentTable) string {
@@ -50,11 +54,15 @@ func (h *Handler) owns(ctx context.Context, tx pgx.Tx, workspace string, allowMi
 
 // User metadata is selected only for members and content authors of this
 // workspace. No password, provider identity, session, token or settings columns.
-func (h *Handler) snapshot(ctx context.Context, tx pgx.Tx, workspace string, files bool) (contentBundle, error) {
+func (h *Handler) snapshot(ctx context.Context, tx pgx.Tx, workspace string, files, chunked bool) (contentBundle, error) {
 	b := contentBundle{Version: mergeVersion, Workspace: workspace, Records: []contentRecord{}, Users: []contentUser{}, Files: []contentFile{}}
+	if chunked {
+		b.AttachmentMode = "chunked"
+	}
 	users := map[string]contentUser{}
 	fileBytes := 0
 	contentBytes := 0
+	recordCount := 0
 	addUser := func(id, role string) (string, error) {
 		if u, ok := users[id]; ok {
 			if role != "" {
@@ -121,7 +129,8 @@ func (h *Handler) snapshot(ctx context.Context, tx pgx.Tx, workspace string, fil
 				return b, err
 			}
 			records = append(records, r)
-			if len(b.Records)+len(records) > mergeLimit {
+			recordCount++
+			if recordCount > mergeLimit {
 				rows.Close()
 				return b, ws.ErrLimit
 			}
@@ -148,28 +157,35 @@ func (h *Handler) snapshot(ctx context.Context, tx pgx.Tx, workspace string, fil
 					r.Fields[field] = rawValue(id)
 				}
 			}
-			b.Records = append(b.Records, r)
-			if len(b.Records) > mergeLimit {
-				return b, ws.ErrLimit
-			}
 			if table.name == "attachment" {
 				var address string
 				if err = tx.QueryRow(ctx, `SELECT url FROM attachment WHERE id=$1 AND workspace_id=$2`, textValue(r.Fields["id"]), workspace).Scan(&address); err != nil {
 					return b, err
 				}
 				data, e := readAttachment(address)
+				if errors.Is(e, errAttachmentUnavailable) {
+					b.UnavailableAttachments = append(b.UnavailableAttachments, textValue(r.Fields["id"]))
+					if !files {
+						// Keep local metadata internally, but never publish an empty
+						// file or a broken attachment row to another center.
+						r.Fields["content_sha256"] = rawValue(nil)
+						b.Records = append(b.Records, r)
+					}
+					continue
+				}
 				if e != nil {
 					return b, e
 				}
 				r.Fields["content_sha256"] = rawValue(contentHash(data))
-				if files {
+				if files && !chunked {
 					b.Files = append(b.Files, contentFile{textValue(r.Fields["id"]), data})
 				}
 				fileBytes += len(data)
-				if fileBytes > 16<<20 {
+				if !chunked && fileBytes > 16<<20 {
 					return b, ws.ErrLimit
 				}
 			}
+			b.Records = append(b.Records, r)
 		}
 	}
 	for _, u := range users {
@@ -215,10 +231,13 @@ func readAttachment(address string) ([]byte, error) {
 	}
 	defer root.Close()
 	key := strings.TrimPrefix(u.Path, "/uploads/")
-	if key == "" || strings.HasSuffix(key, ".meta.json") || strings.HasSuffix(key, ".tmp") {
+	if !filepath.IsLocal(key) || strings.HasSuffix(key, ".meta.json") || strings.HasSuffix(key, ".tmp") {
 		return nil, ws.ErrOperation
 	}
 	f, err := root.Open(key)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, errAttachmentUnavailable
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +298,7 @@ func writeAttachment(f contentFile) (string, error) {
 
 func (h *Handler) exportContent(ctx context.Context, input mergeInput) (contentBundle, error) {
 	var empty contentBundle
-	if !validID(input.Workspace) || origin(input.Peer) != nil || input.Peer == h.config.Origin {
+	if !validID(input.Workspace) || origin(input.Peer) != nil || input.Peer == h.config.Origin || (input.AttachmentMode != "" && input.AttachmentMode != "chunked") {
 		return empty, ws.ErrScope
 	}
 	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -290,7 +309,7 @@ func (h *Handler) exportContent(ctx context.Context, input mergeInput) (contentB
 	if err = h.owns(ctx, tx, input.Workspace, true); err != nil {
 		return empty, err
 	}
-	b, err := h.snapshot(ctx, tx, input.Workspace, true)
+	b, err := h.snapshot(ctx, tx, input.Workspace, true, input.AttachmentMode == "chunked")
 	if err != nil {
 		return empty, err
 	}
@@ -330,7 +349,7 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 	if err = h.owns(ctx, tx, b.Workspace, true); err != nil {
 		return out, err
 	}
-	local, err := h.snapshot(ctx, tx, b.Workspace, false)
+	local, err := h.snapshot(ctx, tx, b.Workspace, false, b.AttachmentMode == "chunked")
 	if err != nil {
 		return out, err
 	}
@@ -363,6 +382,11 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 	// Check both directions before writing: holding a deleted parent for review
 	// must not still detach its children or resurrect it through a later record.
 	incoming := map[string]bool{}
+	for _, id := range b.UnavailableAttachments {
+		// An unavailable file is not a record deletion. Leave local metadata,
+		// bytes and the last shared baseline untouched.
+		incoming["attachment:"+id] = true
+	}
 	for _, r := range b.Records {
 		key := recordKey(r)
 		incoming[key] = true
@@ -390,6 +414,20 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 	for _, r := range b.Records {
 		key := recordKey(r)
 		merged, next, conflicts := mergeFields(current[key].Fields, r.Fields, baseline[key], r.Table, key)
+		if old, exists := current[key]; exists && r.Table == "attachment" && textValue(old.Fields["content_sha256"]) == "" {
+			// The row exists but its bytes are gone. A verified peer copy repairs
+			// only the content pair; ordinary metadata conflicts still apply.
+			for _, field := range []string{"content_sha256", "size_bytes"} {
+				merged[field], next[field] = r.Fields[field], r.Fields[field]
+			}
+			kept := conflicts[:0]
+			for _, conflict := range conflicts {
+				if conflict.Field != "$content_sha256" {
+					kept = append(kept, conflict)
+				}
+			}
+			conflicts = kept
+		}
 		out.Conflicts = append(out.Conflicts, conflicts...)
 		planned[key] = contentRecord{r.Table, merged}
 		nextBaselines[key] = next
@@ -401,7 +439,7 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 		for _, value := range r.Fields {
 			contentSize += len(value)
 		}
-		if r.Table == "attachment" {
+		if r.Table == "attachment" && textValue(r.Fields["content_sha256"]) != "" {
 			var size int64
 			if json.Unmarshal(r.Fields["size_bytes"], &size) != nil || size < 0 || size > 8<<20 {
 				return out, ws.ErrLimit
@@ -409,7 +447,7 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 			uploadSize += size
 		}
 	}
-	if len(combined.Records) > mergeLimit || contentSize > 8<<20 || uploadSize > 16<<20 {
+	if len(combined.Records) > mergeLimit || contentSize > 8<<20 || (b.AttachmentMode != "chunked" && uploadSize > 16<<20) {
 		return out, ws.ErrLimit
 	}
 	knownUsers := map[string]contentUser{}
@@ -438,11 +476,27 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 		}
 		fileURLs[contentHash(file.Data)] = address
 	}
+	if b.AttachmentMode == "chunked" {
+		for _, r := range b.Records {
+			if r.Table != "attachment" {
+				continue
+			}
+			file, e := h.stagedAttachment(b.Workspace, input.Peer, r)
+			if e != nil {
+				return out, e
+			}
+			address, e := writeAttachment(file)
+			if e != nil {
+				return out, e
+			}
+			fileURLs[contentHash(file.Data)] = address
+		}
+	}
 	// The complete selected workspace commits atomically. A failure never leaves
 	// half a workspace or a success receipt; immutable uploaded bytes may remain.
 	for _, r := range ordered {
 		key := recordKey(r)
-		if !incoming[key] {
+		if nextBaselines[key] == nil {
 			continue
 		}
 		old, exists := current[key]

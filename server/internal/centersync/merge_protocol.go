@@ -60,12 +60,14 @@ type contentFile struct {
 	Data       []byte `json:"data"`
 }
 type contentBundle struct {
-	Version   int             `json:"version"`
-	Workspace string          `json:"workspace"`
-	Owner     string          `json:"owner"`
-	Records   []contentRecord `json:"records"`
-	Users     []contentUser   `json:"users"`
-	Files     []contentFile   `json:"files"`
+	Version                int             `json:"version"`
+	Workspace              string          `json:"workspace"`
+	Owner                  string          `json:"owner"`
+	Records                []contentRecord `json:"records"`
+	Users                  []contentUser   `json:"users"`
+	Files                  []contentFile   `json:"files"`
+	UnavailableAttachments []string        `json:"unavailable_attachments,omitempty"`
+	AttachmentMode         string          `json:"attachment_mode,omitempty"`
 }
 type mergeConflict struct {
 	Table    string          `json:"table"`
@@ -123,7 +125,10 @@ func contentHash(data []byte) string {
 }
 
 func validateBundle(b contentBundle) error {
-	if b.Version != mergeVersion || !validID(b.Workspace) || !validID(b.Owner) || len(b.Records) > mergeLimit || len(b.Users) > mergeLimit || len(b.Files) > mergeLimit {
+	if b.AttachmentMode != "" && b.AttachmentMode != "chunked" || b.AttachmentMode == "chunked" && len(b.Files) != 0 {
+		return errors.New("invalid attachment mode")
+	}
+	if b.Version != mergeVersion || !validID(b.Workspace) || !validID(b.Owner) || len(b.Records)+len(b.UnavailableAttachments) > mergeLimit || len(b.Users) > mergeLimit || len(b.Files) > mergeLimit {
 		return errors.New("invalid workspace merge bundle")
 	}
 	seen := map[string]bool{}
@@ -153,6 +158,13 @@ func validateBundle(b contentBundle) error {
 	}
 	if !workspace {
 		return errors.New("workspace metadata missing")
+	}
+	unavailable := map[string]bool{}
+	for _, id := range b.UnavailableAttachments {
+		if !validID(id) || unavailable[id] || seen["attachment:"+id] {
+			return errors.New("invalid unavailable attachment")
+		}
+		unavailable[id] = true
 	}
 	users := map[string]bool{}
 	for _, u := range b.Users {
@@ -184,7 +196,14 @@ func validateBundle(b contentBundle) error {
 	}
 	for key := range seen {
 		if strings.HasPrefix(key, "attachment:") && !files[strings.TrimPrefix(key, "attachment:")] {
-			return errors.New("attachment bytes missing")
+			if b.AttachmentMode != "chunked" {
+				return errors.New("attachment bytes missing")
+			}
+			r := attachments[strings.TrimPrefix(key, "attachment:")]
+			var size int64
+			if json.Unmarshal(r.Fields["size_bytes"], &size) != nil || size < 0 || size > maxAttachmentBytes || !validDigest(textValue(r.Fields["content_sha256"])) {
+				return errors.New("invalid attachment manifest")
+			}
 		}
 	}
 	return nil
