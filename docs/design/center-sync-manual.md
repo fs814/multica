@@ -202,6 +202,46 @@ performed by the sync operation itself. Until this connection is established,
 the synced agents have a runtime but it correctly remains offline. Runs submitted
 separately to both centers are independent; sync does not deduplicate executions.
 
+For Claude Code agents using an Anthropic-compatible gateway, credentials can
+remain on the execution machine. Create a private, non-symlink file named
+`local-claude-gateways.json` in the daemon profile directory (for example,
+`~/.multica/profiles/desktop-services/`). This file is not read by the center or
+included in sync. Example using a local environment-variable reference:
+
+```json
+{
+  "version": 1,
+  "gateways": [{
+    "center_url": "https://center.example.test",
+    "workspace_id": "875875e4-5b03-40c7-89d0-650b96ac6917",
+    "agent_id": "a7716d6b-727e-4349-9af4-71eee0f2b40f",
+    "base_url": "https://gateway.example.test",
+    "auth_token_env": "NRC_API_KEY"
+  }]
+}
+```
+
+On macOS/Linux use mode `0600`; on Windows restrict the file's ACL to the daemon
+user. The source variable must be exported in the daemon's startup environment;
+shell secrets added after startup require restarting that profile. No secret
+value is stored in this JSON. Use the exact center origin used by that profile,
+including scheme and port; switching to HTTPS requires updating the mapping.
+No hostname, agent-name or cross-center fallback is used. For an explicitly
+trusted HTTP gateway only, set `allow_insecure_http: true`; its traffic is still
+unencrypted. TLS verification is never disabled.
+
+The mapping is read at task launch. Only matching Claude tasks receive
+`ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; these override center-supplied
+endpoint/auth configuration, and competing API-key/OAuth/cloud-provider settings
+are cleared in that child environment. Other agents and providers keep their
+existing settings. Missing local credentials stop the matching task with a
+configuration error instead of falling back to Claude login. Model selection
+remains the agent's configured model and must be supported by the gateway.
+The daemon does not upload the credential, put it in task configuration files,
+or log it. This is configuration isolation, not a sandbox: the agent process and
+tools running under the same OS account can access local credentials. Avoid
+asking agents to print environment variables or upload local secret files.
+
 For agents without a portable runtime, open the destination **Agents** page, select the
 agents showing **Needs a runtime**, and choose **Assign runtime**. Pick a runtime
 registered in that destination workspace and confirm. The bulk action only
