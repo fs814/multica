@@ -176,7 +176,7 @@ export function MessageComposer({
   const { colorScheme } = useColorScheme();
   const theme = THEME[colorScheme];
   const insets = useSafeAreaInsets();
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const [expanded, setExpanded] = useState(false);
   const [internalText, setInternalText] = useState("");
   const [attachments, setAttachments] = useState<ComposerAttachmentItem[]>([]);

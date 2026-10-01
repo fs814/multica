@@ -3,7 +3,10 @@ import { Pressable, View, type PressableProps, type ViewProps } from "react-nati
 import { cn } from "@/lib/utils";
 import { continuousCorners } from "@/lib/radius";
 
-const Card = React.forwardRef<View, ViewProps & { className?: string }>(
+const Card = React.forwardRef<
+  React.ComponentRef<typeof View>,
+  ViewProps & { className?: string }
+>(
   ({ className, style, ...props }, ref) => (
     <View
       ref={ref}
@@ -19,11 +22,11 @@ const Card = React.forwardRef<View, ViewProps & { className?: string }>(
 Card.displayName = "Card";
 
 const CardPressable = React.forwardRef<
-  View,
+  React.ComponentRef<typeof View>,
   PressableProps & { className?: string; children?: React.ReactNode }
 >(({ className, children, style, ...props }, ref) => (
   <Pressable
-    ref={ref as React.Ref<View>}
+    ref={ref}
     className={cn(
       "rounded-xl border border-border bg-card p-4 active:bg-secondary",
       className,

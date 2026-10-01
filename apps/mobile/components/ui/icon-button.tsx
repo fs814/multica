@@ -1,7 +1,7 @@
 /**
  * Icon-only button — RNR `<Button variant="ghost" size="icon">` wrapping an
  * Ionicon. The icon color falls back to the active navigation theme's
- * foreground (via `useTheme()`), so dark mode flips automatically without
+ * foreground, so dark mode flips automatically without
  * anyone passing a color prop.
  *
  * Use everywhere we'd otherwise hand-write
@@ -11,7 +11,8 @@
  */
 import { type ComponentProps } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { useTheme } from "@react-navigation/native";
+import { useColorScheme } from "@/lib/use-color-scheme";
+import { THEME } from "@/lib/theme";
 import { Button, type ButtonProps } from "@/components/ui/button";
 
 interface Props extends Omit<ButtonProps, "children" | "size"> {
@@ -28,10 +29,10 @@ export function IconButton({
   color,
   ...buttonProps
 }: Props) {
-  const { colors } = useTheme();
+  const { colorScheme } = useColorScheme();
   return (
     <Button variant="ghost" size="icon" {...buttonProps}>
-      <Ionicons name={name} size={iconSize} color={color ?? colors.text} />
+      <Ionicons name={name} size={iconSize} color={color ?? THEME[colorScheme].foreground} />
     </Button>
   );
 }

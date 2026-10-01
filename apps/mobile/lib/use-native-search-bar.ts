@@ -18,8 +18,7 @@
  * pattern.
  */
 import { useLayoutEffect, useState } from "react";
-import { useNavigation } from "expo-router";
-import type { NativeSyntheticEvent, TextInputFocusEventData } from "react-native";
+import { useNavigation, type NativeStackNavigationOptions } from "expo-router";
 
 export function useNativeSearchBar(
   placeholder: string,
@@ -40,10 +39,10 @@ export function useNativeSearchBar(
         // HIG cautions against auto-keyboard for browse-first lists; pass
         // `autoFocus: true` only when the picker is search-first.
         autoFocus,
-        onChangeText: (e: NativeSyntheticEvent<TextInputFocusEventData>) =>
+        onChangeText: (e) =>
           setQuery(e.nativeEvent.text),
         onCancelButtonPress: () => setQuery(""),
-      },
+      } satisfies NativeStackNavigationOptions["headerSearchBarOptions"],
     });
   }, [navigation, placeholder, autoFocus]);
 

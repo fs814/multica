@@ -474,14 +474,14 @@ export default function SearchModal() {
                   No results for &ldquo;{trimmedQuery}&rdquo;
                 </Text>
               </View>
-            ) : null
+            ) : undefined
           }
           ListFooterComponent={
             isLoading && hasResults ? (
               <View className="items-center justify-center py-4">
                 <ActivityIndicator color="#71717a" />
               </View>
-            ) : null
+            ) : undefined
           }
         />
       </KeyboardAvoidingView>

@@ -18,7 +18,6 @@
 import { useCallback, useState } from "react";
 import {
   Alert,
-  InteractionManager,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -121,15 +120,10 @@ export default function NewProject() {
       {
         onSuccess: (project) => {
           resetDraft();
-          router.back();
-          // Wait for the modal dismiss animation to finish before pushing
-          // the detail screen. `InteractionManager` resolves once iOS
-          // says all in-flight animations / interactions are done — more
-          // robust than a hard-coded `setTimeout(150)` if iOS timing
-          // changes or the device is under load.
-          InteractionManager.runAfterInteractions(() => {
-            if (wsSlug) router.push(`/${wsSlug}/project/${project.id}`);
-          });
+          // One router action avoids racing a modal dismissal with a push.
+          // dismissTo replaces the current screen when the target is new.
+          if (wsSlug) router.dismissTo(`/${wsSlug}/project/${project.id}`);
+          else router.back();
         },
         onError: (err) => {
           Alert.alert(

@@ -7,7 +7,7 @@ These rules apply only to `apps/mobile/`, in addition to the [root instructions]
 - Mobile owns its UI, state, hooks, providers, API client, QueryClient, i18n, and build/release workflow. Import core types with `import type`; runtime imports are limited to pure utilities and platform-independent schemas. Do not import web/desktop stores, hooks, Query factories, or WS updaters.
 - Use `package.json` and the lockfile for current versions. Mobile pins Expo/React Native dependencies rather than taking the root React catalog.
 - Add SDK-aligned native packages with `pnpm exec expo install <package>` from this directory. Check compatibility before adding other dependencies; do not pick versions from memory.
-- Follow [README.md](README.md) for setup, simulator/device builds, and environment variants. Keep iOS scripts routed through `scripts/ios-run.sh`, which prebuilds before running iOS so config plugins are reapplied. Preserve the caller's `APP_ENV`; avoid clean prebuilds in the normal edit loop.
+- Follow [README.md](README.md) for setup, simulator/device builds, and environment variants. Keep iOS scripts routed through `scripts/ios-run.sh`, which prebuilds with `--no-clean` before running iOS so config plugins are reapplied without deleting generated projects. Preserve the caller's `APP_ENV`; avoid clean prebuilds in the normal edit loop.
 - Generated `ios/` and `android/` directories are not source. Check new source paths with `git check-ignore -v <path>` when they could match the root ignore rules, particularly `data/`, `build/`, and `bin/`.
 
 ## Behavioral Parity
@@ -34,6 +34,8 @@ These rules apply only to `apps/mobile/`, in addition to the [root instructions]
 - Keep mobile tokens local; do not import web/desktop CSS. Read [docs/markdown-rendering-adr.md](docs/markdown-rendering-adr.md) before changing the Markdown renderer or its native styling.
 
 ### Sheets and navigation
+
+- Import navigation hooks and theme providers from `expo-router`, and JS tabs from `expo-router/js-tabs`. Do not mix the standalone `@react-navigation/*` contexts with Expo Router's navigation tree.
 
 | Content | Container |
 | --- | --- |

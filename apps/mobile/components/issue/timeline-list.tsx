@@ -83,9 +83,8 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
-  type ViewToken,
 } from "react-native";
-import { FlashList, type FlashListRef } from "@shopify/flash-list";
+import { FlashList, type FlashListRef, type ViewToken } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, TimelineEntry } from "@multica/core/types";
@@ -300,7 +299,7 @@ export function TimelineList({
     [],
   );
   const handleViewableItemsChanged = useCallback(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({ viewableItems }: { viewableItems: ViewToken<TimelineRow>[] }) => {
       if (!dividerAnchorId) return;
       if (dividerScrolledPastRef.current) return;
       const dividerIdx = dataWithDivider.findIndex(
@@ -327,7 +326,7 @@ export function TimelineList({
     handlerRef.current = handleViewableItemsChanged;
   }, [handleViewableItemsChanged]);
   const stableViewabilityHandler = useCallback(
-    (info: { viewableItems: ViewToken[] }) => handlerRef.current(info),
+    (info: { viewableItems: ViewToken<TimelineRow>[] }) => handlerRef.current(info),
     [],
   );
   const viewabilityCallbackPairs = useRef([

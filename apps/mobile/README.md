@@ -56,6 +56,18 @@ Bundle id and display name switch on `APP_ENV` (see `app.config.ts`), so Dev / S
 
 ## First-time setup
 
+The current mobile dependency set uses Expo SDK 58 (beta channel), React Native
+0.88 RC, and React / React DOM 19.3.0. It requires a new native development or
+release build; reusing an SDK 55 binary with the new JavaScript bundle is not
+supported. Treat this as a candidate upgrade until simulator/device validation
+is complete. See the [SDK 58 release notes](https://expo.dev/changelog/sdk-58-beta)
+for native toolchain requirements. iOS versions below 16.4 are no longer supported.
+
+The normal iOS wrapper explicitly uses `prebuild --no-clean` to preserve generated
+files. SDK upgrades may require a one-time clean regeneration; inspect and back up
+any local native changes before doing that manually. Dependency installation alone
+does not rebuild installed apps or update another machine's checkout.
+
 `.env.staging` is committed (public staging URL). `.env.development.local` is gitignored — copy the template once:
 
 ```bash

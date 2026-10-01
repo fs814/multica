@@ -23,8 +23,7 @@ import * as React from "react";
 import { useState } from "react";
 import {
   TextInput,
-  type NativeSyntheticEvent,
-  type TextInputContentSizeChangeEventData,
+  type TextInputContentSizeChangeEvent,
   type TextInputProps,
 } from "react-native";
 import { cn } from "@/lib/utils";
@@ -39,7 +38,10 @@ export interface AutosizeTextAreaProps extends TextInputProps {
   className?: string;
 }
 
-export const AutosizeTextArea = React.forwardRef<TextInput, AutosizeTextAreaProps>(
+export const AutosizeTextArea = React.forwardRef<
+  React.ComponentRef<typeof TextInput>,
+  AutosizeTextAreaProps
+>(
   (
     {
       minHeight = 40,
@@ -54,7 +56,7 @@ export const AutosizeTextArea = React.forwardRef<TextInput, AutosizeTextAreaProp
     const [height, setHeight] = useState(minHeight);
 
     const handleContentSizeChange = (
-      e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>,
+      e: TextInputContentSizeChangeEvent,
     ) => {
       const next = Math.min(
         Math.max(minHeight, e.nativeEvent.contentSize.height),

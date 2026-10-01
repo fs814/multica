@@ -19,8 +19,7 @@
  */
 import { useCallback, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
-  NativeSyntheticEvent,
-  TextInputSelectionChangeEventData,
+  TextInputSelectionChangeEvent,
 } from "react-native";
 import {
   insertMention,
@@ -55,7 +54,7 @@ export interface UseMentionInputReturn {
   handlers: {
     onChangeText: (next: string) => void;
     onSelectionChange: (
-      e: NativeSyntheticEvent<TextInputSelectionChangeEventData>,
+      e: TextInputSelectionChangeEvent,
     ) => void;
     /** Toolbar `@` button. Inserts a literal `@` at the caret (with a
      *  leading space if needed so `tokenAtCursor` recognises it) and
@@ -125,7 +124,7 @@ export function useMentionInput(): UseMentionInputReturn {
   );
 
   const onSelectionChange = useCallback(
-    (e: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => {
+    (e: TextInputSelectionChangeEvent) => {
       const sel = e.nativeEvent.selection;
       selectionRef.current = sel;
       setSelection(sel);

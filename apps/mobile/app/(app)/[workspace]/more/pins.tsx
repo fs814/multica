@@ -104,7 +104,9 @@ export default function PinsPage() {
       refreshControl={
         <RefreshControl
           refreshing={isRefetching}
-          onRefresh={() => refetch()}
+          onRefresh={async () => {
+            await refetch();
+          }}
         />
       }
       showsVerticalScrollIndicator={false}

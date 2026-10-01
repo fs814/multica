@@ -21,7 +21,7 @@
  * scheme via THEME so dark mode picks contrasting values automatically.
  */
 import { useRef } from "react";
-import { Tabs } from "expo-router";
+import { Tabs } from "expo-router/js-tabs";
 import { Image } from "expo-image";
 import { View } from "react-native";
 import type { TriggerRef } from "@rn-primitives/dropdown-menu";
@@ -80,10 +80,10 @@ export default function TabsLayout() {
             title: "Inbox",
             tabBarBadge: inboxBadge,
             tabBarBadgeStyle: BADGE_STYLE,
-            tabBarIcon: ({ color, size, focused }) => (
+            tabBarIcon: ({ size, focused }) => (
               <Image
                 source={focused ? "sf:tray.fill" : "sf:tray"}
-                tintColor={color}
+                tintColor={focused ? t.foreground : t.mutedForeground}
                 style={{ width: size, height: size }}
               />
             ),
@@ -93,10 +93,10 @@ export default function TabsLayout() {
           name="my-issues"
           options={{
             title: "My Issues",
-            tabBarIcon: ({ color, size, focused }) => (
+            tabBarIcon: ({ size, focused }) => (
               <Image
                 source={focused ? "sf:checklist" : "sf:checklist.unchecked"}
-                tintColor={color}
+                tintColor={focused ? t.foreground : t.mutedForeground}
                 style={{ width: size, height: size }}
               />
             ),
@@ -108,10 +108,10 @@ export default function TabsLayout() {
             title: "Chat",
             tabBarBadge: chatBadge,
             tabBarBadgeStyle: BADGE_STYLE,
-            tabBarIcon: ({ color, size, focused }) => (
+            tabBarIcon: ({ size, focused }) => (
               <Image
                 source={focused ? "sf:bubble.left.fill" : "sf:bubble.left"}
-                tintColor={color}
+                tintColor={focused ? t.foreground : t.mutedForeground}
                 style={{ width: size, height: size }}
               />
             ),
@@ -121,10 +121,10 @@ export default function TabsLayout() {
           name="more"
           options={{
             title: "More",
-            tabBarIcon: ({ color, size }) => (
+            tabBarIcon: ({ size, focused }) => (
               <Image
                 source="sf:ellipsis"
-                tintColor={color}
+                tintColor={focused ? t.foreground : t.mutedForeground}
                 style={{ width: size, height: size }}
               />
             ),

@@ -89,7 +89,12 @@ export default function ProjectsPage() {
             />
           )}
           refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={async () => {
+                await refetch();
+              }}
+            />
           }
           contentContainerClassName="pb-6"
         />
