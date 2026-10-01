@@ -161,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch strings.TrimPrefix(r.URL.Path, Prefix+"/") {
 	case "info":
-		result = map[string]any{"schema": ws.Schema, "mode": "manual", "owner": h.config.Owner, "origin": h.config.Origin, "node": h.node, "content_merge": mergeVersion, "attachment_warnings": 1, "attachment_chunks": 1}
+		result = map[string]any{"schema": ws.Schema, "mode": "manual", "owner": h.config.Owner, "origin": h.config.Origin, "node": h.node, "content_merge": mergeVersion, "attachment_warnings": 1, "attachment_chunks": 1, "runtime_bindings": 1}
 	case "prepare":
 		result, err = h.prepare(ctx, input)
 	case "pull", "push":

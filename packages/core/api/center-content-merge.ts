@@ -6,7 +6,9 @@ import type { CenterSyncEndpoint, CenterSyncProgress, CenterSyncResult } from ".
 // fields (including credential/config fields) must never cross either origin.
 const columns: Record<string, string> = {
   workspace: "id,name,slug,description,context,issue_prefix,avatar_url",
-  agent: "id,name,description,instructions,avatar_url,model,thinking_level,service_tier,conversation_starters,archived_at",
+  runtime_profile: "id,display_name,protocol_family,description,runtime_type",
+  agent_runtime: "id,daemon_id,name,custom_name,runtime_mode,provider,owner_id,profile_id",
+  agent: "id,name,description,instructions,avatar_url,model,thinking_level,service_tier,conversation_starters,archived_at,runtime_id",
   project: "id,title,description,icon,status,priority,start_date,due_date",
   issue_status: "id,key,name,description,category,color,is_system,position,archived_at,icon",
   issue_label: "id,name,color,resource_type,description",
@@ -26,12 +28,20 @@ const columns: Record<string, string> = {
   chat_message: "id,chat_session_id,role,content,created_at,message_kind",
   attachment: "id,issue_id,comment_id,chat_session_id,chat_message_id,uploader_type,uploader_id,filename,content_type,size_bytes,created_at,content_sha256",
 };
+const runtimeFieldsSchema = z.object({
+  id: z.string().uuid(), daemon_id: z.string().trim().min(1).max(1024),
+  name: z.string().trim().min(1).max(1024), custom_name: z.string().nullable(),
+  runtime_mode: z.literal("local"), provider: z.string().trim().min(1).max(1024),
+  owner_id: z.string().uuid().nullable(), profile_id: z.string().uuid().nullable(),
+}).strict();
 const recordSchema = z.object({ table: z.string(), fields: z.record(z.string(), z.json()) }).strict().refine(record => {
   const allowed = Object.hasOwn(columns, record.table) ? columns[record.table]!.split(",") : undefined;
-  return !!allowed && Object.keys(record.fields).length === allowed.length && Object.keys(record.fields).every(key => allowed.includes(key));
+  return !!allowed && Object.keys(record.fields).length === allowed.length && Object.keys(record.fields).every(key => allowed.includes(key)) &&
+    (record.table !== "agent_runtime" || runtimeFieldsSchema.safeParse(record.fields).success) &&
+    (record.table !== "agent" || z.string().uuid().nullable().safeParse(record.fields.runtime_id).success);
 }, "Unselected workspace content fields");
 export const contentBundleSchema = z.object({
-  version: z.literal(1), workspace: z.string().uuid(), owner: z.string().uuid(),
+  version: z.literal(2), workspace: z.string().uuid(), owner: z.string().uuid(),
   records: z.array(recordSchema).max(10000),
   users: z.array(z.object({ id: z.string().uuid(), email: z.string().email().max(320), name: z.string().max(1024), role: z.enum(["", "member", "admin", "owner"]) }).strict()).max(10000),
   files: z.array(z.object({ attachment: z.string().uuid(), data: z.string().max(12 * 1024 * 1024).regex(/^[A-Za-z0-9+/]*={0,2}$/) }).strict()).max(10000),
@@ -66,7 +76,7 @@ export interface ContentMergeWarning {
   attachment: string;
 }
 const resultSchema = z.object({ workspace: z.string().uuid(), updated: z.number().int().nonnegative(), conflicts: z.array(conflictSchema).max(1000) }).strict();
-const infoSchema = z.object({ mode: z.literal("manual"), origin: httpsOrigin, owner: z.string().uuid(), node: z.string(), content_merge: z.literal(1), attachment_warnings: z.number().int().optional(), attachment_chunks: z.literal(1) });
+const infoSchema = z.object({ mode: z.literal("manual"), origin: httpsOrigin, owner: z.string().uuid(), node: z.string(), content_merge: z.literal(2), attachment_warnings: z.number().int().optional(), attachment_chunks: z.literal(1), runtime_bindings: z.number().int().optional() });
 
 function checked<S extends z.ZodType>(schema: S, raw: unknown): z.infer<S> {
   const valid = schema.safeParse(raw);
@@ -147,6 +157,7 @@ export async function mergeCenters(source: CenterSyncEndpoint, peer: CenterSyncE
   const b = checked(infoSchema, await peer.request("info", {}, active));
   if (a.origin !== source.origin || b.origin !== peer.origin || a.node === b.node) throw new Error("Sync server identity mismatch");
   if (a.attachment_warnings !== 1 || b.attachment_warnings !== 1) throw new Error("Update both centers to support attachment unavailable warnings before syncing");
+  if (a.runtime_bindings !== 1 || b.runtime_bindings !== 1) throw new Error("Update both centers and Desktop to sync runtimes and agent bindings");
   progress.percent = 5; report("preparing");
   let ids = [workspace];
   if (workspace === "all") {

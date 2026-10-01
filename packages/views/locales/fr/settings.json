@@ -1303,7 +1303,7 @@
       "sync_source_hint": "Enregistrez une adresse HTTPS source différente du pair, puis connectez-vous.",
       "sync_saved": "Adresse du pair enregistrée sur ce Desktop.",
       "sync_reachable": "Serveur accessible. La compatibilité de synchronisation n’a pas été vérifiée.",
-      "sync_scope": "HTTPS et les droits owner sont requis. Fusionne le contenu dans les espaces de travail normaux des deux centres. Les identifiants, connexions aux runtimes et états d’exécution restent locaux. Les conflits et suppressions nécessitent une vérification.",
+      "sync_scope": "HTTPS et les droits owner sont requis. Fusionne le contenu, les identités des runtimes et les associations des agents. Le daemon de la machine d’origine doit se connecter aux deux centres avec des profils distincts ; les runtimes importés restent hors ligne jusque-là. Les profils personnalisés nécessitent une configuration locale. Les identifiants et états d’exécution restent locaux. Les conflits et suppressions nécessitent une vérification.",
       "sync_workspace": "Espace de travail source",
       "sync_all_workspaces": "Tous les espaces possédés sur les deux centres",
       "sync_source_required": "Connectez-vous au serveur source avant de synchroniser.",

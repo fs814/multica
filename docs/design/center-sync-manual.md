@@ -6,7 +6,7 @@ mounted behind normal authentication at `/api/center-sync/{action}`. The Desktop
 coordinator and Sync action are implemented. Servers disable this API unless
 explicitly configured. There is no sync worker and no automatic run.
 
-Current Desktop uses the `content_merge: 1` capability to merge into normal
+Current Desktop uses the `content_merge: 2` capability to merge into normal
 workspace tables. Both backends must support it and have migrations 550–551.
 Older replica endpoints remain available for installed older clients; the new
 Desktop does not silently fall back to them. Unit tests cover authorization,
@@ -156,12 +156,65 @@ memberships are mapped by case-insensitive email; existing accounts keep their
 local authentication data. The configured owner's onboarding is completed once
 the imported workspace commits, so another client can open it normally.
 
-Credentials, agent environment/arguments/MCP configuration, runtime bindings,
-provider sessions, permission settings, task queues and execution state are never
-copied. Newly imported agents are private, offline and unbound. Content is written
+Local-machine runtime identities and agent bindings are included in v2. Both
+centers and Desktop must be updated (`runtime_bindings: 1`); older peers fail
+before transfer, never silently omit bindings. Wire runtime IDs are derived from
+workspace, daemon identity and provider (or custom profile ID), then resolved to
+each center's own database IDs. A machine already registered independently on
+both centers is reused, not duplicated. Previously imported unbound agents can
+acquire their original binding on the next manual sync. Competing bindings remain
+conflicts; an empty binding from an older import never detaches the source.
+
+Imported runtimes are private and offline with no copied heartbeat. Existing
+local runtime ownership, visibility, liveness and metadata are retained. Custom
+profile identities/labels are copied disabled, with an empty command and no fixed
+arguments: configure and enable these separately on the receiving center before
+registration. Sync never changes an existing profile's command or arguments.
+Cloud runtime connections are not portable and are not copied.
+
+Credentials, agent environment/arguments/MCP configuration, provider sessions,
+permission settings, task queues and execution state are never copied. Newly
+imported agents are private and offline, even when bound. Content is written
 directly without invoking task dispatch, notification delivery or schedules.
 Credentials embedded manually inside prose or uploaded documents are content,
 not detectable credential fields; review such content before syncing.
+
+To keep execution on the original machine, run a second daemon profile **on that
+machine**, authenticated to the destination center. The current daemon remains
+connected to the original center. Profiles share the machine identity but isolate
+center credentials, daemon state and working directories. For example, with a
+new, unused profile name:
+
+```sh
+multica setup self-host --profile sync-peer --server-url https://9.134.118.150:18082 --app-url http://9.134.118.150:18080
+multica daemon status --profile sync-peer
+```
+
+This existing setup command performs normal browser sign-in, discovers workspaces
+and starts only the selected profile's daemon. The app URL is the web frontend,
+not the Desktop/API-only HTTPS port; use HTTP only on a trusted private network,
+or configure an HTTPS frontend. The CLI/daemon must trust the destination TLS
+certificate independently: Desktop's origin-specific certificate trust does not
+configure it. Do not disable TLS verification. Use a fresh profile name to avoid
+reconfiguring an existing daemon. An explicit `MULTICA_DAEMON_ID` override, if
+used, must match the original daemon. No connection, login, or daemon start is
+performed by the sync operation itself. Until this connection is established,
+the synced agents have a runtime but it correctly remains offline. Runs submitted
+separately to both centers are independent; sync does not deduplicate executions.
+
+For agents without a portable runtime, open the destination **Agents** page, select the
+agents showing **Needs a runtime**, and choose **Assign runtime**. Pick a runtime
+registered in that destination workspace and confirm. The bulk action only
+targets agents owned by the current account that are active and have no runtime;
+other selected agents are skipped. It re-reads each agent before updating and
+uses the normal runtime permission checks. Model, thinking level and service
+tier are reset to the chosen runtime's defaults, as shown in the confirmation.
+No credentials are copied and the action does not dispatch runs. If no usable
+runtime exists, connect one to that center and workspace first. Requests are
+sequential; partial successes are retained and an explicit retry only targets
+failed agents. Leaving the panel stops remaining requests, not writes already
+accepted by the server. This is separate from the manual sync login: open the
+destination workspace through its normal Desktop/Web connection to configure it.
 
 This is a content merge, not a complete database/deployment copy. Workflow and
 automation definitions, integration setup, plugin-managed skills, system agents,

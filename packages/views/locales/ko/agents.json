@@ -95,6 +95,19 @@
     "runs_other": "실행 {{count}}회",
     "failed_suffix": " · 실패 {{count}}회({{percent}}%)"
   },
+  "runtime_assignment": {
+    "action": "런타임 할당",
+    "description": "선택한 런타임의 기본 모델, 사고 수준 및 서비스 등급을 사용합니다. 자격 증명은 로컬에 유지되며 실행을 시작하지 않습니다.",
+    "scope": "대상 에이전트: {{total}}. 건너뜀: {{skipped}} (이미 할당됨, 보관됨 또는 다른 소유자).",
+    "agents": "할당할 에이전트",
+    "empty": "이 워크스페이스에 사용 가능한 런타임이 없습니다. 먼저 이 서버와 워크스페이스에 런타임을 연결하세요.",
+    "progress": "할당됨: {{assigned}}. 건너뜀: {{skipped}}. 실패: {{failed}}.",
+    "retry_hint": "성공한 할당은 유지됩니다. 런타임 접근 권한과 서버 연결을 확인한 후 실패한 에이전트만 다시 시도하세요.",
+    "error": "할당이 중지되었습니다. 연결을 확인하고 다시 시도하세요. 확인된 할당은 유지됩니다.",
+    "assigning": "할당 중...",
+    "retry": "실패 항목 다시 시도",
+    "confirm": "할당"
+  },
   "row_actions": {
     "cancel_all_tasks": "모든 실행 취소",
     "duplicate": "복제",

@@ -283,7 +283,8 @@ describe("center sync settings", () => {
     const section = await show();
     const sync = section.getByRole("button", { name: "Sync between center servers" });
     expect(sync).toBeDisabled();
-    expect(section.getByText(/Requires HTTPS/)).toHaveTextContent("Credentials, runtime connections and execution state stay local");
+    expect(section.getByText(/Requires HTTPS/)).toHaveTextContent("Credentials and execution state stay local");
+    expect(section.getByText(/Requires HTTPS/)).toHaveTextContent("original machine must connect its daemon to both centers");
     fireEvent.click(sync);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(section.queryByLabelText(/token/i)).not.toBeInTheDocument();

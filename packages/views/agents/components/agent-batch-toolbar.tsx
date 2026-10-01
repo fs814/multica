@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import type { MemberWithUser } from "@multica/core/types";
+import type { AgentRuntime, MemberWithUser } from "@multica/core/types";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { workspaceKeys } from "@multica/core/workspace/queries";
@@ -25,6 +25,7 @@ import { Archive, ArchiveRestore, Loader2, X } from "lucide-react";
 import { useT } from "../../i18n";
 import { AccessPicker, type AccessChange } from "./inspector/access-picker";
 import type { AgentListRow } from "./agents-page";
+import { AssignRuntimeDialog } from "./assign-runtime-dialog";
 
 /**
  * Floating batch-toolbar for the agents list page. Renders archive/restore
@@ -39,11 +40,13 @@ import type { AgentListRow } from "./agents-page";
 export function AgentBatchToolbar({
   rows,
   members,
+  runtimes,
   currentUserId,
   onClear,
 }: {
   rows: AgentListRow[];
   members: MemberWithUser[];
+  runtimes: AgentRuntime[];
   currentUserId: string | null;
   onClear: () => void;
 }) {
@@ -179,6 +182,7 @@ export function AgentBatchToolbar({
             type="button"
             aria-label={t(($) => $.actions.clear_selection)}
             onClick={onClear}
+            disabled={busy}
             className="rounded-xs p-0.5 transition-colors hover:bg-accent"
           >
             <X className="size-3.5 text-muted-foreground" />
@@ -210,6 +214,18 @@ export function AgentBatchToolbar({
           >
             {t(($) => $.row_actions.set_access)}
           </Button>
+        )}
+        {anyActive && (
+          <AssignRuntimeDialog
+            key={`${wsId}:${currentUserId}`}
+            agents={rows.map(row => row.agent)}
+            runtimes={runtimes}
+            members={members}
+            currentUserId={currentUserId}
+            disabled={busy}
+            onComplete={onClear}
+            onBusyChange={setBusy}
+          />
         )}
         {/* Archive sits last: it is the destructive action, kept furthest from
             the other batch actions. */}

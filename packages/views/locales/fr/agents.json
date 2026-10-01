@@ -100,6 +100,19 @@
     "runs_other": "{{count}} exécutions",
     "failed_suffix": " · {{count}} en échec ({{percent}} %)"
   },
+  "runtime_assignment": {
+    "action": "Attribuer un runtime",
+    "description": "Utilise le modèle, le niveau de réflexion et le niveau de service par défaut du runtime choisi. Les identifiants restent locaux. Aucune exécution n’est lancée.",
+    "scope": "Agents admissibles : {{total}}. Ignorés : {{skipped}} (déjà liés, archivés ou appartenant à un autre utilisateur).",
+    "agents": "Agents à attribuer",
+    "empty": "Aucun runtime utilisable n’est enregistré dans cet espace. Connectez d’abord un runtime à ce serveur et à cet espace.",
+    "progress": "Attribués : {{assigned}}. Ignorés : {{skipped}}. Échecs : {{failed}}.",
+    "retry_hint": "Les attributions réussies sont conservées. Vérifiez les droits d’accès et la connexion, puis réessayez uniquement pour les agents en échec.",
+    "error": "Attribution arrêtée. Vérifiez la connexion et réessayez ; les attributions confirmées sont conservées.",
+    "assigning": "Attribution...",
+    "retry": "Réessayer les échecs",
+    "confirm": "Attribuer"
+  },
   "row_actions": {
     "cancel_all_tasks": "Annuler toutes les exécutions",
     "duplicate": "Dupliquer",

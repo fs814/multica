@@ -191,11 +191,17 @@ func (h *Handler) snapshot(ctx context.Context, tx pgx.Tx, workspace string, fil
 	for _, u := range users {
 		b.Users = append(b.Users, u)
 	}
+	if err := normalizeRuntimeIdentities(&b); err != nil {
+		return b, err
+	}
 	sort.Slice(b.Users, func(i, j int) bool { return b.Users[i].ID < b.Users[j].ID })
 	return b, nil
 }
 
 func isUserField(r contentRecord, field string) bool {
+	if r.Table == "agent_runtime" && field == "owner_id" {
+		return true
+	}
 	if r.Table == "chat_session" && field == "creator_id" {
 		return true
 	}
@@ -432,6 +438,13 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 		planned[key] = contentRecord{r.Table, merged}
 		nextBaselines[key] = next
 	}
+	for _, conflict := range out.Conflicts {
+		if isRuntimeIdentityField(conflict.Table, conflict.Field) {
+			// Do not bind incoming agents against a different local execution
+			// identity while its owner/provider conflict awaits review.
+			return out, nil
+		}
+	}
 	combined := contentBundle{Records: []contentRecord{}}
 	contentSize, uploadSize := 0, int64(0)
 	for _, r := range planned {
@@ -468,6 +481,10 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 	if err != nil {
 		return out, err
 	}
+	runtimes, err := resolveRuntimeIdentities(ctx, tx, b.Workspace, combined.Records)
+	if err != nil {
+		return out, err
+	}
 	fileURLs := map[string]string{}
 	for _, file := range b.Files {
 		address, e := writeAttachment(file)
@@ -501,7 +518,7 @@ func (h *Handler) mergeContent(ctx context.Context, input mergeInput) (mergeResu
 		}
 		old, exists := current[key]
 		if !exists || !equalValue(rawValue(old.Fields), rawValue(r.Fields)) {
-			if err = writeRecord(ctx, tx, r, b.Workspace, h.config.Owner, users, fileURLs, !exists); err != nil {
+			if err = writeRecord(ctx, tx, r, b.Workspace, h.config.Owner, users, fileURLs, runtimes, !exists); err != nil {
 				var pgError *pgconn.PgError
 				if errors.As(err, &pgError) && pgError.Code == "23505" {
 					out.Updated = 0
@@ -626,7 +643,7 @@ func (h *Handler) mapContentUsers(ctx context.Context, tx pgx.Tx, incoming []con
 	return result, nil
 }
 
-func writeRecord(ctx context.Context, tx pgx.Tx, r contentRecord, workspace, owner string, users map[string]string, files map[string]string, create bool) error {
+func writeRecord(ctx context.Context, tx pgx.Tx, r contentRecord, workspace, owner string, users map[string]string, files map[string]string, runtimes map[string]string, create bool) error {
 	t, _ := tableFor(r.Table)
 	fields := map[string]json.RawMessage{}
 	for k, v := range r.Fields {
@@ -644,8 +661,19 @@ func writeRecord(ctx context.Context, tx pgx.Tx, r contentRecord, workspace, own
 	if strings.Contains(t.scope, "t.workspace_id=$1") {
 		fields["workspace_id"] = rawValue(workspace)
 	}
+	if r.Table == "agent_runtime" {
+		fields["id"] = rawValue(runtimes[textValue(r.Fields["id"])])
+	}
 	if create {
 		switch r.Table {
+		case "runtime_profile":
+			fields["command_name"] = rawValue("")
+			fields["created_by"] = rawValue(owner)
+			fields["visibility"] = rawValue("private")
+			fields["enabled"] = rawValue(false)
+		case "agent_runtime":
+			fields["status"] = rawValue("offline")
+			fields["visibility"] = rawValue("private")
 		case "agent":
 			fields["owner_id"] = rawValue(owner)
 			fields["runtime_mode"] = rawValue("local")
@@ -656,6 +684,44 @@ func writeRecord(ctx context.Context, tx pgx.Tx, r contentRecord, workspace, own
 			fields["created_by"] = rawValue(owner)
 		case "squad":
 			fields["creator_id"] = rawValue(owner)
+		}
+	}
+	if r.Table == "agent" {
+		if !create {
+			var excluded bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM agent a JOIN agent_runtime r ON r.id=a.runtime_id WHERE a.id=$1 AND a.workspace_id=$2 AND (r.runtime_mode<>'local' OR r.daemon_id IS NULL))`, textValue(fields["id"]), workspace).Scan(&excluded); err != nil {
+				return err
+			}
+			if excluded {
+				// Never replace a non-portable cloud binding through content sync.
+				if textValue(fields["runtime_id"]) != "" {
+					return ws.ErrScope
+				}
+				delete(fields, "runtime_id")
+			}
+		}
+		if runtime := textValue(fields["runtime_id"]); runtime != "" {
+			localID, ok := runtimes[runtime]
+			if !ok {
+				return ws.ErrScope
+			}
+			// A synced relationship grants no access to someone else's machine.
+			agentOwner := owner
+			previousRuntime := ""
+			if !create {
+				if err := tx.QueryRow(ctx, `SELECT COALESCE(owner_id::text,''),COALESCE(runtime_id::text,'') FROM agent WHERE id=$1 AND workspace_id=$2`, textValue(fields["id"]), workspace).Scan(&agentOwner, &previousRuntime); err != nil {
+					return err
+				}
+			}
+			var allowed bool
+			if err := tx.QueryRow(ctx, `SELECT owner_id IS NOT NULL AND (owner_id::text=$3 OR visibility='public') AND (owner_id::text=$4 OR visibility='public') FROM agent_runtime WHERE id=$1 AND workspace_id=$2 AND runtime_mode='local'`, localID, workspace, agentOwner, owner).Scan(&allowed); err != nil {
+				return err
+			}
+			if !allowed && previousRuntime != localID {
+				return ws.ErrDenied
+			}
+			fields["runtime_id"] = rawValue(localID)
+			fields["runtime_mode"] = rawValue("local")
 		}
 	}
 	if r.Table == "attachment" {
@@ -717,7 +783,7 @@ func validateReferences(b contentBundle) error {
 		}
 		ids[r.Table][textValue(r.Fields["id"])] = true
 	}
-	refs := map[string]string{"skill_id": "skill", "agent_id": "agent", "label_id": "issue_label", "squad_id": "squad", "issue_id": "issue", "comment_id": "comment", "parent_issue_id": "issue", "project_id": "project", "leader_id": "agent", "depends_on_issue_id": "issue", "chat_session_id": "chat_session", "chat_message_id": "chat_message"}
+	refs := map[string]string{"runtime_id": "agent_runtime", "profile_id": "runtime_profile", "skill_id": "skill", "agent_id": "agent", "label_id": "issue_label", "squad_id": "squad", "issue_id": "issue", "comment_id": "comment", "parent_issue_id": "issue", "project_id": "project", "leader_id": "agent", "depends_on_issue_id": "issue", "chat_session_id": "chat_session", "chat_message_id": "chat_message"}
 	for _, r := range b.Records {
 		for field, value := range r.Fields {
 			id := textValue(value)

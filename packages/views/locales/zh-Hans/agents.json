@@ -95,6 +95,19 @@
     "runs_other": "{{count}} 次运行",
     "failed_suffix": " · {{count}} 次失败（{{percent}}%）"
   },
+  "runtime_assignment": {
+    "action": "分配运行时",
+    "description": "使用所选运行时的默认模型、思考级别和服务等级。凭据保留在本机，不会启动运行。",
+    "scope": "可分配的智能体：{{total}}。已跳过：{{skipped}}（已绑定、已归档或不属于你）。",
+    "agents": "待分配的智能体",
+    "empty": "此工作区没有可用运行时。请先将运行时连接到当前服务器和工作区。",
+    "progress": "已分配：{{assigned}}。已跳过：{{skipped}}。失败：{{failed}}。",
+    "retry_hint": "成功的分配会保留。检查运行时访问权限和服务器连接后，仅重试失败的智能体。",
+    "error": "分配已停止。请检查连接后重试，已确认的分配会保留。",
+    "assigning": "正在分配...",
+    "retry": "重试失败项",
+    "confirm": "分配"
+  },
   "row_actions": {
     "cancel_all_tasks": "取消全部运行",
     "duplicate": "复制",

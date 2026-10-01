@@ -100,6 +100,19 @@
     "runs_other": "{{count}} runs",
     "failed_suffix": " · {{count}} failed ({{percent}}%)"
   },
+  "runtime_assignment": {
+    "action": "Assign runtime",
+    "description": "Uses the chosen runtime’s defaults for model, thinking level and service tier. Credentials stay local. No run is started.",
+    "scope": "Eligible agents: {{total}}. Skipped: {{skipped}} (already bound, archived or not owned by you).",
+    "agents": "Agents to assign",
+    "empty": "No usable runtime is registered in this workspace. Connect a runtime to this center and workspace first.",
+    "progress": "Assigned: {{assigned}}. Skipped: {{skipped}}. Failed: {{failed}}.",
+    "retry_hint": "Successful assignments are kept. Retry only the failed agents after checking runtime access and the server connection.",
+    "error": "Assignment stopped. Check the connection and retry; confirmed assignments are kept.",
+    "assigning": "Assigning...",
+    "retry": "Retry failed agents",
+    "confirm": "Assign"
+  },
   "row_actions": {
     "cancel_all_tasks": "Cancel all runs",
     "duplicate": "Duplicate",

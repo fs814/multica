@@ -84,7 +84,7 @@ func TestContentThreeWayMerge(t *testing.T) {
 
 func TestContentProjectionNeverSelectsCredentialOrExecutionColumns(t *testing.T) {
 	for _, table := range contentTables {
-		for _, field := range []string{"custom_env", "custom_args", "mcp_config", "runtime_config", "runtime_id", "permission_mode", "composio_toolkit_allowlist", "jwt_secret", "token", "password", "settings", "source_task_id"} {
+		for _, field := range []string{"custom_env", "custom_args", "fixed_args", "command_name", "mcp_config", "runtime_config", "metadata", "last_seen_at", "permission_mode", "composio_toolkit_allowlist", "jwt_secret", "token", "password", "settings", "source_task_id"} {
 			for _, allowed := range strings.Split(table.columns, ",") {
 				if allowed == field {
 					t.Fatalf("%s exposes %s", table.name, field)

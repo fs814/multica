@@ -1331,7 +1331,7 @@
       "sync_source_hint": "Save an HTTPS source address different from the peer, then connect for sync.",
       "sync_saved": "Peer address saved on this Desktop.",
       "sync_reachable": "Server reachable. Sync compatibility has not been checked.",
-      "sync_scope": "Requires HTTPS and owner access. Merges workspace content into normal workspaces on both centers. Credentials, runtime connections and execution state stay local. Conflicting edits and deletions require review.",
+      "sync_scope": "Requires HTTPS and owner access. Merges workspace content, runtime identities and agent bindings. The original machine must connect its daemon to both centers using separate profiles; imported runtimes stay offline until then. Custom profiles need local setup. Credentials and execution state stay local. Conflicting edits and deletions require review.",
       "sync_workspace": "Source workspace",
       "sync_all_workspaces": "All owned workspaces on both centers",
       "sync_limits": "Content merge, not a full server copy: workflows, automations, integrations and machine settings are not included. Per workspace: 10,000 records, 8 MiB text and 8 MiB per local file. Files transfer in resumable 1 MiB chunks without the 16 MiB total limit. Private staging: 1 GiB per center. Limits cause errors, not truncation.",

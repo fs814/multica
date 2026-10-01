@@ -6,7 +6,7 @@ import type { CenterSyncEndpoint, CenterSyncProgress } from "./center-sync";
 const workspace = "12345678-1234-4234-8234-123456789012";
 const owner = "22345678-1234-4234-8234-123456789012";
 const row = { table: "workspace", fields: { id: workspace, name: "Workspace", slug: "workspace", description: null, context: null, issue_prefix: "MRG", avatar_url: null } };
-const bundle = { version: 1 as const, attachment_mode: "chunked" as const, workspace, owner, records: [row], users: [{ id: owner, email: "owner@example.test", name: "Owner", role: "owner" as const }], files: [] };
+const bundle = { version: 2 as const, attachment_mode: "chunked" as const, workspace, owner, records: [row], users: [{ id: owner, email: "owner@example.test", name: "Owner", role: "owner" as const }], files: [] };
 function chunkFixture(options: { resume?: number; unavailable?: boolean; badReceipt?: boolean } = {}) {
   const f = fixture();
   const ids = ["32345678-1234-4234-8234-123456789012", "42345678-1234-4234-8234-123456789012", "52345678-1234-4234-8234-123456789012"];
@@ -53,7 +53,7 @@ function fixture() {
   let left = structuredClone(bundle), right = { ...structuredClone(bundle), records: [] as typeof bundle.records };
   const make = (name: "a" | "b"): CenterSyncEndpoint => ({ origin: `https://${name}.example.test`, request: vi.fn(async (action, body) => {
     order.push(`${name}:${action}`);
-    if (action === "info") return { mode: "manual", origin: `https://${name}.example.test`, owner, node: name, content_merge: 1, attachment_warnings: 1, attachment_chunks: 1 };
+    if (action === "info") return { mode: "manual", origin: `https://${name}.example.test`, owner, node: name, content_merge: 2, attachment_warnings: 1, attachment_chunks: 1, runtime_bindings: 1 };
     const input = contentMergeRequestSchema.parse({ action, body });
     if (input.action === "merge-list") return { workspaces: name === "a" ? [workspace] : [] };
     if (input.action === "merge-export") return name === "a" ? left : right;
@@ -69,6 +69,23 @@ function fixture() {
 }
 
 describe("normal workspace merge", () => {
+  it("requires runtime binding capability before exporting or writing", async () => {
+    const f = fixture();
+    vi.mocked(f.peer.request).mockResolvedValueOnce({ mode: "manual", origin: f.peer.origin, owner, node: "b", content_merge: 2, attachment_chunks: 1, attachment_warnings: 1 });
+    await expect(mergeCenters(f.source, f.peer, workspace, new AbortController().signal)).rejects.toThrow("sync runtimes and agent bindings");
+    expect(f.order.some(value => value.includes("merge-"))).toBe(false);
+  });
+  it("rejects the old protocol and runtime credentials or execution state", () => {
+    expect(contentBundleSchema.safeParse({ ...bundle, version: 1 }).success).toBe(false);
+    const runtime = { table: "agent_runtime", fields: { id: workspace, daemon_id: "original-machine", name: "Machine", custom_name: null, runtime_mode: "local", provider: "codex", owner_id: owner, profile_id: null } };
+    expect(contentBundleSchema.safeParse({ ...bundle, records: [row, runtime] }).success).toBe(true);
+    for (const field of ["token", "metadata", "status", "last_seen_at", "visibility"]) {
+      expect(contentBundleSchema.safeParse({ ...bundle, records: [row, { ...runtime, fields: { ...runtime.fields, [field]: "source-only" } }] }).success).toBe(false);
+    }
+    for (const invalid of [{ daemon_id: "" }, { runtime_mode: "cloud" }, { owner_id: "invalid" }, { profile_id: 42 }]) {
+      expect(contentBundleSchema.safeParse({ ...bundle, records: [row, { ...runtime, fields: { ...runtime.fields, ...invalid } }] }).success).toBe(false);
+    }
+  });
   it("relays more than 16 MiB in bounded chunks with metadata-only apply and confirmed progress", async () => {
     const f = chunkFixture(), progress: CenterSyncProgress[] = [];
     await mergeCenters(f.source, f.peer, workspace, new AbortController().signal, p => progress.push(p));
@@ -183,7 +200,7 @@ describe("normal workspace merge", () => {
       const response = await request(action, body, signal);
       return action === "merge-export" ? { ...contentBundleSchema.parse(response), unavailable_attachments: [owner] } : response;
     };
-    vi.mocked(f.peer.request).mockResolvedValueOnce({ mode: "manual", origin: f.peer.origin, owner, node: "b", content_merge: 1, attachment_chunks: 1 });
+    vi.mocked(f.peer.request).mockResolvedValueOnce({ mode: "manual", origin: f.peer.origin, owner, node: "b", content_merge: 2, attachment_chunks: 1 });
     await expect(mergeCenters(f.source, f.peer, workspace, new AbortController().signal)).rejects.toThrow("Update both centers");
     expect(f.order.some(v => v.endsWith("merge-apply"))).toBe(false);
   });

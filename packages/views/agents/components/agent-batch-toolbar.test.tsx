@@ -96,6 +96,7 @@ function renderToolbar(rows: AgentListRow[]) {
         <AgentBatchToolbar
           rows={nextRows}
           members={[]}
+          runtimes={[]}
           currentUserId="user-1"
           onClear={() => {}}
         />
@@ -128,7 +129,7 @@ describe("AgentBatchToolbar — action order", () => {
       .map((b) => b.textContent?.trim())
       .filter((text): text is string => !!text);
 
-    expect(actions).toEqual(["Restore", "Set access scope", "Archive"]);
+    expect(actions).toEqual(["Restore", "Set access scope", "Assign runtime", "Archive"]);
   });
 });
 

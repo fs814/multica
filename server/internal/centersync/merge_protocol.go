@@ -13,18 +13,21 @@ import (
 	"github.com/google/uuid"
 )
 
-const mergeVersion = 1
+const mergeVersion = 2
 const mergeLimit = 10000
 
 // Only content columns are portable. Authentication, integrations, execution
-// queues, runtime bindings and permission settings are never selected or written.
+// queues and permission settings are never selected or written. Runtime identity
+// and binding are portable; liveness and executable configuration are not.
 type contentTable struct {
 	name, columns, keys, scope string
 }
 
 var contentTables = []contentTable{
 	{"workspace", "id,name,slug,description,context,issue_prefix,avatar_url", "id", "t.id=$1"},
-	{"agent", "id,name,description,instructions,avatar_url,model,thinking_level,service_tier,conversation_starters,archived_at", "id", "t.workspace_id=$1 AND t.kind='user'"},
+	{"runtime_profile", "id,display_name,protocol_family,description,runtime_type", "id", "t.workspace_id=$1"},
+	{"agent_runtime", "id,daemon_id,name,custom_name,runtime_mode,provider,owner_id,profile_id", "id", "t.workspace_id=$1 AND t.runtime_mode='local' AND t.daemon_id IS NOT NULL"},
+	{"agent", "id,name,description,instructions,avatar_url,model,thinking_level,service_tier,conversation_starters,archived_at,runtime_id", "id", "t.workspace_id=$1 AND t.kind='user'"},
 	{"project", "id,title,description,icon,status,priority,start_date,due_date", "id", "t.workspace_id=$1"},
 	{"issue_status", "id,key,name,description,category,color,is_system,position,archived_at,icon", "id", "t.workspace_id=$1"},
 	{"issue_label", "id,name,color,resource_type,description", "id", "t.workspace_id=$1"},
@@ -141,6 +144,9 @@ func validateBundle(b contentBundle) error {
 			return errors.New("invalid or duplicate merge record")
 		}
 		seen[key] = true
+		if err := validateRuntimeRecord(b.Workspace, r); err != nil {
+			return err
+		}
 		if r.Table == "attachment" {
 			attachments[textValue(r.Fields["id"])] = r
 		}
@@ -285,6 +291,16 @@ func mergeFields(local, incoming, base map[string]json.RawMessage, table, key st
 		current, exists := local[k]
 		previous, known := base[k]
 		switch {
+		case exists && !equalValue(current, v) && isRuntimeIdentityField(table, k):
+			// Sync cannot transfer machine ownership or change executable identity.
+			conflicts = append(conflicts, mergeConflict{table, key, k, current, v})
+		case table == "agent" && k == "runtime_id" && !known && exists && textValue(current) == "":
+			// Upgrade previously imported, unbound agents without treating the
+			// newly supported field as an independent edit collision.
+			merged[k], next[k] = v, v
+		case table == "agent" && k == "runtime_id" && !known && exists && textValue(v) == "":
+			// An older import's empty binding must not detach the original.
+			next[k] = v
 		case !exists && local == nil && base == nil:
 			merged[k] = v
 			next[k] = v
@@ -296,6 +312,29 @@ func mergeFields(local, incoming, base map[string]json.RawMessage, table, key st
 		case known && equalValue(v, previous):
 		default:
 			conflicts = append(conflicts, mergeConflict{table, key, k, current, v})
+		}
+	}
+	if table == "agent" && local != nil {
+		// A binding conflict must not apply preferences for the other runtime.
+		// Likewise a model conflict must not leave a newly moved agent using
+		// the old provider's model. Keep the execution choice together.
+		fields := []string{"runtime_id", "model", "thinking_level", "service_tier"}
+		hold := false
+		for _, c := range conflicts {
+			if c.Field == "runtime_id" || (!equalValue(local["runtime_id"], merged["runtime_id"]) && (c.Field == "model" || c.Field == "thinking_level" || c.Field == "service_tier")) {
+				hold = true
+			}
+		}
+		if hold {
+			for _, field := range fields {
+				if value, ok := local[field]; ok {
+					merged[field] = value
+				}
+				delete(next, field)
+				if value, ok := base[field]; ok {
+					next[field] = value
+				}
+			}
 		}
 	}
 	// Actor kind/identity and attachment digest/length are indivisible values.
