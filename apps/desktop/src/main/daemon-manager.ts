@@ -8,6 +8,7 @@ import {
 } from "fs/promises";
 import { existsSync } from "fs";
 import { startDaemonLogTail } from "./daemon-log-tail";
+import { sendToLiveRenderer } from "./renderer-send";
 import { defaultLocalIssueDirectory, resolveLocalIssueDirectory } from "./local-issue-directory";
 import { desktopDevCliPath } from "./dev-cli-path";
 import { join } from "path";
@@ -159,8 +160,7 @@ function urlsMatch(a: string, b: string): boolean {
 }
 
 function sendStatus(status: DaemonStatus): void {
-  const win = getMainWindow();
-  win?.webContents.send("daemon:status", status);
+  sendToLiveRenderer(getMainWindow(), "daemon:status", status);
 }
 
 interface HealthPayload {
@@ -1270,7 +1270,7 @@ function startLogTail(win: BrowserWindow): void {
       return active ? profileLogPath(active.name) : null;
     },
     isAlive: () => !win.isDestroyed() && !win.webContents.isDestroyed(),
-    onLine: (line) => win.webContents.send("daemon:log-line", line),
+    onLine: (line) => sendToLiveRenderer(win, "daemon:log-line", line),
   });
 }
 
