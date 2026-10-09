@@ -1,0 +1,22 @@
+{
+  "title": "Web",
+  "saved_locally": "Les sites sont enregistrés sur cet appareil pour cet espace de travail.",
+  "add": "Ajouter un site",
+  "save": "Enregistrer",
+  "cancel": "Annuler",
+  "name": "Nom",
+  "url": "URL",
+  "open": "Ouvrir dans Multica",
+  "opening": "Ouverture...",
+  "open_browser": "Ouvrir dans le navigateur",
+  "edit_named": "Modifier {{name}}",
+  "remove_named": "Retirer {{name}}",
+  "empty": "Ajoutez un site comme Jenkins pour commencer.",
+  "invalid_url": "Saisissez un nom et une URL HTTP ou HTTPS sans identifiants intégrés.",
+  "save_error": "Impossible d’enregistrer les modifications. Vérifiez le stockage du navigateur et réessayez.",
+  "open_error": "Impossible d’ouvrir ce site. Vérifiez l’URL et la connexion, puis réessayez ou ouvrez-le dans le navigateur.",
+  "back": "Précédent",
+  "forward": "Suivant",
+  "reload": "Actualiser",
+  "site_missing": "Ce site enregistré n’est plus disponible. Ouvrez Web pour l’ajouter à nouveau."
+}

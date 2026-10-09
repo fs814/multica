@@ -1,0 +1,24 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
+import { I18nProvider } from "@multica/core/i18n/react";
+import en from "@multica/views/locales/en/web-links.json";
+const save = vi.hoisted(() => vi.fn());
+vi.mock("@multica/views/platform", () => ({ openExternal: vi.fn(), useRestoredViewState: () => "http://localhost:8080/job/example", useViewStateWriter: () => save }));
+import { EmbeddedWebSite } from "./desktop-web-site-page";
+it("restores the last page, updates navigation controls, and offers retry after a failed load", () => {
+  const { container } = render(<I18nProvider locale="en" resources={{ en: { "web-links": en } }}><EmbeddedWebSite site={{ id: "1", name: "Jenkins", url: "http://localhost:8080/" }} /></I18nProvider>);
+  const guest = container.querySelector("webview")!;
+  expect(guest).toHaveAttribute("src", "http://localhost:8080/job/example");
+  const back = vi.fn();
+  const reload = vi.fn();
+  Object.assign(guest, { getURL: () => "http://localhost:8080/job/other", canGoBack: () => true, canGoForward: () => false, goBack: back, reload });
+  fireEvent(guest, new Event("dom-ready"));
+  expect(save).toHaveBeenCalledWith("web-site-url", "http://localhost:8080/job/other");
+  fireEvent.click(screen.getByRole("button", { name: en.back }));
+  expect(back).toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: en.forward })).toBeDisabled();
+  fireEvent(guest, Object.assign(new Event("did-fail-load"), { isMainFrame: true, errorCode: -105 }));
+  expect(screen.getByRole("alert")).toHaveTextContent(en.open_error);
+  fireEvent.click(screen.getByRole("button", { name: en.reload }));
+  expect(reload).toHaveBeenCalled();
+});

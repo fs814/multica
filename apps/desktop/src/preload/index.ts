@@ -101,6 +101,13 @@ function subscribeToMainRendererChannel<T>(
 }
 
 const desktopAPI = {
+  tools: {
+    catalog: () => ipcRenderer.invoke("local-tools:catalog"),
+    runs: () => ipcRenderer.invoke("local-tools:runs"),
+    run: (path: string) => ipcRenderer.invoke("local-tools:run", path),
+    output: (id: string) => ipcRenderer.invoke("local-tools:output", id),
+    stop: (id: string) => ipcRenderer.invoke("local-tools:stop", id),
+  },
   /** App version + normalized OS. Read once at preload time so the renderer
    *  can use it synchronously when initializing the API client. */
   appInfo,

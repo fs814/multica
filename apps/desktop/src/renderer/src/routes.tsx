@@ -30,6 +30,9 @@ import { MyIssuesPage } from "@multica/views/my-issues";
 import { SkillsPage } from "@multica/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { ClisPage } from "@multica/views/clis";
+import { DesktopToolsPage } from "./components/desktop-tools-page";
+import { DesktopWebPage } from "./components/desktop-web-page";
+import { DesktopWebSitePage } from "./components/desktop-web-site-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
 import {
   AiCreateAgentPage,
@@ -224,6 +227,20 @@ export const appRoutes: RouteObject[] = [
             path: "runtimes",
             element: <DesktopRuntimesPage />,
             handle: { title: "Runtimes" },
+          },
+          {
+            path: "web/:siteId",
+            element: <DesktopWebSitePage />,
+          },
+          {
+            path: "web",
+            element: <DesktopWebPage />,
+            handle: { title: "Web" },
+          },
+          {
+            path: "tools",
+            element: <DesktopToolsPage />,
+            handle: { title: "Tools" },
           },
           {
             path: "clis",

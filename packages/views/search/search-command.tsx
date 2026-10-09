@@ -105,6 +105,8 @@ const PAGE_KEYWORDS: Record<WorkspacePageKey, string[]> = {
   usage: ["usage", "analytics", "stats", "metrics", "统计", "分析", "用量"],
   runtimes: ["runtimes", "environments", "machines", "运行时"],
   clis: ["cli", "clis", "command", "tool", "local", "命令行", "工具", "本机"],
+  tools: ["tools", "scripts", "build", "local", "工具", "脚本", "本机"],
+  web: ["web", "websites", "links", "jenkins", "网页", "网站"],
   skills: ["skills", "library", "技能"],
   settings: ["settings", "config", "preferences", "设置", "配置"],
 };

@@ -1,0 +1,22 @@
+{
+  "title": "Web",
+  "saved_locally": "サイトはこのデバイス上にワークスペースごとに保存されます。",
+  "add": "サイトを追加",
+  "save": "保存",
+  "cancel": "キャンセル",
+  "name": "名前",
+  "url": "URL",
+  "open": "Multica で開く",
+  "opening": "開いています...",
+  "open_browser": "ブラウザーで開く",
+  "edit_named": "{{name}} を編集",
+  "remove_named": "{{name}} を削除",
+  "empty": "Jenkins などのサイトを追加してください。",
+  "invalid_url": "名前と、認証情報を含まない HTTP または HTTPS の URL を入力してください。",
+  "save_error": "変更を保存できませんでした。ブラウザーの空き容量を確認して再試行してください。",
+  "open_error": "サイトを開けませんでした。URL と接続を確認して再試行するか、ブラウザーで開いてください。",
+  "back": "戻る",
+  "forward": "進む",
+  "reload": "再読み込み",
+  "site_missing": "このサイトは削除されました。Web メニューから追加し直してください。"
+}

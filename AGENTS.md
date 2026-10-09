@@ -89,6 +89,7 @@ Workspace-scoped queries filter by `workspace_id`; membership gates access and `
 ## Desktop Rules
 
 - Workspace session routes are tab destinations. Pre-workspace one-shot flows (create workspace, accept invite) use `WindowOverlay` in `apps/desktop/src/renderer/src/stores/window-overlay-store.ts`, not new routes. Stale workspace tabs heal by dropping stale tab groups.
+- Saved websites open as workspace Web tabs. The main process must validate every webview attachment and enforce a separate persistent session, sandboxing, web security, and no Node integration or preload. Never apply the application renderer’s relaxed web security or IPC bridge to remote sites.
 - Workspace route layouts own `setCurrentWorkspace(slug, uuid)` from `@multica/core/platform`; leaving workspace context calls `setCurrentWorkspace(null, null)`.
 - Cross-workspace navigation uses the adapter's `switchWorkspace(slug, targetPath)` flow; do not bypass it with direct router navigation.
 - Workspace delete awaits the server. Existing workspace leave clears/navigates first to avoid the `member:removed` race; this is known debt in `packages/views/settings/components/workspace-tab.tsx`, not a pattern for new flows.

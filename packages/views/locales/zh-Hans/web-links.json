@@ -1,0 +1,22 @@
+{
+  "title": "网页",
+  "saved_locally": "网站保存在此设备上，仅用于当前工作区。",
+  "add": "添加网站",
+  "save": "保存",
+  "cancel": "取消",
+  "name": "名称",
+  "url": "网址",
+  "open": "在 Multica 中打开",
+  "opening": "正在打开...",
+  "open_browser": "在浏览器中打开",
+  "edit_named": "编辑 {{name}}",
+  "remove_named": "移除 {{name}}",
+  "empty": "添加 Jenkins 等网站即可开始使用。",
+  "invalid_url": "请输入名称和 HTTP 或 HTTPS 网址，请勿在网址中包含凭据。",
+  "save_error": "无法保存更改。请检查浏览器存储空间后重试。",
+  "open_error": "无法打开网站。请检查网址和网络连接，然后重试或在浏览器中打开。",
+  "back": "后退",
+  "forward": "前进",
+  "reload": "重新加载",
+  "site_missing": "此网站已被移除。请打开网页菜单重新添加。"
+}

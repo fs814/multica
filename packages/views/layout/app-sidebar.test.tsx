@@ -178,6 +178,9 @@ vi.mock("@multica/core/paths", async (importOriginal) => {
       myIssues: () => "/acme/my-issues",
       runtimes: () => "/acme/runtimes",
       clis: () => "/acme/clis",
+      tools: () => "/acme/tools",
+      web: () => "/acme/web",
+      webSite: (id: string) => `/acme/web/${id}`,
       runtimeDetail: (id: string) => `/acme/runtimes/${id}`,
       runtimeSettings: (machineId: string, runtimeId: string) =>
         `/acme/runtimes/${machineId}/runtime/${runtimeId}`,
@@ -583,4 +586,25 @@ describe("Pending invitation self-heal", () => {
     expect(invitationApi.accept).toHaveBeenCalledTimes(1);
     expect(invitationApi.decline).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it("places Tools immediately below CLI in AI Team", () => {
+  navigation.current.pathname = "/acme/tools";
+  const { container } = render(<AppSidebar />);
+  const destinations = Array.from(container.querySelectorAll("button[data-href]"));
+  const cli = destinations.findIndex((item) => item.getAttribute("data-href") === "/acme/clis");
+  expect(cli).toBeGreaterThan(-1);
+  expect(destinations[cli + 1]).toHaveAttribute("data-href", "/acme/tools");
+  expect(destinations[cli + 1]).toHaveAttribute("data-active", "true");
+});
+
+it("places Web immediately below Tools in AI Team", () => {
+  navigation.current.pathname = "/acme/web";
+  const { container } = render(<AppSidebar />);
+  const destinations = Array.from(container.querySelectorAll("button[data-href]"));
+  const tools = destinations.findIndex((item) => item.getAttribute("data-href") === "/acme/tools");
+  expect(tools).toBeGreaterThan(-1);
+  expect(destinations[tools + 1]).toHaveAttribute("data-href", "/acme/web");
+  expect(destinations[tools + 1]).toHaveAttribute("data-active", "true");
 });

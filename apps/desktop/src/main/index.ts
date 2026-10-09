@@ -13,6 +13,8 @@ import { centerRuntimeConfig, type CenterSettings } from "../shared/center-setti
 import { parseTransferRequest } from "../shared/center-recovery";
 import { deriveProfileName } from "./daemon-profile";
 import { setupLocalDirectory } from "./local-directory";
+import { setupLocalTools } from "./local-tools";
+import { installWebSites } from "./web-sites";
 import { openExternalSafely, downloadURLSafely } from "./external-url";
 import { installContextMenu } from "./context-menu";
 import { handleAppShortcut } from "./keyboard-shortcuts";
@@ -330,12 +332,13 @@ function createWindow(): BrowserWindow {
     ...(is.dev || process.platform === "linux"
       ? { icon: BUNDLED_ICON_PATH }
       : {}),
-    webPreferences: createRendererWebPreferences(
-      join(__dirname, "../preload/index.js"),
-      systemLocale,
-    ),
+    webPreferences: {
+      ...createRendererWebPreferences(join(__dirname, "../preload/index.js"), systemLocale),
+      webviewTag: true,
+    },
   });
   const window = mainWindow;
+  installWebSites(window);
 
   // Persist bounds on resize/move (debounced) and on close so the next
   // launch restores size/position and max/fullscreen flags. getNormalBounds
@@ -987,6 +990,7 @@ if (!gotTheLock) {
     setupAutoUpdater(() => mainWindow);
     setupDaemonManager(() => mainWindow);
     setupLocalDirectory(() => mainWindow);
+    setupLocalTools(() => mainWindow);
 
     app.on("activate", () => {
       const window = ensureMainWindow();

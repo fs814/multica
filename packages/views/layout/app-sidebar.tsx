@@ -128,6 +128,8 @@ type NavKey =
   | "usage"
   | "runtimes"
   | "clis"
+  | "tools"
+  | "web"
   | "skills"
   | "settings";
 
@@ -149,6 +151,8 @@ type NavLabelKey =
   | "usage"
   | "runtimes"
   | "clis"
+  | "tools"
+  | "web"
   | "skills"
   | "settings";
 
@@ -184,6 +188,8 @@ const aiTeamNav: { key: NavKey; labelKey: NavLabelKey }[] = [
   { key: "skills", labelKey: "skills" },
   { key: "runtimes", labelKey: "runtimes" },
   { key: "clis", labelKey: "clis" },
+  { key: "tools", labelKey: "tools" },
+  { key: "web", labelKey: "web" },
 ];
 
 const utilityNav: { key: NavKey; labelKey: NavLabelKey }[] = [

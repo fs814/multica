@@ -9,6 +9,8 @@
     "test": "vitest run"
   },
   "exports": {
+    "./web-links": "./web-links/index.ts",
+    "./web-links/models": "./web-links/models.ts",
     ".": "./index.ts",
     "./markdown": "./markdown/index.ts",
     "./types": "./types/index.ts",
@@ -72,6 +74,7 @@
     "./chat/use-quick-actions-pending-timeout": "./chat/use-quick-actions-pending-timeout.ts",
     "./chat/unread": "./chat/unread.ts",
     "./clis": "./clis/index.ts",
+    "./tools": "./tools/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./runtimes/queries": "./runtimes/queries.ts",
     "./runtimes/mutations": "./runtimes/mutations.ts",

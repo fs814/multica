@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "exports": {
+    "./web-links": "./web-links/index.ts",
     "./navigation": "./navigation/index.ts",
     "./common/actor-avatar": "./common/actor-avatar.tsx",
     "./editor": "./editor/index.ts",
@@ -24,6 +25,7 @@
     "./modals/create-issue": "./modals/create-issue.tsx",
     "./my-issues": "./my-issues/index.ts",
     "./clis": "./clis/index.ts",
+    "./tools": "./tools/index.ts",
     "./skills": "./skills/index.ts",
     "./agents": "./agents/index.ts",
     "./agents/agent-detail-page": "./agents/components/agent-detail-page.tsx",

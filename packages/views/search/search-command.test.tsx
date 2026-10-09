@@ -253,6 +253,9 @@ vi.mock("@multica/core/paths", async (importOriginal) => {
       myIssues: () => "/ws-test/my-issues",
       runtimes: () => "/ws-test/runtimes",
       clis: () => "/ws-test/clis",
+      tools: () => "/ws-test/tools",
+      web: () => "/ws-test/web",
+      webSite: (id: string) => `/ws-test/web/${id}`,
       runtimeDetail: (id: string) => `/ws-test/runtimes/${id}`,
       runtimeSettings: (machineId: string, runtimeId: string) =>
         `/ws-test/runtimes/${machineId}/runtime/${runtimeId}`,

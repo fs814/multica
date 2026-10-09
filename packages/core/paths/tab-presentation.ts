@@ -81,6 +81,7 @@ export type InboxSelectionData =
  * pending (type-label + type-icon) presentation.
  */
 export interface TabEntityData {
+  webSite?: { name: string };
   issue?: { identifier: string; title: string; status: IssueStatus };
   project?: { icon: string | null; title: string };
   autopilot?: { title: string };
@@ -159,6 +160,8 @@ export function resolveTabPresentation(
   data: TabEntityData = {},
 ): TabPresentation {
   switch (subject.kind) {
+    case "webSite":
+      return { visual: { kind: "icon", icon: "Globe" }, title: data.webSite ? { kind: "text", text: data.webSite.name } : { kind: "nav", navKey: "web" } };
     case "page": {
       const page = WORKSPACE_PAGES[subject.page];
       return {

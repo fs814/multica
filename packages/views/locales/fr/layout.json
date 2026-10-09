@@ -11,8 +11,10 @@
     "usage": "Statistiques",
     "runtimes": "Runtimes",
     "clis": "CLI",
+    "tools": "Outils",
     "skills": "Skills",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "web": "Web"
   },
   "tab": {
     "issue": "Tâche",

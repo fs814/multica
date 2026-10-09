@@ -78,6 +78,9 @@ function workspaceScoped(slug: string) {
     myIssues: () => `${ws}/my-issues`,
     runtimes: () => `${ws}/runtimes`,
     clis: () => `${ws}/clis`,
+    tools: () => `${ws}/tools`,
+    web: () => `${ws}/web`,
+    webSite: (id: string) => `${ws}/web/${encode(id)}`,
     runtimeDetail: (id: string) => `${ws}/runtimes/${encode(id)}`,
     runtimeSettings: (machineId: string, runtimeId: string) =>
       `${ws}/runtimes/${encode(machineId)}/runtime/${encode(runtimeId)}`,

@@ -14,9 +14,11 @@
     "usage": "Analytics",
     "runtimes": "Runtimes",
     "clis": "CLI",
+    "tools": "Tools",
     "skills": "Skills",
     "settings": "Settings",
-    "workflow_instances": "Workflow instances"
+    "workflow_instances": "Workflow instances",
+    "web": "Web"
   },
   "tab": {
     "issue": "Issue",

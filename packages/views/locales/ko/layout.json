@@ -14,9 +14,11 @@
     "usage": "분석",
     "runtimes": "런타임",
     "clis": "CLI",
+    "tools": "도구",
     "skills": "스킬",
     "settings": "설정",
-    "workflow_instances": "워크플로 인스턴스"
+    "workflow_instances": "워크플로 인스턴스",
+    "web": "웹"
   },
   "tab": {
     "issue": "태스크",

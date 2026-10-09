@@ -47,8 +47,9 @@ export function createRendererWebPreferences(
     //      now on, which is the containment boundary that matters here.
     //   2. The only PDFs that reach an iframe here are signed CloudFront URLs
     //      we ourselves issued (see useDownloadAttachment); user-supplied URLs
-    //      are routed through `setWindowOpenHandler` → `openExternalSafely` and
-    //      cannot land in this renderer.
+    //      are routed through `setWindowOpenHandler` → `openExternalSafely`.
+    //      Saved Web sites use isolated webview guests with webSecurity on;
+    //      web-sites.ts enforces their separate session and no preload.
     //   3. Chromium's PDFium plugin is itself sandboxed inside its own process
     //      and only handles the `application/pdf` MIME.
     //

@@ -110,3 +110,7 @@ describe("tabSubjectKey", () => {
     ).toBe("attachment:a1:x.pdf");
   });
 });
+
+it("recognizes saved websites as distinct tab subjects", () => {
+  expect(parseTabSubject("/acme/web/jenkins")).toEqual({ kind: "webSite", id: "jenkins" });
+});

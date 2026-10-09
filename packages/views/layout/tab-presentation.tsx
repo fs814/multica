@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useWebLinksStore } from "@multica/core/web-links";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { issueStatusListOptions, buildIssueStatusCatalog } from "@multica/core/issue-statuses/queries";
 import {
@@ -169,7 +170,8 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
   const runtimes = useQuery({ ...runtimeListOptions(wsId), enabled: false }).data;
   const sessions = useQuery({ ...chatSessionsOptions(wsId), enabled: false }).data;
 
-  const data: TabEntityData = {};
+  const webSite = useWebLinksStore((state) => subject.kind === "webSite" ? state.links.find((link) => link.id === subject.id) : undefined);
+  const data: TabEntityData = { webSite };
   switch (subject.kind) {
     case "issue":
       if (issue) {

@@ -42,6 +42,7 @@ export type TabSubject =
   | { kind: "actor"; actorType: TabActorType; id: string }
   /** A single skill detail. */
   | { kind: "skill"; id: string }
+  | { kind: "webSite"; id: string }
   /** A runtime machine detail. */
   | { kind: "machine"; machineId: string }
   /** A runtime nested under a machine. */
@@ -133,6 +134,8 @@ export function parseTabSubject(url: string): TabSubject {
         return { kind: "runtime", machineId: id, runtimeId: segments[4] };
       }
       return { kind: "machine", machineId: id };
+    case "web":
+      return id ? { kind: "webSite", id } : { kind: "page", page: "web" };
     case "skills":
       return id ? { kind: "skill", id } : { kind: "page", page: "skills" };
     case "settings":
@@ -177,6 +180,8 @@ export function tabSubjectKey(subject: TabSubject): string {
       return `actor:${subject.actorType}:${subject.id}`;
     case "skill":
       return `skill:${subject.id}`;
+    case "webSite":
+      return `web-site:${subject.id}`;
     case "machine":
       return `machine:${subject.machineId}`;
     case "runtime":

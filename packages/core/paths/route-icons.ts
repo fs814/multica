@@ -34,6 +34,8 @@ export type RouteIconName =
   | "Monitor"
   | "Server"
   | "Terminal"
+  | "Wrench"
+  | "Globe"
   | "BookOpenText"
   | "Settings"
   | "File"
@@ -62,6 +64,8 @@ export type NavLabelKey =
   | "usage"
   | "runtimes"
   | "clis"
+  | "tools"
+  | "web"
   | "skills"
   | "settings";
 
@@ -82,6 +86,8 @@ export type WorkspacePageKey =
   | "usage"
   | "runtimes"
   | "clis"
+  | "tools"
+  | "web"
   | "skills"
   | "settings";
 
@@ -128,6 +134,8 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   usage: { segment: "usage", icon: "BarChart3", navKey: "usage" },
   runtimes: { segment: "runtimes", icon: "Monitor", navKey: "runtimes" },
   clis: { segment: "clis", icon: "Terminal", navKey: "clis" },
+  tools: { segment: "tools", icon: "Wrench", navKey: "tools" },
+  web: { segment: "web", icon: "Globe", navKey: "web" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
 };

@@ -1,0 +1,22 @@
+{
+  "title": "Web",
+  "saved_locally": "Sites are saved on this device for this workspace.",
+  "add": "Add site",
+  "save": "Save",
+  "cancel": "Cancel",
+  "name": "Name",
+  "url": "URL",
+  "open": "Open in Multica",
+  "opening": "Opening...",
+  "open_browser": "Open in browser",
+  "edit_named": "Edit {{name}}",
+  "remove_named": "Remove {{name}}",
+  "empty": "Add a site such as Jenkins to get started.",
+  "invalid_url": "Enter a name and an HTTP or HTTPS URL without embedded credentials.",
+  "save_error": "Could not save changes. Check available browser storage and try again.",
+  "open_error": "Could not open this site. Check the URL and connection, then try again or open it in your browser.",
+  "back": "Back",
+  "forward": "Forward",
+  "reload": "Reload",
+  "site_missing": "This saved site is no longer available. Open Web to add it again."
+}
