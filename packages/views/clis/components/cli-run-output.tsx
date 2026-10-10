@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle2, ExternalLink, Info, MessageSquare, ThumbsUp } from "lucide-react";
-import { parseZhihuOutput, type ZhihuOutput, type ZhihuSearchItem } from "@multica/core/clis";
+import { parseGitHubTrendingOutput, parseZhihuOutput, type ZhihuOutput, type ZhihuSearchItem } from "@multica/core/clis";
 import type { RuntimeCLIRunRequest } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import { useT } from "../../i18n";
@@ -10,6 +10,7 @@ import { useT } from "../../i18n";
 export function CLIRunOutput({ run }: { run: RuntimeCLIRunRequest }) {
   const { t } = useT("clis");
   const parsed = parseZhihuOutput(run);
+  const trending = parseGitHubTrendingOutput(run);
   const output = (
     <pre className="bg-muted mt-2 max-h-96 overflow-auto rounded-md p-3 text-caption whitespace-pre-wrap break-words">
       {run.output || t(($) => $.result.no_output)}
@@ -18,6 +19,26 @@ export function CLIRunOutput({ run }: { run: RuntimeCLIRunRequest }) {
 
   return (
     <div className="mt-4 min-w-0 space-y-4 border-t pt-4">
+      {trending && (
+        <section aria-label={t(($) => $.github.title)} className="space-y-3">
+          <h3 className="text-body font-medium">{t(($) => $.github.title)}</h3>
+          {trending.repositories.length === 0 ? (
+            <p className="text-muted-foreground text-body">{t(($) => $.result.no_output)}</p>
+          ) : (
+            <ol className="list-decimal space-y-3 pl-6">
+              {trending.repositories.map((repo, index) => (
+                <li key={`${index}:${repo.repository}`} className="pl-1 text-body">
+                  <a href={repo.url} target="_blank" rel="noopener noreferrer" className="font-medium break-all underline underline-offset-4">{repo.repository}</a>
+                  {repo.description && <p className="mt-1 break-words">{repo.description}</p>}
+                  <p className="text-muted-foreground mt-1 text-caption">
+                    {[repo.language, repo.stars && `★ ${repo.stars}`, repo.gained].filter(Boolean).join(" · ")}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+      )}
       {parsed?.kind === "status" && <ZhihuStatus data={parsed.data} />}
       {parsed?.kind === "hot" && (
         <section aria-label={t(($) => $.hot.title)} className="space-y-4">
@@ -69,7 +90,7 @@ export function CLIRunOutput({ run }: { run: RuntimeCLIRunRequest }) {
           {t(($) => $.result.truncated, { bytes: run.output_bytes ?? 0 })}
         </p>
       )}
-      {parsed ? (
+      {parsed || trending ? (
         <details className="text-caption">
           <summary className="text-muted-foreground cursor-pointer py-1 hover:text-foreground">{t(($) => $.result.raw_output)}</summary>
           {output}

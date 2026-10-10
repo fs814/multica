@@ -84,5 +84,8 @@
     "load_failed": "无法读取这台机器上的 CLI 注册表。",
     "run_failed": "CLI 运行失败。",
     "retry": "重试"
+  },
+  "github": {
+    "title": "GitHub Trending"
   }
 }

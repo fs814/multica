@@ -84,5 +84,8 @@
     "load_failed": "このマシンの CLI レジストリを読み取れませんでした。",
     "run_failed": "CLI の実行に失敗しました。",
     "retry": "再試行"
+  },
+  "github": {
+    "title": "GitHub Trending"
   }
 }

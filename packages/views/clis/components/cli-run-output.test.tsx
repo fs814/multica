@@ -92,3 +92,16 @@ describe("CLIRunOutput", () => {
     expect(screen.getByRole("status")).toHaveTextContent("70000");
   });
 });
+
+
+describe("GitHub Trending output", () => {
+  it("renders ranked repository links, descriptions and stars", () => {
+    renderOutput({ since: "daily", repositories: [
+      { repository: "owner/project", description: "Example project", language: "Rust", stars: "42", gained: "5 stars today" },
+    ] }, { cli_key: "gh-trending" });
+    expect(screen.getByRole("heading", { name: "GitHub Trending" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "owner/project" })).toHaveAttribute("href", "https://github.com/owner/project");
+    expect(screen.getByText("Example project")).toBeVisible();
+    expect(screen.getByText(/Rust · ★ 42 · 5 stars today/)).toBeVisible();
+  });
+});

@@ -31,5 +31,8 @@
     "load_failed": "Impossible de lire le registre des CLI sur cette machine.",
     "run_failed": "L'exécution du CLI a échoué.",
     "retry": "Réessayer"
+  },
+  "github": {
+    "title": "GitHub Trending"
   }
 }

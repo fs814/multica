@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -20,6 +20,7 @@ import {
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { PAGE_GUTTER, PageHeader, PAGE_RAIL } from "../../layout/page-header";
 import { useT } from "../../i18n";
+import { useLocalDaemonStatus } from "../../platform/use-local-daemon-status";
 import { CLIRunSection } from "./cli-run-section";
 
 /**
@@ -52,15 +53,16 @@ export function ClisPage() {
     [runtimes, currentUserId],
   );
 
-  const [runtimeId, setRuntimeId] = useState<string | null>(null);
-  useEffect(() => {
-    if (runtimeId || ownedRuntimes.length === 0) return;
-    // Prefer an online machine: an offline one cannot answer the registry
-    // request, and landing on it would show a timeout the user cannot explain.
-    const preferred = ownedRuntimes.find((rt) => rt.status === "online") ?? ownedRuntimes[0];
-    if (!preferred) return;
-    setRuntimeId(preferred.id);
-  }, [ownedRuntimes, runtimeId]);
+  const localDaemon = useLocalDaemonStatus();
+  const [chosenRuntimeId, setRuntimeId] = useState<string | null>(null);
+  // Desktop status arrives asynchronously. Derive the default so discovering
+  // the local daemon can replace an initial remote default, but never a choice.
+  const preferred = ownedRuntimes.find((rt) =>
+    rt.status === "online" && localDaemon.daemonId && rt.daemon_id === localDaemon.daemonId,
+  ) ?? ownedRuntimes.find((rt) => rt.status === "online") ?? ownedRuntimes[0];
+  const runtimeId = ownedRuntimes.some((rt) => rt.id === chosenRuntimeId)
+    ? chosenRuntimeId
+    : preferred?.id ?? null;
 
   const selected = ownedRuntimes.find((rt) => rt.id === runtimeId) ?? null;
 
@@ -107,7 +109,7 @@ export function ClisPage() {
             </div>
           )}
 
-          {selected && <Registry runtimeId={selected.id} />}
+          {selected && <Registry key={selected.id} runtimeId={selected.id} />}
         </div>
       </div>
     </>

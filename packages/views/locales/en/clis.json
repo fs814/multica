@@ -88,5 +88,8 @@
     "load_failed": "Could not read the CLI registry on this machine.",
     "run_failed": "The CLI run failed.",
     "retry": "Try again"
+  },
+  "github": {
+    "title": "GitHub Trending"
   }
 }

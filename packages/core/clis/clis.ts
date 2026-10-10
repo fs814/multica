@@ -104,6 +104,9 @@ export function runtimeCLIRegistryOptions(runtimeId: string | null | undefined) 
     queryFn: () => resolveRuntimeCLIs(runtimeId as string),
     enabled: Boolean(runtimeId),
     staleTime: 30_000,
+    // This registry is edited outside Multica and has no server invalidation event.
+    refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
     retry: false,
   });
 }
