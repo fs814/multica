@@ -60,7 +60,8 @@ export function installRendererRecoveryHandlers(
     ...context,
   });
   const maybePromptReload = (payload: ReloadPromptPayload) => {
-    if (isDev) return;
+    // Source-based desktop launchers also need a way out of a dead renderer.
+    // Development mode controls diagnostics, not access to crash recovery.
     void showReloadPrompt(payload).then((result) => {
       if (result === "reload" && !window.isDestroyed()) {
         window.webContents.reload();
@@ -92,7 +93,7 @@ export function installRendererRecoveryHandlers(
   });
 
   window.on("unresponsive", () => {
-    if (isDev || unresponsivePromptTimer) return;
+    if (unresponsivePromptTimer) return;
     unresponsivePromptTimer = setTimeout(() => {
       unresponsivePromptTimer = null;
       reportHang();
