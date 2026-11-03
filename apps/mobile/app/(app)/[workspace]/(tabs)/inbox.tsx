@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActionSheetIOS,
   Alert,
@@ -8,11 +8,13 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import type { InboxItem } from "@multica/core/types";
+import type { InboxItem, InboxSection } from "@multica/core/types";
+import { isInboxItemUnread } from "@multica/core/inbox/section";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Header } from "@/components/ui/header";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { IconButton } from "@/components/ui/icon-button";
 import { HeaderActions } from "@/components/ui/app-header-actions";
 import { SwipeableInboxRow } from "@/components/inbox/swipeable-inbox-row";
@@ -28,24 +30,30 @@ import {
 import { useWorkspaceStore } from "@/data/workspace-store";
 import { useColorScheme } from "@/lib/use-color-scheme";
 import { THEME } from "@/lib/theme";
+import { useT } from "@/lib/i18n";
+import { useInboxUnreadCount } from "@/lib/unread-counts";
 import {
-  deduplicateInboxItems,
   getInboxNavigationTarget,
+  groupInboxItemsBySection,
 } from "@/lib/inbox-display";
 
 export default function Inbox() {
+  const { t } = useT("inbox");
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const wsSlug = useWorkspaceStore((s) => s.currentWorkspaceSlug);
   const { colorScheme } = useColorScheme();
   const { data: rawItems, isLoading, error, refetch, isRefetching } = useQuery(
     inboxListOptions(wsId),
   );
-  // Dedup + drop archived to match web/desktop. See CLAUDE.md
-  // "Behavioral parity" → inbox dedup incident.
-  const data = useMemo(
-    () => deduplicateInboxItems(rawItems ?? []),
+  // Dedup + drop archived to match web/desktop, split into the same two
+  // sections. See CLAUDE.md "Behavioral parity" → inbox dedup incident.
+  const [section, setSection] = useState<InboxSection>("action");
+  const sections = useMemo(
+    () => groupInboxItemsBySection(rawItems ?? []),
     [rawItems],
   );
+  const data = sections[section];
+  const unreadCount = useInboxUnreadCount(wsId);
   const markRead = useMarkInboxRead();
   const markAllRead = useMarkAllInboxRead();
   const archive = useArchiveInbox();
@@ -53,8 +61,8 @@ export default function Inbox() {
   const archiveAllRead = useArchiveAllReadInbox();
   const archiveCompleted = useArchiveCompletedInbox();
 
-  const onPressItem = (item: InboxItem) => {
-    if (!item.read) {
+  const onPressItem = useCallback((item: InboxItem) => {
+    if (isInboxItemUnread(item)) {
       // Optimistic read flip lives in useMarkInboxRead.onMutate — fires
       // setQueryData synchronously before the cancelQueries await, so the
       // row is already styled "read" by the time iOS captures the source
@@ -63,7 +71,7 @@ export default function Inbox() {
     }
     const target = getInboxNavigationTarget(item, wsSlug, String(Date.now()));
     if (target) router.push(target);
-  };
+  }, [markRead, wsSlug]);
 
   // Trailing batch menu — mirrors web's dropdown
   // (packages/views/inbox/components/inbox-page.tsx). "Mark all read" is
@@ -71,18 +79,18 @@ export default function Inbox() {
   // the iOS red treatment + Alert confirm.
   const onPressMenu = () => {
     const options = [
-      "Cancel",
-      "Mark all read",
-      "Archive all read",
-      "Archive completed",
-      "Archive all",
+      t("common:actions.cancel"),
+      t("actions.mark_all_read"),
+      t("actions.archive_all_read"),
+      t("actions.archive_completed"),
+      t("actions.archive_all"),
     ];
     ActionSheetIOS.showActionSheetWithOptions(
       {
         options,
         cancelButtonIndex: 0,
         destructiveButtonIndex: 4,
-        title: "Inbox",
+        title: t("title"),
       },
       (i) => {
         if (i === 1) markAllRead.mutate();
@@ -90,12 +98,12 @@ export default function Inbox() {
         else if (i === 3) archiveCompleted.mutate();
         else if (i === 4) {
           Alert.alert(
-            "Archive all?",
-            "This archives every inbox item, read or unread. You can still find them via the issue pages.",
+            t("archive.confirm_title"),
+            t("archive.confirm_body"),
             [
-              { text: "Cancel", style: "cancel" },
+              { text: t("common:actions.cancel"), style: "cancel" },
               {
-                text: "Archive all",
+                text: t("actions.archive_all"),
                 style: "destructive",
                 onPress: () => archiveAll.mutate(),
               },
@@ -109,32 +117,54 @@ export default function Inbox() {
   return (
     <View className="flex-1 bg-background">
       <Header
-        title="Inbox"
+        title={t("title")}
         right={
           <>
             <IconButton
               name="ellipsis-horizontal"
               onPress={onPressMenu}
-              accessibilityLabel="Inbox actions"
+              accessibilityLabel={t("actions.inbox_actions")}
             />
             <HeaderActions />
           </>
         }
       />
+      <View className="px-4 pb-2">
+        <Tabs
+          value={section}
+          onValueChange={(value) => setSection(value as InboxSection)}
+        >
+          <TabsList className="w-full">
+            <TabsTrigger value="action" className="flex-1">
+              <Text>{t("sections.action")}</Text>
+              {unreadCount > 0 ? (
+                <Text className="text-xs text-brand">{unreadCount}</Text>
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="flex-1">
+              <Text>{t("sections.activity")}</Text>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </View>
       {isLoading ? (
         <InboxLoading />
       ) : error ? (
         <View className="px-4 gap-3 pt-4">
           <Text className="text-sm text-destructive">
-            Failed to load inbox:{" "}
-            {error instanceof Error ? error.message : "unknown error"}
+            {t("errors.load_failed", {
+              message: error instanceof Error ? error.message : "unknown",
+            })}
           </Text>
           <Button variant="outline" onPress={() => refetch()}>
-            <Text>Retry</Text>
+            <Text>{t("common:actions.retry")}</Text>
           </Button>
         </View>
       ) : !data || data.length === 0 ? (
-        <InboxEmpty iconColor={THEME[colorScheme].mutedForeground} />
+        <InboxEmpty
+          section={section}
+          iconColor={THEME[colorScheme].mutedForeground}
+        />
       ) : (
         <FlatList
           data={data}
@@ -177,15 +207,27 @@ function InboxLoading() {
   );
 }
 
-function InboxEmpty({ iconColor }: { iconColor: string }) {
+function InboxEmpty({
+  section,
+  iconColor,
+}: {
+  section: InboxSection;
+  iconColor: string;
+}) {
+  const { t } = useT("inbox");
+
   return (
     <View className="flex-1 items-center justify-center px-8 gap-3">
       <Ionicons name="mail-open-outline" size={42} color={iconColor} />
       <Text className="text-base font-medium text-foreground text-center">
-        Inbox zero
+        {section === "activity"
+          ? t("sections.activity_empty")
+          : t("empty.title")}
       </Text>
       <Text className="text-sm text-muted-foreground text-center">
-        Mentions, assignments, and agent updates appear here.
+        {section === "activity"
+          ? t("sections.activity_empty_body")
+          : t("empty.body")}
       </Text>
     </View>
   );

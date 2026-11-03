@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +29,23 @@ func TestMain(m *testing.M) {
 	} {
 		os.Unsetenv(key)
 	}
-	os.Exit(m.Run())
+
+	// Redirect both home environment variables to one scratch directory for the
+	// whole binary. On Windows os.UserHomeDir reads USERPROFILE, not HOME, so a
+	// test that redirects only HOME still resolves ~/.multica against the real
+	// home — which is how a full-suite run wrote SaveCLIConfig fixtures over a
+	// real default-profile config.json. Process-wide redirection isolates tests
+	// that forget their own redirect on every platform; per-test t.Setenv
+	// overrides still take precedence.
+	scratchHome, err := testutil.IsolateUserHome("multica-cli-tests-home-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "isolate cmd/multica test home: %v\n", err)
+		os.Exit(1)
+	}
+
+	code := m.Run()
+	_ = os.RemoveAll(scratchHome)
+	os.Exit(code)
 }
 
 func setTestHome(t *testing.T, home string) {
@@ -37,6 +55,8 @@ func setTestHome(t *testing.T, home string) {
 		t.Setenv("USERPROFILE", home)
 	}
 }
+
+var redirectTestHome = testutil.RedirectUserHome
 
 // testCmd returns a minimal cobra.Command with the --profile persistent flag
 // registered, matching the rootCmd setup used in production.
@@ -343,7 +363,7 @@ func TestLoginTokenFlagParsing(t *testing.T) {
 
 func TestRunAuthStatusTaskContextDoesNotPrintCredential(t *testing.T) {
 	const fakeTaskToken = "mat_task_status_sentinel"
-	setTestHome(t, t.TempDir())
+	redirectTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TOKEN", fakeTaskToken)
@@ -382,7 +402,7 @@ func TestRunAuthStatusTaskContextDoesNotPrintCredential(t *testing.T) {
 
 func TestRunAuthStatusTaskContextRequiresTaskToken(t *testing.T) {
 	ownerHome := t.TempDir()
-	setTestHome(t, ownerHome)
+	redirectTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TASK_CONFIG_ROOT", filepath.Join(t.TempDir(), "task-multica"))
@@ -443,7 +463,7 @@ func TestRunAuthStatusTaskContextRequiresTaskToken(t *testing.T) {
 
 func TestHumanAuthCommandsFailClosedInTaskContext(t *testing.T) {
 	ownerHome := t.TempDir()
-	setTestHome(t, ownerHome)
+	redirectTestHome(t, ownerHome)
 	t.Setenv("MULTICA_AGENT_ID", "agent-test")
 	t.Setenv("MULTICA_TASK_ID", "task-test")
 	t.Setenv("MULTICA_TOKEN", "mat_task_sentinel")

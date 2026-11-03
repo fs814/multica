@@ -17,6 +17,8 @@ export interface RuntimeMachine {
   daemonId: string | null;
   title: string;
   subtitle: string | null;
+  /** Compact OS/arch summary without the daemon-id fallback of `subtitle`. */
+  deviceSummary: string | null;
   deviceInfo: string | null;
   cliVersion: string | null;
   launchedBy: string | null;
@@ -125,6 +127,7 @@ function placeholderLocalMachine(
     daemonId,
     title: options.localMachineName ?? "This machine",
     subtitle: null,
+    deviceSummary: null,
     deviceInfo: null,
     cliVersion: null,
     launchedBy: null,
@@ -168,6 +171,11 @@ export function filterRuntimeMachines(
 
     return haystack.includes(q);
   });
+}
+
+/** Number of machines `buildRuntimeMachines` would group these runtimes into. */
+export function countRuntimeMachines(runtimes: AgentRuntime[]): number {
+  return new Set(runtimes.map(runtimeMachineId)).size;
 }
 
 export function runtimeMachineCounts(machines: RuntimeMachine[]): {
@@ -246,6 +254,7 @@ function finalizeRuntimeMachine(
     daemonId: draft.daemonId,
     title,
     subtitle,
+    deviceSummary: compactDeviceInfo(deviceInfo, title),
     deviceInfo,
     cliVersion: currentMachineMetadata(runtimes, "cli_version"),
     launchedBy: currentMachineMetadata(runtimes, "launched_by"),

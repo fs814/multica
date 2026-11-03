@@ -91,6 +91,10 @@ type Metrics interface {
 	// gauge of a backlog read over time, not a balance.
 	RecordStreamOpened()
 
+	// RecordMediaFailure — an attachment that never reached the agent.
+	// reason is one of the mediaDrop* constants below.
+	RecordMediaFailure(reason string)
+
 	// RecordOutboundDelivered — one reply reached the user. It is the
 	// denominator: without it a flat drop counter cannot be told apart from a
 	// quiet day, and "the bot went silent" is exactly the report that cannot
@@ -100,14 +104,21 @@ type Metrics interface {
 	// deliver, labelled with why (outbound_outcome.go's closed reason set).
 	// Every reason here leaves somebody in WeCom waiting on an answer that is
 	// not coming, so this IS an error total and the label says which failure it
-	// was. The ordinary outcomes — a question typed in the web UI on a
-	// WeCom-bound session, an installation revoked between trigger and reply —
-	// are not counted here; RecordOutboundSkipped has them.
+	// was — most of them before the frame ever reaches WeCom. The completions
+	// this adapter did not owe, and the ones nothing here can attribute to a
+	// WeCom chat, are counted apart, by RecordOutboundSkipped.
 	RecordOutboundDropped(reason string)
-	// RecordOutboundSkipped — a completion this adapter was never going to
-	// deliver, because it was not owed to a WeCom user in the first place. Kept
-	// apart from dropped on purpose: counting a web-UI question's answer as a
-	// failed WeCom delivery makes ordinary web usage look like an outage.
+	// RecordOutboundSkipped — a completion this adapter did not send because it
+	// was not WeCom's to send, labelled with why (outbound_outcome.go's closed
+	// skip set). Kept apart from dropped on purpose: counting a web-UI
+	// question's answer as a failed WeCom delivery makes ordinary web usage look
+	// like an outage.
+	//
+	// Not every reason here is harmless, so this total is not one to read as a
+	// single number. no_delivery_row is a turn the channel ingested with no row
+	// saying which chat — a reply that may well be owed, with nothing left that
+	// can name the room — and it is the one reason in the set that logs at
+	// WARN. Alert on it by label, not on the sum.
 	RecordOutboundSkipped(reason string)
 
 	// RecordAttachmentDelivered / RecordAttachmentDropped count FILES, one per
@@ -151,6 +162,32 @@ type Metrics interface {
 	RecordRelayShed(kind string)
 }
 
+// Reasons an attachment did not make it. Fixed set: these are label values and
+// the label space has to stay bounded.
+const (
+	// mediaDropBlockedAddress — the media host resolved somewhere the guard
+	// refuses. Either WeCom changed its CDN or somebody is pointing us at an
+	// internal address; both want looking at, and they are the two an
+	// operator can act on.
+	mediaDropBlockedAddress = "blocked_address"
+	// mediaDropTooLarge — past the size ceiling. The sender is told, so a
+	// sustained rate is a conversation about the ceiling rather than a fault.
+	mediaDropTooLarge = "too_large"
+	// mediaDropUnreadable — everything else the resolver ran into on its own:
+	// an expired url, a decrypt that failed, an upload the object store
+	// refused.
+	mediaDropUnreadable = "unreadable"
+	// mediaDropBudgetExpired — the Router's media budget ran out first: the
+	// download never started, was cut off, or finished too late to be bound.
+	// A sustained rate says the budget is short for what people send, or the
+	// media host is slow; the sender is told either way.
+	mediaDropBudgetExpired = "budget_expired"
+	// mediaDropShutdown — the server was draining while the attachment was
+	// queued or in flight. Expected around a deploy, and kept apart so a
+	// deploy does not read as a slow-download incident.
+	mediaDropShutdown = "shutdown"
+)
+
 // nopMetrics is what the constructor falls back to. A nil sink must never be a
 // nil-pointer dereference on the read loop.
 type nopMetrics struct{}
@@ -162,6 +199,7 @@ func (nopMetrics) RecordCallbackQueueBlocked()        {}
 func (nopMetrics) RecordStreamOpened()                {}
 func (nopMetrics) RecordStreamFinished()              {}
 func (nopMetrics) RecordStreamFellBack()              {}
+func (nopMetrics) RecordMediaFailure(string)          {}
 func (nopMetrics) RecordOutboundDelivered()           {}
 func (nopMetrics) RecordOutboundDropped(string)       {}
 func (nopMetrics) RecordOutboundSkipped(string)       {}

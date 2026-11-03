@@ -19,6 +19,16 @@
     "toast_deleted": "Tâche supprimée",
     "toast_delete_failed": "Échec de la suppression de la tâche"
   },
+  "rename_issue": {
+    "title": "Renommer la tâche",
+    "placeholder": "Titre de la tâche",
+    "input_aria_label": "Renommer {{identifier}}",
+    "submit": "Enregistrer",
+    "saving": "Enregistrement...",
+    "title_required": "Saisissez un titre",
+    "toast_renamed": "Tâche renommée",
+    "toast_failed": "Échec du renommage de la tâche"
+  },
   "feedback": {
     "title": "Faire un retour",
     "placeholder": "Parlez-nous de votre expérience, des bugs rencontrés ou des fonctionnalités que vous aimeriez voir…",
@@ -35,7 +45,9 @@
     "search_placeholder": "Rechercher des tâches...",
     "searching": "Recherche...",
     "no_results": "Aucune tâche trouvée.",
-    "prompt_to_search": "Saisissez du texte pour rechercher des tâches"
+    "prompt_to_search": "Saisissez du texte pour rechercher des tâches",
+    "suggested_similar": "Titres similaires",
+    "suggested_recent": "Consultées récemment"
   },
   "set_parent": {
     "title": "Définir la tâche parente",
@@ -48,6 +60,12 @@
     "description": "Recherchez une tâche à ajouter comme sous-tâche",
     "toast_failed": "Échec de l'ajout de la sous-tâche",
     "toast_success": "{{identifier}} ajoutée comme sous-tâche"
+  },
+  "add_project_issue": {
+    "title": "Ajouter une tâche existante",
+    "description": "Recherchez une tâche à déplacer dans ce projet",
+    "toast_success": "{{identifier}} a été déplacée dans le projet",
+    "toast_failed": "Impossible de déplacer la tâche"
   },
   "run_confirm": {
     "title_assign": "Confirmer l'assignation ?",
@@ -186,6 +204,7 @@
     "toast_link_subissues_partial": "Échec de la liaison de {{failed}} sous-tâches sur {{total}}",
     "toast_link_labels_failed": "Échec du rattachement des étiquettes",
     "toast_set_properties_failed": "Impossible de définir {{count}} valeurs de propriétés personnalisées",
+    "unavailable_property_removed": "Une propriété personnalisée qui n’est plus disponible a été retirée du brouillon. Vérifiez-le avant de le soumettre à nouveau.",
     "switch_to_agent": "Passer en mode agent",
     "switch_to_agent_tooltip": "Passer à la création avec un agent — décrivez en une ligne et laissez l'agent rédiger la tâche",
     "switch_to_manual": "Passer en mode manuel",
@@ -239,11 +258,20 @@
       "sent_label": "Envoyé",
       "sent_count": "{{count}} envoyé",
       "version_blocked_tooltip": "Le CLI du daemon doit être ≥ {{min}}",
+      "qoder_attachments_unsupported": "Qoder Cloud Agents ne peut pas lire les pièces jointes. Retirez-les ou choisissez un autre agent.",
       "toast_sent": "Envoyé à l'agent — vous recevrez une notification dans votre boîte de réception une fois terminé",
       "error_agent_unavailable_fallback": "L'agent est indisponible. Choisissez-en un autre.",
       "error_daemon_version": "Le CLI du daemon de cet agent ({{current}}) est inférieur au minimum requis {{min}}. Mettez le daemon à jour pour utiliser la création avec un agent.",
       "error_unknown": "Échec de l'envoi. Réessayez.",
       "sub_issue_of": "Sous-tâche de {{identifier}}"
     }
+  },
+  "mark_duplicate": {
+    "title": "Marquer comme doublon",
+    "description": "Recherchez la tâche d'origine. Cette tâche sera annulée et liée à celle-ci.",
+    "toast_success": "Marquée comme doublon de {{identifier}}",
+    "toast_failed": "Échec du marquage comme doublon",
+    "error_target_is_duplicate": "{{identifier}} est elle-même un doublon. Choisissez plutôt sa tâche d'origine.",
+    "error_has_duplicates": "D'autres tâches sont marquées comme doublons de celle-ci. Retirez d'abord ces marques."
   }
 }

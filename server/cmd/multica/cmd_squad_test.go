@@ -22,7 +22,7 @@ func newSquadMemberSetRoleTestCmd() *cobra.Command {
 }
 
 func TestRunSquadMemberSetRolePatchesRole(t *testing.T) {
-	setTestHome(t, t.TempDir())
+	redirectTestHome(t, t.TempDir())
 	t.Setenv("MULTICA_TOKEN", "test-token")
 	t.Setenv("MULTICA_WORKSPACE_ID", "workspace-123")
 

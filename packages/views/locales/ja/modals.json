@@ -19,6 +19,16 @@
     "toast_deleted": "タスクを削除しました",
     "toast_delete_failed": "タスクを削除できませんでした"
   },
+  "rename_issue": {
+    "title": "タスク名を変更",
+    "placeholder": "タスク名",
+    "input_aria_label": "{{identifier}} の名前を変更",
+    "submit": "保存",
+    "saving": "保存中...",
+    "title_required": "タイトルを入力してください",
+    "toast_renamed": "タスク名を変更しました",
+    "toast_failed": "タスク名を変更できませんでした"
+  },
   "feedback": {
     "title": "フィードバック",
     "placeholder": "使用感、見つけたバグ、追加してほしい機能などをお聞かせください…",
@@ -35,7 +45,9 @@
     "search_placeholder": "タスクを検索...",
     "searching": "検索中...",
     "no_results": "タスクが見つかりません。",
-    "prompt_to_search": "タスクを検索するには入力してください"
+    "prompt_to_search": "タスクを検索するには入力してください",
+    "suggested_similar": "タイトルが似ているタスク",
+    "suggested_recent": "最近表示したタスク"
   },
   "set_parent": {
     "title": "親タスクを設定",
@@ -48,6 +60,12 @@
     "description": "サブタスクとして追加するタスクを検索してください",
     "toast_failed": "サブタスクを追加できませんでした",
     "toast_success": "{{identifier}} をサブタスクとして追加しました"
+  },
+  "add_project_issue": {
+    "title": "既存のタスクを追加",
+    "description": "このプロジェクトに移すタスクを検索します",
+    "toast_success": "{{identifier}} をプロジェクトに移しました",
+    "toast_failed": "タスクを移動できませんでした"
   },
   "run_confirm": {
     "title_assign": "割り当てを確認しますか？",
@@ -223,6 +241,7 @@
     "toast_link_subissues_partial": "サブタスク {{total}} 件中 {{failed}} 件をリンクできませんでした",
     "toast_link_labels_failed": "ラベルを付けられませんでした",
     "toast_set_properties_failed": "{{count}} 件のカスタムプロパティを設定できませんでした",
+    "unavailable_property_removed": "利用できなくなったカスタムプロパティを下書きから削除しました。内容を確認してから再度送信してください。",
     "switch_to_agent": "エージェントに切り替え",
     "switch_to_agent_tooltip": "エージェントで作成に切り替えます。一行で説明すれば、エージェントがタスクを作成します",
     "switch_to_manual": "手動に切り替え",
@@ -276,11 +295,20 @@
       "sent_label": "送信済み",
       "sent_count": "{{count}} 件送信済み",
       "version_blocked_tooltip": "デーモン CLI は {{min}} 以上である必要があります",
+      "qoder_attachments_unsupported": "Qoder Cloud Agents は添付ファイルを読み取れません。添付ファイルを削除するか、別のエージェントを選択してください。",
       "toast_sent": "エージェントに送信しました。完了するとインボックス通知が届きます",
       "error_agent_unavailable_fallback": "エージェントを利用できません。別のエージェントを選択してください。",
       "error_daemon_version": "このエージェントのデーモン CLI（{{current}}）が必要なバージョン {{min}} を下回っています。エージェントで作成を使用するには、デーモンをアップグレードしてください。",
       "error_unknown": "送信できませんでした。再試行してください。",
       "sub_issue_of": "{{identifier}} のサブタスク"
     }
+  },
+  "mark_duplicate": {
+    "title": "重複としてマーク",
+    "description": "元のタスクを検索してください。このタスクはキャンセルされ、元のタスクに関連付けられます。",
+    "toast_success": "{{identifier}} の重複としてマークしました",
+    "toast_failed": "重複としてマークできませんでした",
+    "error_target_is_duplicate": "{{identifier}} 自体が重複です。元のタスクを選択してください",
+    "error_has_duplicates": "他のタスクがこのタスクの重複としてマークされています。先にそのマークを解除してください"
   }
 }

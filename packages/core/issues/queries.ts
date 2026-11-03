@@ -17,8 +17,11 @@ import type {
   ListGroupedIssuesParams,
   ListIssuesParams,
   ListIssuesCache,
+  ListIssuesResponse,
 } from "../types";
+import type { SidebarIssuesRequest } from "./sidebar-list";
 import { ALL_STATUSES } from "./config";
+import { issueColumnCategory } from "./status-category";
 
 export function issueTasksOptions(issueId: string) {
   return queryOptions({
@@ -125,11 +128,24 @@ export const issueKeys = {
       projectId,
       assigneeTypes ?? null,
     ] as const,
+  /** Every sidebar issue list — prefix for cross-list refresh. */
+  sidebarAll: (wsId: string) => [...issueKeys.all(wsId), "sidebar"] as const,
+  /**
+   * One expanded sidebar row's issues. `source` (`project:{id}` / `view:{id}` / `builtin:{key}`)
+   * sits at a fixed index so realtime refresh can target a project's lists.
+   */
+  sidebar: (wsId: string, source: string, request: SidebarIssuesRequest, limit: number) =>
+    [...issueKeys.sidebarAll(wsId), source, request, limit] as const,
   detail: (wsId: string, id: string) =>
     [...issueKeys.all(wsId), "detail", id] as const,
   /** Resolve a bare issue identifier (e.g. "MUL-123") to an issue. */
   identifier: (wsId: string, identifier: string) =>
     [...issueKeys.all(wsId), "identifier", identifier] as const,
+  /** Prefix for every per-issue duplicate-relation query in a workspace. */
+  duplicatesAll: (wsId: string) =>
+    [...issueKeys.all(wsId), "duplicates"] as const,
+  duplicates: (wsId: string, id: string) =>
+    [...issueKeys.duplicatesAll(wsId), id] as const,
   /** Prefix for every per-parent children query in a workspace. */
   childrenAll: (wsId: string) =>
     [...issueKeys.all(wsId), "children"] as const,
@@ -239,7 +255,7 @@ export type AssigneeGroupedIssuesFilter = Omit<
   "group_by" | "limit" | "offset" | "group_assignee_type" | "group_assignee_id"
 >;
 
-/** Page size per status column. */
+/** Size of the issue list's first page, all categories together. */
 export const ISSUE_PAGE_SIZE = 50;
 
 /**
@@ -264,17 +280,20 @@ export function flattenIssueBuckets(data: ListIssuesCache) {
   return out;
 }
 
+/**
+ * One request for the list's first page, grouped into the category buckets
+ * here. Every reader of this cache looks an issue up by id and none pages a
+ * bucket, so one shared window serves them all. Each bucket's `total` is its
+ * own row count. A custom status the server did not resolve falls back to
+ * `issueColumnCategory`'s bucket, so no row is dropped.
+ */
 async function fetchFirstPages(filter: MyIssuesFilter = {}, sort?: IssueSortParam): Promise<ListIssuesCache> {
-  const responses = await Promise.all(
-    PAGINATED_CATEGORIES.map((category) =>
-      api.listIssues({ status_category: category, limit: ISSUE_PAGE_SIZE, offset: 0, ...sort, ...filter }),
-    ),
-  );
+  const res = await api.listIssues({ limit: ISSUE_PAGE_SIZE, offset: 0, ...sort, ...filter });
   const byStatus: ListIssuesCache["byStatus"] = {};
-  PAGINATED_CATEGORIES.forEach((status: IssueStatusCategory, i: number) => {
-    const res = responses[i]!;
-    byStatus[status] = { issues: res.issues, total: res.total };
-  });
+  for (const category of PAGINATED_CATEGORIES) {
+    const issues = res.issues.filter((issue) => issueColumnCategory(issue) === category);
+    byStatus[category] = { issues, total: issues.length };
+  }
   return { byStatus };
 }
 
@@ -358,7 +377,7 @@ export function issueTableFacetsOptions(
  * `Issue[]` for consumers. Mutations and ws-updaters must use
  * `setQueryData<ListIssuesCache>(...)` and preserve the byStatus shape.
  *
- * Fetches the first page of each paginated status in parallel.
+ * Fetches the first page in one request and buckets it by category.
  */
 export function issueListOptions(wsId: string, sort?: IssueSortParam) {
   return queryOptions({
@@ -373,8 +392,12 @@ export function issueListOptions(wsId: string, sort?: IssueSortParam) {
  * Page size for the scheduled-issue fetch. The Gantt view always pulls every
  * scheduled issue (no client pagination), so this is just the chunk size we
  * use to walk the server's `(limit, offset)` window until we hit `total`.
+ *
+ * Must not exceed the server's `ListIssues` page-size cap (100): the server
+ * silently clamps larger values, and a clamped page would otherwise look like
+ * a short final page.
  */
-export const PROJECT_GANTT_PAGE_LIMIT = 500;
+export const PROJECT_GANTT_PAGE_LIMIT = 100;
 
 /**
  * Paranoia cap on the loop in {@link fetchProjectGanttIssues}. Real projects
@@ -399,9 +422,14 @@ async function fetchProjectGanttIssues(
       offset,
     });
     issues.push(...res.issues);
-    if (res.issues.length < PROJECT_GANTT_PAGE_LIMIT) break;
+    if (res.issues.length === 0) break;
     if (issues.length >= res.total) break;
-    offset += PROJECT_GANTT_PAGE_LIMIT;
+    if (res.issues.length < PROJECT_GANTT_PAGE_LIMIT) break;
+    // Advance by what the server actually returned. This does not make the
+    // loop tolerate a server cap below PROJECT_GANTT_PAGE_LIMIT — a capped
+    // page is short and ends the loop above — so the constant must stay in
+    // sync with the server's ListIssues page-size cap.
+    offset += res.issues.length;
   }
   return issues;
 }
@@ -429,6 +457,61 @@ export function projectGanttIssuesOptions(
   return queryOptions({
     queryKey: issueKeys.projectGantt(wsId, projectId, assigneeTypes),
     queryFn: () => fetchProjectGanttIssues(projectId, assigneeTypes),
+  });
+}
+
+/** Both list endpoints cap a page here, so a longer sidebar list is fetched in pages. */
+const SIDEBAR_MAX_PAGE = 100;
+
+async function listSidebarTableIssues(query: IssueTableQuerySpec, limit: number): Promise<ListIssuesResponse> {
+  const issues: Issue[] = [];
+  let total = 0;
+  let cursor: string | null = null;
+  do {
+    const page = await api.listIssueTableRows({
+      query,
+      group: { kind: "none" },
+      group_key: null,
+      hierarchy: { enabled: false },
+      parent_id: null,
+      page: { limit: Math.min(limit - issues.length, SIDEBAR_MAX_PAGE), cursor },
+    });
+    issues.push(...page.rows.map((row) => row.issue));
+    total = page.total;
+    cursor = page.next_cursor;
+  } while (cursor && issues.length < limit);
+  return { issues, total };
+}
+
+async function listSidebarIssues(params: ListIssuesParams, limit: number): Promise<ListIssuesResponse> {
+  const issues: Issue[] = [];
+  let total = 0;
+  do {
+    const page = await api.listIssues({
+      ...params,
+      limit: Math.min(limit - issues.length, SIDEBAR_MAX_PAGE),
+      offset: issues.length,
+    });
+    issues.push(...page.issues);
+    total = page.total;
+    if (page.issues.length === 0) break;
+  } while (issues.length < limit && issues.length < total);
+  return { issues, total };
+}
+
+/** The first `limit` issues of a sidebar list, with the filtered total. */
+export function sidebarIssuesOptions(
+  wsId: string,
+  source: string,
+  request: SidebarIssuesRequest,
+  limit: number,
+) {
+  return queryOptions({
+    queryKey: issueKeys.sidebar(wsId, source, request, limit),
+    queryFn: () =>
+      "table" in request
+        ? listSidebarTableIssues(request.table, limit)
+        : listSidebarIssues(request, limit),
   });
 }
 
@@ -492,6 +575,18 @@ export function childIssueProgressOptions(wsId: string) {
       }
       return map;
     },
+  });
+}
+
+/** Both sides of an issue's duplicate relation: its original and its duplicates. */
+export function issueDuplicatesOptions(wsId: string, id: string) {
+  return queryOptions({
+    queryKey: issueKeys.duplicates(wsId, id),
+    queryFn: () => api.listIssueDuplicates(id),
+    // Same reason as childIssuesOptions: a mark written while this workspace
+    // is not the active realtime subscription would otherwise leave the
+    // Infinity-stale snapshot wrong when the issue is opened again.
+    refetchOnMount: "always",
   });
 }
 

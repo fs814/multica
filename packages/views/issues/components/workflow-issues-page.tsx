@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect } from "react";
-import { AlertCircle, ListTodo, Workflow } from "lucide-react";
+import { AlertCircle, ListTodo, Workflow } from "@multica/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { workflowTemplateListOptions } from "@multica/core/workflows";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -25,12 +25,10 @@ import { PageHeader } from "../../layout/page-header";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
 import { IssueSurface } from "../surface/issue-surface";
-import { IssuesHeader } from "./issues-header";
+import { IssueDisplayControls } from "./issues-header";
 
 function WorkflowIssuesSurfaceHeader({
   issues,
-  workingAgents,
-  isRefreshing,
   facetCountsExact,
   tableFacetCounts,
   onTableFacetChange,
@@ -46,16 +44,13 @@ function WorkflowIssuesSurfaceHeader({
   const setDateFilter = useViewStore((state) => state.setDateFilter);
 
   return (
-    <IssuesHeader
+    <IssueDisplayControls
       scopedIssues={issues}
-      workingAgents={workingAgents}
       dateFilter={dateFilter}
       onDateFilterChange={setDateFilter}
-      isRefreshing={isRefreshing}
       facetCountsExact={facetCountsExact}
       tableFacetCounts={tableFacetCounts}
       onTableFacetChange={onTableFacetChange}
-      showScopeTabs={false}
     />
   );
 }

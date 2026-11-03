@@ -20,6 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { shouldKeepBundledCli, replaceBundledCli } from "./bundle-cli-files.mjs";
 import { devCliSourceDigest } from "./dev-cli.mjs";
+import { deriveVersion } from "./package.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..", "..", "..");
@@ -80,14 +81,10 @@ const srcBinary = devOutput ? resolve(devOutput) : join(serverDir, "bin", `${goo
 const destDir = join(repoRoot, "apps", "desktop", "resources", "bin");
 const destBinary = join(destDir, binName);
 
-// Hand git arguments straight to the binary (no shell). A match pattern like
-// `v[0-9]*` must reach git as one literal argument; routing it through a shell
-// string breaks on Windows, where cmd.exe keeps the POSIX single quotes and
-// git matches no tag — degrading the bundled CLI's version to the
-// 0.0.0-g<hash> fallback.
+// Hand git arguments straight to the binary (no shell) on every platform.
 function git(...args) {
   try {
-    return execFileSync("git", args, { encoding: "utf-8" }).trim();
+    return execFileSync("git", args, { encoding: "utf-8", cwd: repoRoot }).trim();
   } catch {
     return "";
   }
@@ -113,14 +110,13 @@ async function exists(p) {
 
 const goAvailable = hasGo();
 if (goAvailable) {
-  const baseVersion =
-    git("describe", "--tags", "--match", "v[0-9]*", "--always", "--dirty") ||
-    "dev";
+  const baseVersion = deriveVersion() || "dev";
   const sourceDigest = devOutput ? devCliSourceDigest(serverDir) : null;
   const version = sourceDigest ? `${baseVersion}+source.${sourceDigest}` : baseVersion;
   const commit = git("rev-parse", "--short", "HEAD") || "unknown";
+  const buildCommit = git("rev-parse", "HEAD") || "unknown";
   const date = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-  const ldflags = `-X main.version=${version} -X main.commit=${commit} -X main.date=${date}`;
+  const ldflags = `-X main.version=${version} -X main.commit=${commit} -X main.buildCommit=${buildCommit} -X main.date=${date}`;
 
   console.log(
     `[bundle-cli] go build → ${srcBinary} (${goos}/${goarch}, version=${version} commit=${commit})`,

@@ -4,6 +4,7 @@ import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import type { SkillSummary } from "@multica/core/types";
+import type { SupportedLocale } from "@multica/core/i18n";
 import { renderWithI18n } from "../../test/i18n";
 import { NavigationProvider, type NavigationAdapter } from "../../navigation";
 
@@ -114,7 +115,12 @@ vi.mock("@multica/ui/components/ui/tooltip", () => ({
   TooltipContent: () => null,
 }));
 vi.mock("./create-skill-dialog", () => ({ CreateSkillDialog: () => null }));
-vi.mock("./skill-list-toolbar", () => ({ SkillListToolbar: () => null }));
+vi.mock("./skill-list-controls", () => ({
+  countActiveFilterDimensions: () => 0,
+  SkillFilterMenu: () => null,
+  SkillDisplayMenu: () => null,
+  SkillCreateMenu: () => null,
+}));
 vi.mock("./skill-list-actions", () => ({
   SkillBatchToolbar: () => null,
   SkillRowActions: () => null,
@@ -151,11 +157,12 @@ function makeAdapter(
   };
 }
 
-function renderPage(adapter: NavigationAdapter) {
+function renderPage(adapter: NavigationAdapter, locale?: SupportedLocale) {
   renderWithI18n(
     <NavigationProvider value={adapter}>
       <SkillsPage />
     </NavigationProvider>,
+    { locale },
   );
 }
 

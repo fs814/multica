@@ -1,0 +1,1 @@
+ALTER TABLE search_index_change ADD CONSTRAINT search_index_change_pkey PRIMARY KEY USING INDEX search_index_change_pkey;

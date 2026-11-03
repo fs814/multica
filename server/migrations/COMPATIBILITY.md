@@ -107,3 +107,19 @@ Multica task markers. The TES-26 attached evidence contains complete commands,
 raw JSON events, snapshot file/hash audit, failures before fixes, final counts,
 and skipped tests. Docker Compose availability and optional extensions must be
 reported separately; neither a skipped test nor a failed wrapper is a pass.
+
+## Upstream main integration after the fork's 551
+
+This fork retains its existing migration identities through 551. The incoming
+upstream migrations 533–610 are sequenced as 552–638 here; primary-key index
+builds use separate concurrent-index and constraint-attachment files. Databases
+that applied those incoming files under upstream numbering require a reviewed
+ledger/schema reconciliation before switching to this fork. Do not rename ledger
+entries automatically or run both generations against the same database.
+
+The original 507/508 SQL remains immutable. Migration 553 intentionally retires
+the obsolete comment-delivery table. Startup accepts its absence only when both
+507 and 553 are recorded; unexplained absence, or a table recreated after recorded
+retirement, still blocks migration. The upstream retirement is irreversible: its
+down file does not restore receipts. Restoring pre-retirement operation requires a
+verified backup, not removing the retirement ledger entry.

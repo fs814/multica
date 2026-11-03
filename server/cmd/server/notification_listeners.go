@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/inbox"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -189,34 +190,6 @@ func deliverToSubscriber(reason, notifType string, statusIsHandoff bool) bool {
 	return statusIsHandoff
 }
 
-// notifTypeToGroup maps each InboxItemType to a user-configurable preference
-// group. Types not in this map are always delivered (not configurable).
-var notifTypeToGroup = map[string]string{
-	"issue_assigned":     "assignments",
-	"unassigned":         "assignments",
-	"assignee_changed":   "assignments",
-	"status_changed":     "status_changes",
-	"new_comment":        "comments",
-	"mentioned":          "mentions",
-	"priority_changed":   "updates",
-	"start_date_changed": "updates",
-	"due_date_changed":   "updates",
-	"task_completed":     "agent_activity",
-	"task_failed":        "agent_activity",
-	"agent_blocked":      "agent_activity",
-	"agent_completed":    "agent_activity",
-}
-
-// isNotifMuted returns true if the given notification type is muted for a user
-// based on their parsed preferences map.
-func isNotifMuted(prefs map[string]string, notifType string) bool {
-	group, ok := notifTypeToGroup[notifType]
-	if !ok {
-		return false // unconfigurable types are always delivered
-	}
-	return prefs[group] == "muted"
-}
-
 // loadUserPrefs loads notification preferences for a set of user IDs in a
 // workspace. Returns a map from user_id string to parsed preferences.
 func loadUserPrefs(
@@ -310,6 +283,18 @@ func archiveStaleTaskFailedInbox(
 		"row_count", len(rows), "recipient_count", len(counts))
 }
 
+// subscriberRoute decides which Inbox section a notification lands in for one
+// member subscriber, given their preferences. ok is false when they muted it.
+type subscriberRoute func(memberID string, prefs map[string]string) (section string, ok bool)
+
+// routeByType routes on the notification type alone, which is enough for
+// every kind except comments.
+func routeByType(notifType string) subscriberRoute {
+	return func(_ string, prefs map[string]string) (string, bool) {
+		return inbox.Route(prefs, notifType)
+	}
+}
+
 // notifySubscribers queries the subscriber table for an issue, excludes the
 // actor and any extra IDs, and creates inbox items for each remaining member
 // subscriber. Publishes an inbox:new event for each notification.
@@ -331,9 +316,32 @@ func notifySubscribers(
 	body string,
 	details []byte,
 ) {
+	notifySubscribersRouted(ctx, queries, bus, issueID, issueStatus, workspaceID, e, exclude,
+		notifType, severity, title, body, details, routeByType(notifType))
+}
+
+// notifySubscribersRouted is notifySubscribers with a caller-chosen route per
+// subscriber. Comments use it: where a comment lands depends on whether it
+// @mentions the subscriber, someone else, or nobody.
+func notifySubscribersRouted(
+	ctx context.Context,
+	queries *db.Queries,
+	bus *events.Bus,
+	issueID string,
+	issueStatus string,
+	workspaceID string,
+	e events.Event,
+	exclude map[string]bool,
+	notifType string,
+	severity string,
+	title string,
+	body string,
+	details []byte,
+	route subscriberRoute,
+) {
 	notified, tierSuppressed := notifyIssueSubscribers(ctx, queries, bus,
 		issueID, issueID, issueStatus, workspaceID, e, exclude,
-		notifType, severity, title, body, details)
+		notifType, severity, title, body, details, route)
 
 	// Only a small allowlist of event types bubbles to parent subscribers.
 	if !parentBubbleNotifTypes[notifType] {
@@ -375,7 +383,7 @@ func notifySubscribers(
 	parentID := util.UUIDToString(issue.ParentIssueID)
 	notifyIssueSubscribers(ctx, queries, bus,
 		parentID, issueID, issueStatus, workspaceID, e, parentExclude,
-		notifType, severity, title, body, details)
+		notifType, severity, title, body, details, route)
 }
 
 // notifyIssueSubscribers sends inbox notifications to subscribers of
@@ -402,6 +410,7 @@ func notifyIssueSubscribers(
 	title string,
 	body string,
 	details []byte,
+	route subscriberRoute,
 ) (map[string]bool, map[string]bool) {
 	notified := map[string]bool{}
 	tierSuppressed := map[string]bool{}
@@ -455,8 +464,9 @@ func notifyIssueSubscribers(
 			continue
 		}
 
-		// Skip if this notification type is muted by the user
-		if prefs, ok := userPrefs[subID]; ok && isNotifMuted(prefs, notifType) {
+		// The recipient decides which Inbox section this lands in, or mutes it.
+		section, routed := route(subID, userPrefs[subID])
+		if !routed {
 			continue
 		}
 
@@ -467,7 +477,7 @@ func notifyIssueSubscribers(
 			continue
 		}
 
-		item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+		item, inserted, err := inbox.CreateIfEligible(ctx, queries, db.CreateInboxItemParams{
 			ID:            dbid.NewV7(),
 			WorkspaceID:   parseUUID(workspaceID),
 			RecipientType: "member",
@@ -480,10 +490,14 @@ func notifyIssueSubscribers(
 			ActorType:     util.StrToText(e.ActorType),
 			ActorID:       optionalUUID(e.ActorID),
 			Details:       details,
+			Section:       inbox.SectionText(section),
 		})
 		if err != nil {
 			slog.Error("subscriber notification creation failed",
 				"subscriber_id", subID, "type", notifType, "error", err)
+			continue
+		}
+		if !inserted {
 			continue
 		}
 
@@ -525,15 +539,18 @@ func notifyDirect(
 		return
 	}
 
-	// Check notification preferences for member recipients.
+	// Member recipients route the notification through their preferences.
+	section := inbox.DefaultSection(notifType)
 	if recipientType == "member" {
 		prefs := loadUserPrefs(ctx, queries, workspaceID, []string{recipientID})
-		if p, ok := prefs[recipientID]; ok && isNotifMuted(p, notifType) {
+		var routed bool
+		section, routed = inbox.Route(prefs[recipientID], notifType)
+		if !routed {
 			return
 		}
 	}
 
-	item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+	item, inserted, err := inbox.CreateIfEligible(ctx, queries, db.CreateInboxItemParams{
 		ID:            dbid.NewV7(),
 		WorkspaceID:   parseUUID(workspaceID),
 		RecipientType: recipientType,
@@ -546,10 +563,14 @@ func notifyDirect(
 		ActorType:     util.StrToText(e.ActorType),
 		ActorID:       optionalUUID(e.ActorID),
 		Details:       details,
+		Section:       inbox.SectionText(section),
 	})
 	if err != nil {
 		slog.Error("direct notification creation failed",
 			"issue_id", issueID, "recipient_id", recipientID, "type", notifType, "error", err)
+		return
+	}
+	if !inserted {
 		return
 	}
 
@@ -562,6 +583,102 @@ func notifyDirect(
 		ActorID:     e.ActorID,
 		Payload:     map[string]any{"item": resp},
 	})
+}
+
+// mentionedMembers is the set of workspace members a piece of content
+// @mentions: by name, through a squad they belong to, or through @all.
+type mentionedMembers struct {
+	ids map[string]bool
+	// addressesPeople is true when the content @mentions anyone at all — a
+	// member, an agent, a squad or @all. Issue links do not count.
+	addressesPeople bool
+	// complete is false when a squad or @all could not be expanded, so a
+	// member missing from ids may still have been mentioned.
+	complete bool
+}
+
+// expandMentionedMembers resolves mentions to the members they reach. Agent
+// members of a squad are reached via comment-trigger / assignment paths, not
+// the mention-inbox path, so only member-typed squad members are included.
+func expandMentionedMembers(ctx context.Context, queries *db.Queries, workspaceID string, mentions []mention) mentionedMembers {
+	out := mentionedMembers{ids: map[string]bool{}, complete: true}
+
+	hasAll := false
+	var squadIDs []pgtype.UUID
+	for _, m := range mentions {
+		switch m.Type {
+		case "all":
+			hasAll = true
+			out.addressesPeople = true
+		case "member":
+			memberUUID, err := util.ParseUUID(m.ID)
+			if err != nil {
+				continue
+			}
+			// Keyed by the canonical form, which is how subscriber and actor
+			// IDs read: the parser also accepts uppercase or unhyphenated
+			// UUIDs, and those must still match the member they name.
+			out.ids[util.UUIDToString(memberUUID)] = true
+			out.addressesPeople = true
+		case "agent":
+			if _, err := util.ParseUUID(m.ID); err != nil {
+				continue
+			}
+			out.addressesPeople = true
+		case "squad":
+			squadUUID, err := util.ParseUUID(m.ID)
+			if err != nil {
+				continue
+			}
+			squadIDs = append(squadIDs, squadUUID)
+			out.addressesPeople = true
+		}
+	}
+
+	for _, squadUUID := range squadIDs {
+		members, err := queries.ListSquadMembers(ctx, squadUUID)
+		if err != nil {
+			slog.Error("failed to list squad members for @squad mention",
+				"squad_id", util.UUIDToString(squadUUID), "error", err)
+			out.complete = false
+			continue
+		}
+		for _, sm := range members {
+			if sm.MemberType == "member" {
+				out.ids[util.UUIDToString(sm.MemberID)] = true
+			}
+		}
+	}
+
+	if hasAll {
+		members, err := queries.ListMembers(ctx, parseUUID(workspaceID))
+		if err != nil {
+			slog.Error("failed to list members for @all mention", "workspace_id", workspaceID, "error", err)
+			out.complete = false
+		} else {
+			for _, m := range members {
+				out.ids[util.UUIDToString(m.UserID)] = true
+			}
+		}
+	}
+
+	return out
+}
+
+// commentAudience is who a comment is written to, as one subscriber sees it
+// (see inbox.CommentAudience). When a squad or @all could not be expanded, a
+// subscriber the comment may have reached is treated as if nobody was
+// mentioned: a comment meant for them then still waits in Needs action
+// instead of slipping into Activity.
+func (m mentionedMembers) commentAudience(memberID string) inbox.CommentAudience {
+	switch {
+	case m.ids[memberID]:
+		return inbox.CommentToRecipient
+	case !m.addressesPeople || !m.complete:
+		return inbox.CommentToNobody
+	default:
+		return inbox.CommentToOthers
+	}
 }
 
 // notifyMentionedMembers creates inbox items for each @mentioned member,
@@ -579,56 +696,23 @@ func notifyMentionedMembers(
 	skip map[string]bool,
 	details []byte,
 ) {
-	// Collect the set of member IDs to notify.
-	recipientIDs := map[string]bool{}
+	mentioned := expandMentionedMembers(context.Background(), queries, e.WorkspaceID, mentions)
+	notifyMentionedMemberIDs(bus, queries, e, mentioned.ids, issueID, issueStatus, title, skip, details)
+}
 
-	hasAll := false
-	var squadIDs []string
-	for _, m := range mentions {
-		if m.Type == "all" {
-			hasAll = true
-			continue
-		}
-		if m.Type == "member" {
-			recipientIDs[m.ID] = true
-		}
-		if m.Type == "squad" {
-			squadIDs = append(squadIDs, m.ID)
-		}
-	}
-
-	// Expand each @squad mention to its human members. Agent members of a
-	// squad are reached via comment-trigger / assignment paths, not the
-	// mention-inbox path, so we only seed member-typed recipients here.
-	for _, sid := range squadIDs {
-		squadUUID, err := util.ParseUUID(sid)
-		if err != nil {
-			continue
-		}
-		members, err := queries.ListSquadMembers(context.Background(), squadUUID)
-		if err != nil {
-			slog.Error("failed to list squad members for @squad mention", "squad_id", sid, "error", err)
-			continue
-		}
-		for _, sm := range members {
-			if sm.MemberType == "member" {
-				recipientIDs[util.UUIDToString(sm.MemberID)] = true
-			}
-		}
-	}
-
-	// If @all is present, expand to all workspace members.
-	if hasAll {
-		members, err := queries.ListMembers(context.Background(), parseUUID(e.WorkspaceID))
-		if err != nil {
-			slog.Error("failed to list members for @all mention", "workspace_id", e.WorkspaceID, "error", err)
-		} else {
-			for _, m := range members {
-				recipientIDs[util.UUIDToString(m.UserID)] = true
-			}
-		}
-	}
-
+// notifyMentionedMemberIDs creates a "mentioned" inbox item for each member in
+// recipientIDs, excluding the actor and any IDs in the skip set.
+func notifyMentionedMemberIDs(
+	bus *events.Bus,
+	queries *db.Queries,
+	e events.Event,
+	recipientIDs map[string]bool,
+	issueID string,
+	issueStatus string,
+	title string,
+	skip map[string]bool,
+	details []byte,
+) {
 	// Batch-load notification preferences for all mention recipients.
 	var mentionUserIDs []string
 	for id := range recipientIDs {
@@ -642,13 +726,13 @@ func notifyMentionedMembers(
 		if id == e.ActorID || skip[id] {
 			continue
 		}
-		// Skip if mentions are muted by this user. This is deliberately a
-		// different group from `comments`: muting comment volume must not
-		// silence someone asking for you by name.
-		if p, ok := mentionPrefs[id]; ok && isNotifMuted(p, "mentioned") {
+		// Mentions route on their own key, deliberately apart from comments:
+		// muting comment volume must not silence someone asking for you by name.
+		section, routed := inbox.Route(mentionPrefs[id], "mentioned")
+		if !routed {
 			continue
 		}
-		item, err := queries.CreateInboxItem(context.Background(), db.CreateInboxItemParams{
+		item, inserted, err := inbox.CreateIfEligible(context.Background(), queries, db.CreateInboxItemParams{
 			ID:            dbid.NewV7(),
 			WorkspaceID:   parseUUID(e.WorkspaceID),
 			RecipientType: "member",
@@ -660,9 +744,13 @@ func notifyMentionedMembers(
 			ActorType:     util.StrToText(e.ActorType),
 			ActorID:       optionalUUID(e.ActorID),
 			Details:       details,
+			Section:       inbox.SectionText(section),
 		})
 		if err != nil {
 			slog.Error("mention inbox creation failed", "mentioned_id", id, "error", err)
+			continue
+		}
+		if !inserted {
 			continue
 		}
 		resp := inboxItemToResponse(item)
@@ -960,16 +1048,22 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			})
 		}
 
-		notifySubscribers(ctx, queries, bus, issueID, issueStatus, e.WorkspaceID, e,
+		// Where a comment lands depends on who it is written to, not who wrote
+		// it: one that @mentions the subscriber or nobody waits on them, one
+		// that @mentions only others is activity for them.
+		mentioned := expandMentionedMembers(ctx, queries, e.WorkspaceID, parseMentions(commentContent))
+		notifySubscribersRouted(ctx, queries, bus, issueID, issueStatus, e.WorkspaceID, e,
 			nil, "new_comment", "info",
 			issueTitle, commentContent,
-			commentDetails)
+			commentDetails,
+			func(memberID string, prefs map[string]string) (string, bool) {
+				return inbox.RouteComment(prefs, mentioned.commentAudience(memberID))
+			})
 
 		// Notify @mentions in comment content.
-		mentions := parseMentions(commentContent)
-		if len(mentions) > 0 {
+		if len(mentioned.ids) > 0 {
 			skip := map[string]bool{e.ActorID: true}
-			notifyMentionedMembers(bus, queries, e, mentions, issueID, issueTitle, issueStatus,
+			notifyMentionedMemberIDs(bus, queries, e, mentioned.ids, issueID, issueStatus,
 				issueTitle, skip, commentDetails)
 		}
 	})
@@ -1097,6 +1191,7 @@ func inboxItemToResponse(item db.InboxItem) map[string]any {
 		"recipient_id":   util.UUIDToString(item.RecipientID),
 		"type":           item.Type,
 		"severity":       item.Severity,
+		"section":        inbox.ItemSection(item.Section, item.Type),
 		"issue_id":       util.UUIDToPtr(item.IssueID),
 		"title":          item.Title,
 		"body":           util.TextToPtr(item.Body),

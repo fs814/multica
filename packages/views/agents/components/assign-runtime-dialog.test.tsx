@@ -44,7 +44,7 @@ describe("bulk runtime assignment dialog", () => {
     expect(screen.getByText(/Eligible agents: 2. Skipped: 3/)).toBeVisible();
     expect(client.getAgent).not.toHaveBeenCalled();
     expect(client.updateAgent).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Assign", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     await waitFor(() => expect(complete).toHaveBeenCalledOnce());
     expect(client.updateAgent.mock.calls.map(call => call[0])).toEqual(["a", "b"]);
     expect(busy.mock.calls).toEqual([[true], [false]]);
@@ -58,7 +58,7 @@ describe("bulk runtime assignment dialog", () => {
     });
     show();
     await choose();
-    fireEvent.click(screen.getByRole("button", { name: "Assign", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Assigned: 1. Skipped: 0. Failed: 1.");
     expect(complete).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeVisible();
@@ -72,18 +72,18 @@ describe("bulk runtime assignment dialog", () => {
     show(undefined, []);
     await choose();
     expect(screen.getByText(/No usable runtime is registered/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Assign", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
     expect(client.updateAgent).not.toHaveBeenCalled();
   });
 
   it("disables confirmation if the chosen runtime disappears or becomes private to another owner", async () => {
     const view = show();
     await choose();
-    expect(screen.getByRole("button", { name: "Assign", exact: true })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeEnabled();
     view.changeRuntimes([{ ...runtime, owner_id: "other" }]);
-    expect(screen.getByRole("button", { name: "Assign", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
     view.changeRuntimes([]);
-    expect(screen.getByRole("button", { name: "Assign", exact: true })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeDisabled();
   });
 
   it("disables the action for selections without eligible owned agents", () => {
@@ -96,7 +96,7 @@ describe("bulk runtime assignment dialog", () => {
     client.updateAgent.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     show([agent("a")]);
     await choose();
-    fireEvent.click(screen.getByRole("button", { name: "Assign", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     await waitFor(() => expect(client.updateAgent).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Assigning..." })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
@@ -111,7 +111,7 @@ describe("bulk runtime assignment dialog", () => {
     client.getAgent.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     const view = show();
     await choose();
-    fireEvent.click(screen.getByRole("button", { name: "Assign", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
     await waitFor(() => expect(client.getAgent).toHaveBeenCalledOnce());
     view.unmount();
     await act(async () => finish(agent("a")));

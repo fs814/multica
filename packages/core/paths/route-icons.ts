@@ -14,7 +14,7 @@
  * Icon values are *names*, not React components, so this module stays
  * React-free and safe inside `@multica/core`. The name â†’ component registry
  * lives in `packages/views/layout/route-icon-components.tsx`; its
- * `Record<RouteIconName, LucideIcon>` type makes a missing component a compile
+ * `Record<RouteIconName, IconComponent>` type makes a missing component a compile
  * error.
  */
 
@@ -25,6 +25,7 @@ export type RouteIconName =
   | "CircleUser"
   | "ListTodo"
   | "FolderKanban"
+  | "Layers"
   | "Zap"
   | "Workflow"
   | "Play"
@@ -55,6 +56,7 @@ export type NavLabelKey =
   | "issues"
   | "workflow_issues"
   | "projects"
+  | "views"
   | "autopilots"
   | "workflows"
   | "workflow_instances"
@@ -77,6 +79,7 @@ export type WorkspacePageKey =
   | "issues"
   | "workflowIssues"
   | "projects"
+  | "views"
   | "autopilots"
   | "workflows"
   | "workflowInstances"
@@ -115,6 +118,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
     navKey: "workflow_issues",
   },
   projects: { segment: "projects", icon: "FolderKanban", navKey: "projects" },
+  views: { segment: "views", icon: "Layers", navKey: "views" },
   autopilots: { segment: "autopilots", icon: "Zap", navKey: "autopilots" },
   // `Workflow` (two linked nodes) reads as a graph, which is what the page
   // shows - deliberately distinct from Autopilots' `Zap` (a trigger).

@@ -200,6 +200,25 @@ func parseLLMMaxRetries(raw string) (*llm.RetryOverride, error) {
 	return override, nil
 }
 
+// parseLLMDisableThinking turns the raw MULTICA_LLM_DISABLE_THINKING value
+// into the bool llm.Config.DisableThinking expects. It follows the
+// parseLLMMaxRetries contract: unset is a valid state (the knob stays off),
+// and anything that does not read as a deliberate true/false stops the boot
+// instead of being coerced — a typo'd "ture" that silently did nothing would
+// leave an operator debugging latency the configuration claims to remove.
+func parseLLMDisableThinking(raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return false, nil
+	case "1", "true":
+		return true, nil
+	case "0", "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("must be a boolean (true/false or 1/0), got %q", raw)
+	}
+}
+
 func envPositiveInt64(name string, def int64) int64 {
 	raw := os.Getenv(name)
 	if raw == "" {
@@ -619,6 +638,7 @@ func runServer() bool {
 	registerSubscriberListeners(bus, pool)
 	registerActivityListeners(bus, queries)
 	registerNotificationListeners(bus, queries)
+	registerIssueUnreadListeners(bus, queries)
 
 	metricsConfig := obsmetrics.ConfigFromEnv()
 	var metricsServer *http.Server
@@ -680,6 +700,14 @@ func runServer() bool {
 	}
 
 	recoveryRestart := make(chan struct{}, 1)
+	// Same contract for the thinking-off hint: an unparseable value must stop
+	// the boot rather than read as "disabled" and look configured.
+	llmDisableThinking, err := parseLLMDisableThinking(os.Getenv("MULTICA_LLM_DISABLE_THINKING"))
+	if err != nil {
+		slog.Error("invalid MULTICA_LLM_DISABLE_THINKING", "error", err)
+		os.Exit(1)
+	}
+
 	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
 		RecoveryRestart: func() {
 			select {
@@ -700,7 +728,11 @@ func runServer() bool {
 		FeatureFlags:        flags,
 		HeartbeatScheduler:  heartbeatScheduler,
 		LLMMaxRetries:       llmMaxRetries,
+		LLMDisableThinking:  llmDisableThinking,
 	})
+	// member_delegation_day exists only for self-host telemetry; DO_NOT_TRACK
+	// stops writing it as well as sending the snapshot.
+	h.TaskService.RecordMemberActivity = telemetryConfig.Enabled
 	var replicaQueries *db.Queries
 	if replicaPool != nil {
 		replicaQueries = db.New(replicaPool)
@@ -768,6 +800,7 @@ func runServer() bool {
 	// Queued work now expires on the same runtime-liveness signal as in-flight
 	// work, so there is no separate queue TTL to tune: a busy runtime keeps its
 	// backlog, and a departed one retires everything it owned at once.
+	go h.RunQoderConnections(sweepCtx, pool, "http://localhost:"+port)
 	go runRuntimeSweeper(sweepCtx, queries, liveness, taskSvc, bus, runtimeReconnectGrace)
 	if telemetryWorker != nil {
 		go telemetryWorker.Run(sweepCtx)
@@ -823,12 +856,24 @@ func runServer() bool {
 		go h.ChannelSupervisor.Run(sweepCtx)
 	}
 
+	if h.LarkTyping != nil {
+		go h.LarkTyping.Run(sweepCtx)
+	}
+
 	// Media intent-ledger reconciler (PR #5580): settles uploaded-but-unbound
 	// channel media objects. An independent worker so object-storage latency
 	// spikes cannot starve any other sweeper's cadence.
 	if h.ChannelMediaReconciler != nil {
 		h.ChannelMediaReconciler.Metrics = channelMediaMetrics
 		go h.ChannelMediaReconciler.Run(sweepCtx)
+	}
+
+	// WeCom scan-code install worker: drives QR generate + poll out of band, so
+	// no HTTP request waits on WeCom. Started even when the scan flow is
+	// unconfigured, so any session already in flight reaches a terminal state
+	// instead of spinning forever in the admin's dialog.
+	if h.WecomInstallWorker != nil {
+		go h.WecomInstallWorker.Run(sweepCtx)
 	}
 
 	// MUL-2957: DB-backed execution scheduler. The scheduler turns the
@@ -855,8 +900,14 @@ func runServer() bool {
 	// not fit). Crash recovery, occurrence-level idempotency, lease
 	// theft, and retry are all reused from the manager + sys_cron_executions
 	// — there is no separate goroutine for scheduled Autopilot anymore.
+	if err := schedulerMgr.Register(scheduler.SearchIndexChangePruneJob(queries)); err != nil {
+		slog.Warn("scheduler: failed to register search index change prune job", "error", err)
+	}
 	if err := schedulerMgr.Register(scheduler.IssueWakeupJob(&service.IssueWakeupService{Tasks: taskSvc})); err != nil {
 		slog.Error("scheduler: register issue wakeups", "error", err)
+	}
+	if err := schedulerMgr.Register(scheduler.ChildEventSweepJob(&service.IssueWakeupService{Tasks: taskSvc})); err != nil {
+		slog.Error("scheduler: register child-done sweep", "error", err)
 	}
 	if err := schedulerMgr.Register(scheduler.AutopilotScheduleDispatchJob(pool, queries, autopilotSvc)); err != nil {
 		slog.Warn("scheduler: failed to register autopilot_schedule_dispatch job", "error", err)

@@ -1,0 +1,1 @@
+ALTER TABLE search_index_prune_mark ADD CONSTRAINT search_index_prune_mark_pkey PRIMARY KEY USING INDEX search_index_prune_mark_pkey;

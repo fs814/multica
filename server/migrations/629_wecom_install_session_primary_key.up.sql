@@ -1,0 +1,1 @@
+ALTER TABLE wecom_install_session ADD CONSTRAINT wecom_install_session_pkey PRIMARY KEY USING INDEX wecom_install_session_pkey;

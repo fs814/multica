@@ -1,0 +1,126 @@
+{
+  "title": "Settings",
+  "account": {
+    "title": "Account",
+    "sign_out": "Sign out",
+    "sign_out_message": "You'll need to sign in again to use Multica on this device.",
+    "workspace": "Workspace",
+    "workspaces": "Workspaces",
+    "notifications_subtitle": "Where notifications go, system notifications",
+    "load_failed": "Failed to load workspaces"
+  },
+  "profile": {
+    "title": "Profile",
+    "name": "Name",
+    "email": "Email",
+    "save": "Save profile",
+    "saving": "Saving..."
+  },
+  "appearance": {
+    "title": "Appearance",
+    "theme": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "title": "Language",
+    "system": "System",
+    "english": "English",
+    "chinese_simplified": "Simplified Chinese",
+    "chinese_traditional": "Traditional Chinese"
+  },
+  "notifications": {
+    "title": "Inbox",
+    "issues": "Issues",
+    "inbox": "Inbox",
+    "chat": "Chat",
+    "mentions": "Mentions",
+    "assignments": "Assignments",
+    "status_changes": "Status changes",
+    "saved": "Notification settings saved"
+  },
+  "workspace": {
+    "switch": "Switch workspace",
+    "select": "Select workspace",
+    "empty": "No workspaces yet"
+  },
+  "avatar": {
+    "take": "Take Photo",
+    "library": "Choose from Library",
+    "remove": "Remove Photo",
+    "change_hint": "Tap to change photo",
+    "permission_title": "Permission needed",
+    "permission_message": "Camera access is required to take a photo.",
+    "too_large_title": "Image too large",
+    "too_large_message": "Pick an image under 5 MB.",
+    "upload_failed": "Upload failed",
+    "upload_failed_default": "Could not upload avatar.",
+    "remove_failed": "Remove failed",
+    "remove_failed_default": "Could not remove avatar."
+  },
+  "errors": {
+    "load_failed": "Failed to load notification preferences.",
+    "save_failed": "Failed to save profile.",
+    "save_failed_default": "Could not save your profile."
+  },
+  "email_fixed": "Email is set at sign-up and can't be changed here.",
+  "groups": {
+    "system": "System",
+    "system_notifications": "System notifications",
+    "system_description": "Account changes, security alerts, product updates."
+  },
+  "routing": {
+    "title": "Routing",
+    "description": "Changes apply to new notifications.",
+    "reset": "Restore defaults",
+    "routes": {
+      "action": {
+        "label": "Needs action",
+        "description": "Counts as unread"
+      },
+      "activity": {
+        "label": "Activity",
+        "description": "Recorded quietly, never unread"
+      },
+      "muted": {
+        "label": "Off",
+        "description": "Not in the Inbox; still visible on the issue"
+      }
+    },
+    "kinds": {
+      "assigned": {
+        "label": "Assigned to me",
+        "description": "When an issue is assigned to you"
+      },
+      "mentions": {
+        "label": "Mentions",
+        "description": "When someone @mentions you, including @all and @squad"
+      },
+      "comments_without_mentions": {
+        "label": "Comments without mentions",
+        "description": "When someone comments on an issue you follow without @mentioning anyone"
+      },
+      "agent_failures": {
+        "label": "Agent errors",
+        "description": "When an agent run fails or is blocked and needs you"
+      },
+      "status_changes": {
+        "label": "Status changes",
+        "description": "When an issue you follow changes status"
+      },
+      "assignee_changes": {
+        "label": "Assignee changes",
+        "description": "When an issue changes assignee, or you are unassigned"
+      },
+      "updates": {
+        "label": "Priority and dates",
+        "description": "When priority, start date, or due date changes"
+      },
+      "comments_mentioning_others": {
+        "label": "Comments mentioning others",
+        "description": "When a comment on an issue you follow @mentions other people or agents, but not you"
+      }
+    }
+  }
+}

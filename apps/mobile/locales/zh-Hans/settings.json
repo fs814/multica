@@ -1,0 +1,126 @@
+{
+  "title": "设置",
+  "account": {
+    "title": "账号",
+    "sign_out": "退出登录",
+    "sign_out_message": "你需要重新登录才能在此设备上使用 Multica。",
+    "workspace": "工作区",
+    "workspaces": "工作区",
+    "notifications_subtitle": "通知去向和系统通知",
+    "load_failed": "工作区加载失败"
+  },
+  "profile": {
+    "title": "个人资料",
+    "name": "姓名",
+    "email": "邮箱",
+    "save": "保存个人资料",
+    "saving": "保存中..."
+  },
+  "appearance": {
+    "title": "外观",
+    "theme": "主题",
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  "language": {
+    "title": "语言",
+    "system": "跟随系统",
+    "english": "English",
+    "chinese_simplified": "简体中文",
+    "chinese_traditional": "繁体中文"
+  },
+  "notifications": {
+    "title": "收件箱",
+    "issues": "任务",
+    "inbox": "收件箱",
+    "chat": "聊天",
+    "mentions": "提及",
+    "assignments": "分配给我的",
+    "status_changes": "状态变更",
+    "saved": "通知设置已保存"
+  },
+  "workspace": {
+    "switch": "切换工作区",
+    "select": "选择工作区",
+    "empty": "还没有工作区"
+  },
+  "avatar": {
+    "take": "拍照",
+    "library": "从相册选择",
+    "remove": "移除头像",
+    "change_hint": "点按更换头像",
+    "permission_title": "需要权限",
+    "permission_message": "拍照需要相机权限。",
+    "too_large_title": "图片过大",
+    "too_large_message": "请选择小于 5 MB 的图片。",
+    "upload_failed": "上传失败",
+    "upload_failed_default": "无法上传头像。",
+    "remove_failed": "移除失败",
+    "remove_failed_default": "无法移除头像。"
+  },
+  "errors": {
+    "load_failed": "通知偏好设置加载失败。",
+    "save_failed": "个人资料保存失败。",
+    "save_failed_default": "无法保存你的个人资料。"
+  },
+  "email_fixed": "邮箱在注册时设置，无法在这里修改。",
+  "groups": {
+    "system": "系统",
+    "system_notifications": "系统通知",
+    "system_description": "账号变更、安全提醒和产品更新。"
+  },
+  "routing": {
+    "title": "通知去向",
+    "description": "更改只影响之后的新通知。",
+    "reset": "恢复默认",
+    "routes": {
+      "action": {
+        "label": "需要处理",
+        "description": "计入未读"
+      },
+      "activity": {
+        "label": "动态",
+        "description": "安静记录，不计未读"
+      },
+      "muted": {
+        "label": "关闭",
+        "description": "不进收件箱，在任务里仍能看到"
+      }
+    },
+    "kinds": {
+      "assigned": {
+        "label": "分配给我",
+        "description": "任务分配给你时"
+      },
+      "mentions": {
+        "label": "提及",
+        "description": "有人 @ 你时，包括 @all 和 @squad"
+      },
+      "comments_without_mentions": {
+        "label": "未 @ 任何人的评论",
+        "description": "有人在你订阅的任务里评论，且没有 @ 任何人时"
+      },
+      "agent_failures": {
+        "label": "智能体出错",
+        "description": "智能体运行失败或被阻塞、需要你介入时"
+      },
+      "status_changes": {
+        "label": "状态变更",
+        "description": "你订阅的任务状态变化时"
+      },
+      "assignee_changes": {
+        "label": "负责人变更",
+        "description": "任务换了负责人，或你被取消分配时"
+      },
+      "updates": {
+        "label": "优先级与日期",
+        "description": "优先级、开始日期或截止日期变化时"
+      },
+      "comments_mentioning_others": {
+        "label": "@ 了其他人的评论",
+        "description": "你订阅的任务里的评论 @ 了其他成员或智能体、但没有 @ 你时"
+      }
+    }
+  }
+}

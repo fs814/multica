@@ -1,0 +1,1 @@
+ALTER TABLE issue_pull_request_exclusion ADD CONSTRAINT issue_pull_request_exclusion_pkey PRIMARY KEY USING INDEX issue_pull_request_exclusion_pkey;

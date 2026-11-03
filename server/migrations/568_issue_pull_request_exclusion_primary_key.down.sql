@@ -1,0 +1,1 @@
+ALTER TABLE issue_pull_request_exclusion DROP CONSTRAINT IF EXISTS issue_pull_request_exclusion_pkey;

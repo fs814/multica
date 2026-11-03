@@ -6,6 +6,7 @@ codex
 copilot
 cursor-agent
 deveco
+devin
 dim
 dsh
 grok
@@ -14,6 +15,7 @@ kimi
 kiro-cli
 knot-cli
 mcode
+muse
 omp
 openclaw
 opencode
@@ -25,3 +27,4 @@ qwenpaw
 reasonix
 traecli
 zeroclaw
+zcode

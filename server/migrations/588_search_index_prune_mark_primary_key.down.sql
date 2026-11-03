@@ -1,0 +1,1 @@
+ALTER TABLE search_index_prune_mark DROP CONSTRAINT IF EXISTS search_index_prune_mark_pkey;

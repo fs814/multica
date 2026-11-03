@@ -14,7 +14,7 @@ import (
 
 func (d *Daemon) runScriptPipelineTask(ctx context.Context, task Task, logger *slog.Logger) (TaskResult, error) {
 	startCtx, cancelStart := context.WithTimeout(ctx, 10*time.Second)
-	err := d.client.StartTask(startCtx, task.ID)
+	_, err := d.client.StartTask(startCtx, task)
 	cancelStart()
 	if err != nil {
 		return TaskResult{}, fmt.Errorf("start task failed: %w", err)

@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { renderWithI18n } from "../../test/i18n";
 
 const { getAttachmentTextContentMock } = vi.hoisted(() => ({
   getAttachmentTextContentMock: vi.fn(),
@@ -17,10 +16,9 @@ vi.mock("@multica/core/api", () => ({
   PreviewUnsupportedError: class extends Error {},
 }));
 
-// HtmlAttachmentPreview (kind="html" dispatch from AttachmentBlock) reads
-// useNavigation() + useWorkspaceSlug() for the Open-in-new-tab button.
-// Mock both so the standalone-attachment-routes-to-iframe test does not
-// need the surrounding NavigationProvider / WorkspaceSlugProvider tree.
+// The attachment viewer reads useNavigation() + useWorkspaceSlug() for its
+// Open-in-new-tab button. Mock both so these tests do not need the
+// surrounding NavigationProvider / WorkspaceSlugProvider tree.
 vi.mock("../../navigation", () => ({
   useNavigation: () => ({
     push: vi.fn(),
@@ -42,7 +40,10 @@ vi.mock("@multica/core/paths", async (importOriginal) => {
   };
 });
 
-import { AttachmentList, CommentDeliveryReceipts } from "./comment-card";
+import { collectDeliverableFiles } from "@multica/core/attachments/deliverables";
+import { renderWithI18n } from "../../test/i18n";
+import { AttachmentList } from "./comment-card";
+import { AttachmentVersionsProvider } from "./deliverables/attachment-versions";
 
 function renderWithQuery(ui: ReactElement) {
   const qc = new QueryClient({
@@ -53,103 +54,6 @@ function renderWithQuery(ui: ReactElement) {
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => vi.restoreAllMocks());
-
-describe("CommentDeliveryReceipts", () => {
-  it("renders an independent delivery state for every agent recipient", () => {
-    renderWithI18n(
-      <CommentDeliveryReceipts
-        entry={{
-          agent_deliveries: [
-            { agent_id: "a1", agent_name: "Walt", status: "pending" },
-            { agent_id: "a2", agent_name: "Bob", status: "delivered", delivered_at: new Date().toISOString() },
-            { agent_id: "a3", agent_name: "Kim", status: "follow_up" },
-          ],
-        } as any}
-      />,
-    );
-    expect(screen.getByText("Waiting to deliver to Walt's current work")).toBeInTheDocument();
-    expect(screen.getByText(/Delivered to Bob's current work/)).toBeInTheDocument();
-    expect(screen.getByText("Kim will handle this in follow-up work")).toBeInTheDocument();
-    expect(screen.queryByRole("button")).toBeNull();
-  });
-
-  it("locates only delivered recipients that already have a final reply", () => {
-    const onLocateComment = vi.fn();
-    const repliesByTask = new Map([
-      ["task-1", { id: "reply-1", comment_type: "comment" } as any],
-      ["task-2", { id: "reply-2", comment_type: "comment" } as any],
-      ["task-deleted", { id: "reply-deleted", comment_type: "comment", deleted_at: "2026-01-01T00:00:00Z" } as any],
-      ["task-failed", { id: "failure-comment", comment_type: "system" } as any],
-    ]);
-    renderWithI18n(
-      <CommentDeliveryReceipts
-        entry={{
-          agent_deliveries: [
-            { agent_id: "a1", agent_name: "Walt", task_id: "task-1", status: "delivered" },
-            { agent_id: "a2", agent_name: "Bob", task_id: "task-2", status: "delivered" },
-            { agent_id: "a3", agent_name: "Kim", task_id: "task-1", status: "pending" },
-            { agent_id: "a4", agent_name: "Eve", task_id: "task-2", status: "follow_up" },
-            { agent_id: "a5", agent_name: "Running", task_id: "task-running", status: "delivered" },
-            { agent_id: "a6", agent_name: "Deleted", task_id: "task-deleted", status: "delivered" },
-            { agent_id: "a7", agent_name: "Failed", task_id: "task-failed", status: "delivered" },
-            { agent_id: "a8", agent_name: "Cancelled", task_id: "task-cancelled", status: "delivered" },
-            { agent_id: "a9", agent_name: "Edited", task_id: "task-edited", status: "delivered" },
-          ],
-        } as any}
-        repliesByTask={repliesByTask}
-        onLocateComment={onLocateComment}
-      />,
-    );
-
-    const links = screen.getAllByRole("button", { name: /View final reply/ });
-    expect(links).toHaveLength(2);
-    fireEvent.click(links[0]!);
-    fireEvent.click(links[1]!);
-    expect(onLocateComment.mock.calls).toEqual([["reply-1"], ["reply-2"]]);
-    expect(screen.getByText("Waiting to deliver to Kim's current work")).toBeInTheDocument();
-    expect(screen.getByText("Eve will handle this in follow-up work")).toBeInTheDocument();
-    expect(screen.getByText(/Delivered to Running's current work/).closest("button")).toBeNull();
-    expect(screen.getByText(/Delivered to Deleted's current work/).closest("button")).toBeNull();
-    expect(screen.getByText(/Delivered to Failed's current work/).closest("button")).toBeNull();
-    expect(screen.getByText(/Delivered to Cancelled's current work/).closest("button")).toBeNull();
-    expect(screen.getByText(/Delivered to Edited's current work/).closest("button")).toBeNull();
-  });
-});
-
-describe("AttachmentList — standalone HTML attachment routes through AttachmentBlock", () => {
-  // Regression pin for comment-card.tsx:152. This is the entry point
-  // MUL-2330 originally regressed on: standalone HTML attachments (not
-  // referenced inline in the markdown body) MUST render through
-  // <AttachmentBlock> so the html+attachmentId dispatch fires. Reverting to
-  // <AttachmentCard> here re-introduces the "report.html shows as a bare
-  // file card row instead of the rendered chart" bug.
-  it("renders an iframe (no file-card chrome) for a standalone HTML attachment", async () => {
-    getAttachmentTextContentMock.mockResolvedValueOnce({
-      text: "<p>chart</p>",
-      originalContentType: "text/html",
-    });
-    const attachment = {
-      id: "att-1",
-      url: "/uploads/report.html",
-      filename: "report.html",
-      content_type: "text/html",
-      size_bytes: 0,
-    } as any;
-
-    renderWithQuery(<AttachmentList attachments={[attachment]} content="" />);
-
-    const frame = await waitFor(() => {
-      const f = document.querySelector("iframe") as HTMLIFrameElement | null;
-      expect(f).toBeTruthy();
-      return f!;
-    });
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
-    expect(frame.getAttribute("srcdoc")).toContain("<p>chart</p>");
-    // AttachmentCard chrome would render the filename as visible <p> text;
-    // HtmlAttachmentPreview replaces the row entirely.
-    expect(screen.queryByText("report.html")).toBeNull();
-  });
-});
 
 describe("AttachmentList — inline attachment filtering", () => {
   it("does not render a bottom attachment row when the body already has the stable file-card URL", () => {
@@ -194,5 +98,109 @@ describe("AttachmentList — inline attachment filtering", () => {
 
     expect(screen.queryByText("report.pdf")).toBeNull();
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("AttachmentList — layout (MUL-7649)", () => {
+  const file = (id: string, filename: string, content_type: string) =>
+    ({
+      id,
+      url: `/uploads/${filename}`,
+      download_url: `/uploads/${filename}`,
+      filename,
+      content_type,
+      size_bytes: 2048,
+      created_at: "2026-09-20T10:00:00Z",
+    }) as any;
+
+  function renderList(ui: ReactElement) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    return renderWithI18n(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  }
+
+  it("shows files as cards, not full-width rows", () => {
+    renderList(
+      <AttachmentList
+        attachments={[file("a", "notes.md", "text/markdown"), file("b", "data.csv", "text/csv")]}
+        content=""
+      />,
+    );
+    expect(screen.getByRole("button", { name: "notes.md" })).toBeTruthy();
+    expect(screen.getByText("MD · 2 KB")).toBeTruthy();
+    expect(screen.getByText("CSV · 2 KB")).toBeTruthy();
+    // The row form's Eye button is gone — the whole card opens the file.
+    expect(screen.queryByRole("button", { name: "Preview" })).toBeNull();
+  });
+
+  // MUL-7736: several screenshots used to shrink into one row of thumbnails,
+  // so reading any of them took a click. Each keeps its full size instead.
+  it("shows every image at full size, one under another", () => {
+    const { container } = renderList(
+      <AttachmentList
+        attachments={[
+          file("a", "a.png", "image/png"),
+          file("b", "b.png", "image/png"),
+          file("c", "c.png", "image/png"),
+        ]}
+        content=""
+      />,
+    );
+    const figures = container.querySelectorAll(".image-figure");
+    expect(figures).toHaveLength(3);
+    expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("alt"))).toEqual([
+      "a.png",
+      "b.png",
+      "c.png",
+    ]);
+    // No tile box sized to a shared row height around any of them.
+    for (const figure of figures) expect(figure).toHaveClass("image-standalone");
+    expect(container.querySelector("[style*='height']")).toBeNull();
+  });
+
+  it("lays groups out images, then files, whatever the upload order", () => {
+    const { container } = renderList(
+      <AttachmentList
+        attachments={[
+          file("a", "notes.md", "text/markdown"),
+          file("b", "a.png", "image/png"),
+          file("c", "b.png", "image/png"),
+        ]}
+        content=""
+      />,
+    );
+    const image = container.querySelector(".image-figure")!;
+    const card = screen.getByRole("button", { name: "notes.md" });
+    expect(image.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Reverses the MUL-2330 pin. An uploaded HTML file is a deliverable, not
+  // part of the text: it is a card that opens the viewer, and its contents are
+  // not fetched to embed. HTML meant to be read in place is a ```html block.
+  it("shows a standalone HTML file as a card, not an embedded preview", () => {
+    renderList(
+      <AttachmentList
+        attachments={[file("h", "report.html", "text/html"), file("m", "notes.md", "text/markdown")]}
+        content=""
+      />,
+    );
+    expect(screen.getByRole("button", { name: "report.html" })).toBeTruthy();
+    expect(screen.getByText("HTML · 2 KB")).toBeTruthy();
+    expect(document.querySelector("iframe")).toBeNull();
+    expect(getAttachmentTextContentMock).not.toHaveBeenCalled();
+  });
+
+  it("marks a re-uploaded file with its version on the issue page", () => {
+    const v1 = { ...file("v1", "report.md", "text/markdown"), comment_id: "c1" };
+    const v2 = { ...file("v2", "report.md", "text/markdown"), comment_id: "c2", created_at: "2026-09-21T10:00:00Z" };
+    const files = collectDeliverableFiles([
+      { id: "c1", attachments: [v1] },
+      { id: "c2", attachments: [v2] },
+    ]);
+    renderList(
+      <AttachmentVersionsProvider files={files}>
+        <AttachmentList attachments={[v2]} content="" />
+      </AttachmentVersionsProvider>,
+    );
+    expect(screen.getByText("v2")).toBeTruthy();
   });
 });

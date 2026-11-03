@@ -21,7 +21,7 @@ import {
   Webhook,
   X as XIcon,
   Zap,
-} from "lucide-react";
+} from "@multica/ui/icons";
 import { cn } from "@multica/ui/lib/utils";
 import {
   Dialog,
@@ -76,9 +76,7 @@ import { useT } from "../../i18n";
 import { formatSchedulePartialFailureToast } from "./autopilot-dialog-toast";
 import type { WebhookEventFilter } from "@multica/core/types";
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 export interface AutopilotInitial {
   title: string;
@@ -111,9 +109,7 @@ export type AutopilotDialogProps =
       canManageAccess: boolean;
     };
 
-// ---------------------------------------------------------------------------
 // Static schema-level data (not user-visible)
-// ---------------------------------------------------------------------------
 
 const OUTPUT_MODE_KEYS: AutopilotExecutionMode[] = ["create_issue", "run_only", "issue_pool"];
 
@@ -123,9 +119,7 @@ const OUTPUT_MODE_ICONS: Record<AutopilotExecutionMode, typeof FilePlus2> = {
   issue_pool: ListTodo,
 };
 
-// ---------------------------------------------------------------------------
 // Webhook event-filter dirty detection
-// ---------------------------------------------------------------------------
 
 // serializeEventFilters returns a stable JSON string so the edit-mode dirty
 // check can compare the current filters against the snapshot taken on open
@@ -137,9 +131,7 @@ function serializeEventFilters(filters: WebhookEventFilter[]): string {
   );
 }
 
-// ---------------------------------------------------------------------------
 // AutopilotDialog
-// ---------------------------------------------------------------------------
 
 export function AutopilotDialog(props: AutopilotDialogProps) {
   const { t } = useT("autopilots");
@@ -788,9 +780,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
 // Right column sections
-// ---------------------------------------------------------------------------
 
 function SectionLabel({
   children,
@@ -1105,9 +1095,7 @@ function ScheduleEmptyState({ onAdd }: { onAdd: () => void }) {
   );
 }
 
-// ---------------------------------------------------------------------------
 // Trigger kind segmented control + webhook help section
-// ---------------------------------------------------------------------------
 
 function TriggerKindSection({
   kind,
@@ -1173,10 +1161,8 @@ function WebhookSection({
   );
 }
 
-// ---------------------------------------------------------------------------
 // Post-create state for webhook autopilots: shows the freshly minted URL
 // inline so the user can copy it without leaving the dialog.
-// ---------------------------------------------------------------------------
 
 function WebhookCreatedPanel({
   trigger,

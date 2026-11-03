@@ -24,9 +24,9 @@ package wecom
 // final block is read — unknowable at the moment the upload must start. A
 // file on disk has already answered the question: its size IS the length.
 //
-// Files are created 0600 and removed on every path. They hold decrypted
-// attachment content, so their permissions are part of the feature rather
-// than housekeeping.
+// Files are private to the process user and removed on every path. They hold
+// decrypted attachment content, so their permissions are part of the feature
+// rather than housekeeping.
 
 import (
 	"crypto/aes"
@@ -43,9 +43,11 @@ import (
 // is holding.
 const mediaStreamChunk = 256 << 10
 
+var errMediaTempFile = errors.New("wecom: media temp file")
+
 // decryptToFile reads ciphertext from src, decrypts it into a new temp file,
 // and returns the file positioned at its start along with the plaintext
-// length. The caller closes and removes it.
+// length. The caller closes it; the OS also reclaims it on process exit.
 //
 // CBC needs the tail before the head can be trusted — the pad is on the last
 // block — so the final block is held back until the source is exhausted and
@@ -62,25 +64,13 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 	// The IV is the first 16 bytes of the key, as WeCom's own libraries do.
 	mode := cipher.NewCBCDecrypter(block, key[:aes.BlockSize])
 
-	out, err := os.CreateTemp(dir, "wecom-media-*.bin")
+	out, err := createMediaTempFile(dir)
 	if err != nil {
-		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
-	}
-	// Unix can unlink an open file immediately. Windows cannot, so its
-	// platform helper keeps the private temp file named until the caller
-	// closes it; closeAndRemoveTempFile handles both forms.
-	if err := unlinkOpenTempFile(out); err != nil {
-		out.Close()
-		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
-	}
-	if err := out.Chmod(0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// Best effort: Unix has already unlinked the file, while Windows uses
-		// the user's temp-directory ACL instead of POSIX mode bits.
-		_ = err
+		return nil, 0, fmt.Errorf("%w: %w", errMediaTempFile, err)
 	}
 	defer func() {
 		if err != nil {
-			closeAndRemoveTempFile(out)
+			out.Close()
 		}
 	}()
 
@@ -154,20 +144,6 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 		return nil, 0, fmt.Errorf("wecom: media decrypt: rewind: %w", err)
 	}
 	return out, written, nil
-}
-
-// closeAndRemoveTempFile releases a decrypted attachment and removes its
-// name when the platform could not unlink it while open. It is intentionally
-// safe to call after a successful Unix unlink or more than once.
-func closeAndRemoveTempFile(f *os.File) {
-	if f == nil {
-		return
-	}
-	name := f.Name()
-	_ = f.Close()
-	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
-		_ = err
-	}
 }
 
 // peekFile reads up to n bytes from the head of f and rewinds it, so a caller

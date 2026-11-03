@@ -136,3 +136,25 @@ func TestMigrationOwnerCancellationReleasesLock(t *testing.T) {
 		t.Fatalf("cancelled owner retained its lock: %v", err)
 	}
 }
+
+func TestHistoricalDeliveryRecordedRetirement(t *testing.T) {
+	pool, schema := newHistoricalPool(t)
+	ctx := context.Background()
+	opts := historicalOpts(schema, realMigrationFiles(t, []string{deliveryMigrationVersion, "508_comment_agent_delivery_pending_index", deliveryRetirementVersion}, "up"))
+	if err := runMigrations(ctx, pool, opts); err != nil {
+		t.Fatal(err)
+	}
+	before := historicalLedger(t, pool)
+	if err := runMigrations(ctx, pool, opts); err != nil {
+		t.Fatalf("recorded retirement must survive restart: %v", err)
+	}
+	if !reflect.DeepEqual(before, historicalLedger(t, pool)) {
+		t.Fatal("rerun changed migration history")
+	}
+	if _, err := pool.Exec(ctx, "CREATE TABLE comment_agent_delivery (unexpected text)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := runMigrations(ctx, pool, opts); err == nil {
+		t.Fatal("retirement must not excuse a recreated table")
+	}
+}

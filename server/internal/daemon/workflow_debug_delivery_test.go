@@ -25,7 +25,7 @@ func TestDebugIgnoredStartNeverAuthorizesProcessLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := client.StartTask(context.Background(), task.ID); err == nil {
+		if _, err := client.StartTask(context.Background(), task); err == nil {
 			t.Fatal("terminal start response allowed runner to launch")
 		}
 	}

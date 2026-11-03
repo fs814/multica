@@ -8,9 +8,9 @@ const fixture = vi.hoisted(() => ({
   install: vi.fn(), read: vi.fn(), write: vi.fn(), exec: vi.fn(), port: 0,
 }));
 vi.mock("electron", () => ({
-  app: { getAppPath: () => "/test-missing-desktop", on: (event: string, handler: any) => fixture.events.set(event, handler) },
+  app: { getPreferredSystemLanguages: () => ["en"], quit: vi.fn(), emit: vi.fn(), getAppPath: () => "/test-missing-desktop", on: (event: string, handler: any) => fixture.events.set(event, handler) },
   ipcMain: { handle: (name: string, handler: any) => fixture.handlers.set(name, handler), on: vi.fn() },
-  BrowserWindow: {}, shell: {},
+  BrowserWindow: { getAllWindows: () => [] }, shell: {}, dialog: { showMessageBox: vi.fn().mockResolvedValue({ response: 1 }) },
 }));
 vi.mock("./cli-bootstrap", () => ({ ensureManagedCli: fixture.install, managedCliPath: () => "/test-missing-cli" }));
 vi.mock("fs", () => ({ existsSync: () => false }));
@@ -37,7 +37,13 @@ beforeEach(async () => {
   unavailable = false;
   health = { status: "running", profile: "desktop-services", pid: 12345, os: process.platform,
     center_connected: false, server_url: "", offline_reason: "unconfigured", task_ready: false, active_task_count: 0 };
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
+    if (req.url === "/local/issues") {
+      expect(req.headers.authorization).toBe(`Bearer ${"a".repeat(64)}`);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end("[]");
+      return;
+    }
     res.writeHead(unavailable ? 503 : 200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(health));
   });
@@ -58,9 +64,20 @@ afterEach(async () => {
 const status = () => fixture.handlers.get("daemon:get-status")!();
 
 describe("Desktop discovers a standalone offline daemon", () => {
+  it("routes local issues through the verified dynamic port record", async () => {
+    const port = fixture.port;
+    fixture.port = 1;
+    fixture.read.mockImplementation(async (file: string) => {
+      if (file.endsWith("daemon.port")) return JSON.stringify({ port, pid: 12345 });
+      if (file.endsWith("api-token")) return "a".repeat(64);
+      throw Object.assign(new Error("missing"), { code: "ENOENT" });
+    });
+    expect(await fixture.handlers.get("daemon:local-issues:list")!()).toEqual([]);
+    expect(fixture.exec).not.toHaveBeenCalled();
+  });
   it("probes the pinned profile before Center selection and while CLI download is pending", async () => {
     expect(await status()).toMatchObject({ state: "running", profile: "desktop-services", pid: 12345, centerConnected: false });
-    expect(fixture.read).not.toHaveBeenCalled();
+    expect(fixture.read.mock.calls.every(([file]) => String(file).endsWith("daemon.port"))).toBe(true);
     expect(fixture.write).not.toHaveBeenCalled();
     expect(fixture.exec).not.toHaveBeenCalled();
   });
@@ -81,6 +98,7 @@ describe("Desktop discovers a standalone offline daemon", () => {
 
   it("never adopts a different profile sharing the health port", async () => {
     health.profile = "another-profile";
-    expect(await status()).toMatchObject({ state: "stopped", profile: "desktop-services" });
+    expect(await status()).toMatchObject({ state: "installing_cli", profile: "desktop-services" });
+    expect(fixture.exec).not.toHaveBeenCalled();
   });
 });

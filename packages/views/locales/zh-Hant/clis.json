@@ -1,0 +1,91 @@
+{
+  "page": {
+    "title": "CLI",
+    "tagline": "在這臺機器上執行一條已註冊的命令。",
+    "owner_only": "只有機器的歸屬者才能列出並執行該機器上註冊的 CLI。",
+    "registry_path": "登錄檔檔案",
+    "reload": "重新載入",
+    "empty": {
+      "title": "尚未註冊任何 CLI",
+      "hint": "在機器上的登錄檔檔案裡新增一條條目後重新載入。條目需指定執行檔並固定其內容雜湊。"
+    },
+    "unavailable": "不可執行",
+    "unavailable_hint": "註冊的執行檔不存在，或與記錄的內容雜湊不一致。"
+  },
+  "entry": {
+    "params": "引數",
+    "optional": "可選",
+    "run": "執行",
+    "running": "執行中…",
+    "awaiting_machine": "正在等待機器領取該請求…"
+  },
+  "result": {
+    "collapse": "收起結果",
+    "expand": "展開結果",
+    "clear": "清除結果",
+    "raw_output": "檢視原始輸出",
+    "execution_details": "執行詳情",
+    "command": "命令",
+    "output": "輸出",
+    "no_output": "該命令沒有產生任何輸出。",
+    "truncated": "已在 {{bytes}} 位元組處截斷 —— 該命令產生了更多輸出。",
+    "exit_code": "退出碼 {{code}}",
+    "duration": "{{ms}} 毫秒"
+  },
+  "search": {
+    "title": "搜尋結果",
+    "count_other": "共 {{count}} 條結果",
+    "empty": "沒有找到相關內容，請嘗試其他關鍵詞。",
+    "more_available": "還有更多結果，可調整關鍵詞縮小搜尋範圍。",
+    "failed": "搜尋失敗（錯誤碼 {{code}}）。",
+    "answer": "回答",
+    "article": "文章",
+    "votes_other": "{{count}} 贊同",
+    "comments_other": "{{count}} 條評論",
+    "expand": "展開摘錄",
+    "collapse": "收起",
+    "open_original": "檢視原文"
+  },
+  "hot": {
+    "title": "知乎熱榜",
+    "count_other": "知乎熱榜 · {{count}} 條",
+    "rank": "第 {{rank}} 名",
+    "hint": "按知乎返回順序展示。熱榜反映關注度，不代表事實核查結論。",
+    "empty": "暫無熱榜內容，請稍後重試。",
+    "failed": "獲取熱榜失敗（錯誤碼 {{code}}）。"
+  },
+  "status": {
+    "title": "知乎 CLI 狀態",
+    "ready": "知乎 CLI 已就緒",
+    "needs_attention": "知乎 CLI 需要處理",
+    "ready_hint": "鑑權已配置，可以開始搜尋。",
+    "auth_hint": "請配置 Access Secret 後重新檢查。",
+    "check_hint": "請檢查下方各項狀態，詳細資訊可檢視原始輸出。",
+    "unknown": "未知",
+    "keychain": "系統憑據庫",
+    "environment": "環境變數",
+    "cli_version": "CLI 版本",
+    "skill_version": "skill 版本",
+    "not_installed": "未安裝",
+    "compatible": "已安裝，版本相容",
+    "incompatible": "需要更新 CLI",
+    "up_to_date": "已是最新版本",
+    "auth": "鑑權",
+    "configured": "已配置",
+    "not_configured": "未配置",
+    "secret_required": "需要 Access Secret",
+    "update_check": "更新檢查",
+    "verified": "已驗證",
+    "not_verified": "未驗證",
+    "cli_up_to_date": "CLI 已是最新版本",
+    "update_available": "可更新至 {{version}}"
+  },
+  "error": {
+    "load_failed": "無法讀取這臺機器上的 CLI 登錄檔。",
+    "run_failed": "CLI 執行失敗。",
+    "retry": "重試"
+  },
+  "github": {
+    "title": "GitHub Trending"
+  }
+}

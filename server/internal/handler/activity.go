@@ -47,8 +47,14 @@ type TimelineEntry struct {
 	ResolvedByID   *string              `json:"resolved_by_id,omitempty"`
 	SourceTaskID   *string              `json:"source_task_id,omitempty"`
 	// Set only on a tombstone: a comment deleted while it still had replies.
-	DeletedAt       *string                        `json:"deleted_at,omitempty"`
-	AgentDeliveries []CommentAgentDeliveryResponse `json:"agent_deliveries,omitempty"`
+	DeletedAt *string `json:"deleted_at,omitempty"`
+	// Supplements lists every running turn this comment steered; the single
+	// supplement_* fields mirror the first receipt for older clients.
+	Supplements             []CommentSupplementResponse `json:"supplements,omitempty"`
+	SupplementTaskID        string                      `json:"supplement_task_id,omitempty"`
+	SupplementStatus        string                      `json:"supplement_status,omitempty"`
+	SupplementFailureReason *string                     `json:"supplement_failure_reason,omitempty"`
+	SupplementDeliveredAt   *string                     `json:"supplement_delivered_at,omitempty"`
 }
 
 // timelineHardCap bounds the per-issue timeline payload. Sized as a defensive
@@ -284,7 +290,7 @@ func (h *Handler) commentsToEntries(r *http.Request, comments []db.Comment) []Ti
 	}
 	reactions := h.groupReactions(r, ids)
 	attachments := h.groupAttachments(r, ids)
-	deliveries := h.groupCommentAgentDeliveries(r.Context(), ids)
+	supplements := h.listCommentSupplements(r.Context(), comments[0].WorkspaceID, ids)
 
 	out := make([]TimelineEntry, len(comments))
 	for i, c := range comments {
@@ -293,25 +299,31 @@ func (h *Handler) commentsToEntries(r *http.Request, comments []db.Comment) []Ti
 		updatedAt := timestampToString(c.UpdatedAt)
 		cid := uuidToString(c.ID)
 		out[i] = TimelineEntry{
-			Type:            "comment",
-			ID:              cid,
-			ActorType:       c.AuthorType,
-			ActorID:         uuidToString(c.AuthorID),
-			Content:         &content,
-			CommentType:     &commentType,
-			QuickActionID:   uuidToPtr(c.QuickActionID),
-			ParentID:        uuidToPtr(c.ParentID),
-			CreatedAt:       timestampToString(c.CreatedAt),
-			UpdatedAt:       &updatedAt,
-			Revision:        c.Revision,
-			Reactions:       reactions[cid],
-			Attachments:     attachments[cid],
-			ResolvedAt:      timestampToPtr(c.ResolvedAt),
-			ResolvedByType:  textToPtr(c.ResolvedByType),
-			ResolvedByID:    uuidToPtr(c.ResolvedByID),
-			SourceTaskID:    uuidToPtr(c.SourceTaskID),
-			DeletedAt:       timestampToPtr(c.DeletedAt),
-			AgentDeliveries: deliveries[cid],
+			Type:           "comment",
+			ID:             cid,
+			ActorType:      c.AuthorType,
+			ActorID:        uuidToString(c.AuthorID),
+			Content:        &content,
+			CommentType:    &commentType,
+			QuickActionID:  uuidToPtr(c.QuickActionID),
+			ParentID:       uuidToPtr(c.ParentID),
+			CreatedAt:      timestampToString(c.CreatedAt),
+			UpdatedAt:      &updatedAt,
+			Revision:       c.Revision,
+			Reactions:      reactions[cid],
+			Attachments:    attachments[cid],
+			ResolvedAt:     timestampToPtr(c.ResolvedAt),
+			ResolvedByType: textToPtr(c.ResolvedByType),
+			ResolvedByID:   uuidToPtr(c.ResolvedByID),
+			SourceTaskID:   uuidToPtr(c.SourceTaskID),
+			DeletedAt:      timestampToPtr(c.DeletedAt),
+		}
+		if receipts := supplements[cid]; len(receipts) > 0 {
+			out[i].Supplements = receipts
+			out[i].SupplementTaskID = receipts[0].TaskID
+			out[i].SupplementStatus = receipts[0].Status
+			out[i].SupplementFailureReason = receipts[0].FailureReason
+			out[i].SupplementDeliveredAt = receipts[0].DeliveredAt
 		}
 	}
 	return out

@@ -9,14 +9,21 @@ import (
 )
 
 const deliveryMigrationVersion = "507_comment_agent_delivery"
+const deliveryRetirementVersion = "553_drop_comment_agent_delivery"
 
 // Historical SQL and ledger identities are immutable. Refuse ambiguous 507
 // states instead of silently skipping a missing constraint or recreating a
 // receipt table. This also detects the DDL-committed/ledger-failed window.
-func validateHistoricalDelivery(ctx context.Context, conn *pgxpool.Conn, recorded bool) error {
+func validateHistoricalDelivery(ctx context.Context, conn *pgxpool.Conn, recorded, retired bool) error {
 	var exists bool
 	if err := conn.QueryRow(ctx, `SELECT to_regclass(current_schema()||'.comment_agent_delivery') IS NOT NULL`).Scan(&exists); err != nil {
 		return err
+	}
+	if retired {
+		if !recorded || exists {
+			return fmt.Errorf("retired 507 receipt table/ledger mismatch (table=%t original=%t); stop for explicit recovery", exists, recorded)
+		}
+		return nil
 	}
 	if exists != recorded {
 		return fmt.Errorf("507 receipt table/ledger mismatch (table=%t ledger=%t); stop and reconcile from a verified backup; do not replay SQL or insert a ledger entry blindly", exists, recorded)

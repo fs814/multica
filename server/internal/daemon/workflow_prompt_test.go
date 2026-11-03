@@ -1,73 +1,72 @@
 package daemon
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 )
 
-// TestWorkflowStepPromptSurvivesTheWireAndWins is the regression test for a
-// critical defect: the server rendered a complete workflow brief and the daemon
-// silently threw it away.
-//
-// The Task struct had no workflow fields, so json.Unmarshal discarded
-// workflow_prompt without error, and BuildPrompt fell through every branch to the
-// legacy assignment prompt. The agent was therefore never told about the step,
-// never given the run input, and - fatally - never told to emit the delimited
-// submission block, so EVERY step of EVERY run would have blocked with
-// submission_contract_invalid while the work itself was done correctly.
-//
-// This test decodes a real server payload into the real daemon.Task and calls the
-// real BuildPrompt. Three earlier suites missed the bug because they asserted on
-// the server's own response struct, or on a hand-rolled mirror of it declared
-// inside the test file: those prove the server SENDS the field and are
-// structurally incapable of noticing that the consumer DROPS it.
-func TestWorkflowStepPromptSurvivesTheWireAndWins(t *testing.T) {
-	// Shaped exactly like handler.AgentTaskResponse on the claim path. A workflow
-	// run normally HAS an issue and may carry a trigger comment, which is precisely
-	// why the workflow branch has to win over both.
-	const wire = `{
-	  "id": "task-1",
-	  "issue_id": "issue-1",
-	  "trigger_comment_id": "comment-1",
-	  "workflow_prompt": "You are executing step 'analyze' of the Bug Fix workflow.\n\nEmit the block delimited by <<<MULTICA_SUBMISSION>>>.",
-	  "workflow_run_id": "run-1",
-	  "workflow_step_instance_id": "step-1",
-	  "workflow_node_key": "analyze"
-	}`
+const deliveryBrief = "This project's workflow — Delivery\nYou are handling the \"Code review\" step of MUL-1.\n"
 
-	var task Task
-	if err := json.Unmarshal([]byte(wire), &task); err != nil {
-		t.Fatalf("decode claim payload: %v", err)
-	}
+// Project workflow block of the per-turn prompt (MUL-7420). The brief has no
+// workflow input at all; the block is appended after everything else, so the
+// prompt ahead of it is the same whatever the workflow says.
+func TestBuildPromptAppendsProjectWorkflowBlock(t *testing.T) {
+	base := Task{IssueID: "issue-1"}
+	plain := BuildPrompt(base, "claude")
 
-	// The field must exist on the struct at all. Without this check the rest of the
-	// test would pass vacuously on an empty prompt.
-	if task.WorkflowPrompt == "" {
-		t.Fatal("daemon.Task dropped workflow_prompt: the agent would receive no brief")
-	}
-	if task.WorkflowRunID != "run-1" || task.WorkflowStepInstanceID != "step-1" || task.WorkflowNodeKey != "analyze" {
-		t.Errorf("workflow ids did not survive the wire: run=%q step=%q node=%q",
-			task.WorkflowRunID, task.WorkflowStepInstanceID, task.WorkflowNodeKey)
-	}
-
+	task := base
+	task.ProjectWorkflow = &ProjectWorkflowData{Brief: deliveryBrief}
 	out := BuildPrompt(task, "claude")
+	if !strings.HasPrefix(out, plain) {
+		t.Fatalf("the workflow block must be appended, not change the prompt ahead of it:\n%s", out)
+	}
+	if !strings.Contains(out, "[Project workflow]\n"+deliveryBrief) {
+		t.Fatalf("prompt is missing the workflow brief:\n%s", out)
+	}
+}
 
-	// Returned verbatim: the server owns the whole brief, so this binary - which is
-	// versioned separately - cannot omit part of it.
-	if out != task.WorkflowPrompt {
-		t.Errorf("BuildPrompt must return the server brief verbatim\n got: %q\nwant: %q", out, task.WorkflowPrompt)
+func TestBuildPromptSkipsEmptyWorkflowBrief(t *testing.T) {
+	task := Task{IssueID: "issue-1", ProjectWorkflow: &ProjectWorkflowData{Brief: "  \n"}}
+	if out := BuildPrompt(task, "claude"); strings.Contains(out, "[Project workflow]") {
+		t.Fatalf("an empty brief rendered a block:\n%s", out)
 	}
-	// The submission contract is the field whose absence breaks every run.
-	if !strings.Contains(out, "<<<MULTICA_SUBMISSION>>>") {
-		t.Error("the delivered prompt does not tell the agent to emit a submission block")
+}
+
+// A handoff note is the caller's own instruction now; the workflow brief
+// arrives through the claim, so a handoff run gets both.
+func TestBuildPromptKeepsWorkflowBlockBesideHandoffNote(t *testing.T) {
+	task := Task{IssueID: "issue-1", HandoffNote: "Only the login flow.", ProjectWorkflow: &ProjectWorkflowData{Brief: deliveryBrief}}
+	out := BuildPrompt(task, "claude")
+	if !strings.Contains(out, "> Only the login flow.") || !strings.Contains(out, "[Project workflow]") {
+		t.Fatalf("handoff run must carry the note and the workflow brief:\n%s", out)
 	}
-	// The legacy paths must not have claimed it, even though the task carries both
-	// an issue id and a trigger comment id.
-	if strings.Contains(out, "multica issue get") {
-		t.Error("the assignment prompt captured a workflow step task")
+}
+
+func TestBuildPromptKeepsWorkflowBlockForWakeup(t *testing.T) {
+	task := Task{IssueID: "issue-1", WakeupID: "w-1", HandoffNote: "check the PR", ProjectWorkflow: &ProjectWorkflowData{Brief: deliveryBrief}}
+	if out := BuildPrompt(task, "claude"); !strings.Contains(out, "[Project workflow]") {
+		t.Fatalf("wakeup run lost the workflow block:\n%s", out)
 	}
-	if strings.Contains(out, "DISTINCT threads") {
-		t.Error("the comment prompt captured a workflow step task")
+}
+
+func TestBuildPromptQuotesEveryHandoffNoteLine(t *testing.T) {
+	out := BuildPrompt(Task{IssueID: "issue-1", HandoffNote: "First line.\nSecond line."}, "claude")
+	if !strings.Contains(out, "> First line.\n> Second line.\n") {
+		t.Fatalf("every handoff note line must be quoted:\n%s", out)
+	}
+}
+
+// The runtime brief swaps its built-in status rules exactly when the per-turn
+// prompt carries the [Project workflow] block it points at (MUL-8145).
+func TestTaskHasProjectWorkflowMatchesTheRenderedBlock(t *testing.T) {
+	for name, task := range map[string]Task{
+		"none":        {IssueID: "issue-1"},
+		"blank brief": {IssueID: "issue-1", ProjectWorkflow: &ProjectWorkflowData{Brief: "  \n"}},
+		"brief":       {IssueID: "issue-1", ProjectWorkflow: &ProjectWorkflowData{Brief: deliveryBrief}},
+	} {
+		rendered := buildProjectWorkflowBlock(task) != ""
+		if got := taskHasProjectWorkflow(task); got != rendered {
+			t.Errorf("%s: taskHasProjectWorkflow = %v, block rendered = %v", name, got, rendered)
+		}
 	}
 }

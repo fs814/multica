@@ -113,6 +113,71 @@ func TestCreateWorkspace_DisabledByConfig(t *testing.T) {
 	}
 }
 
+// TestCreateWorkspace_AllowedEmails guards the self-host allowlist added by
+// #9400: when WorkspaceCreationAllowedEmails is set, only matching accounts
+// (case-insensitive) may create workspaces; everyone else gets 403 and no row
+// is written. DisableWorkspaceCreation still wins over the allowlist.
+func TestCreateWorkspace_AllowedEmails(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	cases := []struct {
+		name     string
+		cfg      Config
+		wantCode int
+	}{
+		{
+			name:     "caller not in allowlist",
+			cfg:      Config{WorkspaceCreationAllowedEmails: []string{"someone-else@example.com"}},
+			wantCode: http.StatusForbidden,
+		},
+		{
+			name:     "caller in allowlist (case-insensitive)",
+			cfg:      Config{WorkspaceCreationAllowedEmails: []string{"other@example.com", strings.ToUpper(handlerTestEmail)}},
+			wantCode: http.StatusCreated,
+		},
+		{
+			name: "global disable overrides allowlist",
+			cfg: Config{
+				DisableWorkspaceCreation:       true,
+				WorkspaceCreationAllowedEmails: []string{handlerTestEmail},
+			},
+			wantCode: http.StatusForbidden,
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			slug := fmt.Sprintf("handler-tests-create-allowlist-%d", i)
+			_, _ = testPool.Exec(context.Background(), `DELETE FROM workspace WHERE slug = $1`, slug)
+			dbfx.Cleanup(t, `DELETE FROM workspace WHERE slug = $1`, slug)
+
+			prev := testHandler.cfg
+			cfg := tc.cfg
+			cfg.AllowSignup = prev.AllowSignup
+			testHandler.cfg = cfg
+			t.Cleanup(func() { testHandler.cfg = prev })
+
+			req := newRequest("POST", "/api/workspaces", map[string]any{
+				"name": "Allowlist Create",
+				"slug": slug,
+			})
+			testutil.Call(t, testHandler.CreateWorkspace, req).Want(tc.wantCode)
+
+			var count int
+			dbfx.QueryRow(t, `SELECT count(*) FROM workspace WHERE slug = $1`, slug).Scan(&count)
+			wantCount := 0
+			if tc.wantCode == http.StatusCreated {
+				wantCount = 1
+			}
+			if count != wantCount {
+				t.Fatalf("expected %d workspace rows, found %d", wantCount, count)
+			}
+		})
+	}
+}
+
 // TestDeleteWorkspace_RequiresOwner exercises the in-handler authorization
 // added to DeleteWorkspace by calling the handler directly (bypassing the
 // router-level RequireWorkspaceRoleFromURL middleware). Without the handler
@@ -602,7 +667,6 @@ RETURNING id
 `, neighborSlug).Scan(&neighborWorkspaceID)
 	t.Cleanup(func() {
 		for _, workspaceID := range []string{targetWorkspaceID, neighborWorkspaceID} {
-			_, _ = testPool.Exec(context.Background(), `DELETE FROM comment_agent_delivery WHERE comment_id IN (SELECT id FROM comment WHERE workspace_id = $1)`, workspaceID)
 			_, _ = testPool.Exec(context.Background(), `DELETE FROM workspace WHERE id = $1`, workspaceID)
 			_, _ = testPool.Exec(context.Background(), `DELETE FROM task_usage_hourly_dirty WHERE workspace_id = $1`, workspaceID)
 			_, _ = testPool.Exec(context.Background(), `DELETE FROM runtime_profile WHERE workspace_id = $1`, workspaceID)
@@ -619,7 +683,6 @@ VALUES ($1, $2, 'owner')
 		workspaceID string
 		mediaKey    string
 		issueID     string
-		commentID   string
 	}
 	fixtures := []*tenantFixture{
 		{workspaceID: targetWorkspaceID, mediaKey: targetMediaKey},
@@ -631,15 +694,10 @@ INSERT INTO issue (workspace_id, title, creator_type, creator_id)
 VALUES ($1, 'Workspace delete tenant isolation', 'member', $2)
 RETURNING id
 `, fixture.workspaceID, testUserID).Scan(&fixture.issueID)
-		dbfx.QueryRow(t, `
+		dbfx.Exec(t, `
 INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content)
 VALUES ($1, $2, 'member', $3, 'Workspace delete tenant isolation')
-RETURNING id
-`, fixture.issueID, fixture.workspaceID, testUserID).Scan(&fixture.commentID)
-		dbfx.Exec(t, `
-INSERT INTO comment_agent_delivery (comment_id, agent_id, status)
-VALUES ($1, gen_random_uuid(), 'follow_up')
-`, fixture.commentID)
+`, fixture.issueID, fixture.workspaceID, testUserID)
 		dbfx.Exec(t, `
 INSERT INTO inbox_item (
 	workspace_id, recipient_type, recipient_id, type, issue_id, title
@@ -686,20 +744,6 @@ SELECT COUNT(*) FROM `+table+` WHERE `+predicate+` = $1
 		if count != 1 {
 			t.Fatalf("neighbor %s rows = %d, want 1", table, count)
 		}
-	}
-
-	var targetDeliveryCount, neighborDeliveryCount int
-	dbfx.QueryRow(t, `
-SELECT COUNT(*) FROM comment_agent_delivery WHERE comment_id = $1
-`, fixtures[0].commentID).Scan(&targetDeliveryCount)
-	dbfx.QueryRow(t, `
-SELECT COUNT(*) FROM comment_agent_delivery WHERE comment_id = $1
-`, fixtures[1].commentID).Scan(&neighborDeliveryCount)
-	if targetDeliveryCount != 0 {
-		t.Fatalf("target comment delivery rows = %d, want 0", targetDeliveryCount)
-	}
-	if neighborDeliveryCount != 1 {
-		t.Fatalf("neighbor comment delivery rows = %d, want 1", neighborDeliveryCount)
 	}
 
 	var neighborMediaState string

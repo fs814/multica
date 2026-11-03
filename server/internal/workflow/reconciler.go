@@ -113,7 +113,7 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 	}
 	for _, item := range linked {
 		if item.WorkflowStatus == string(RunCompleted) {
-			_, err = r.Queries.UpdateAutopilotRunCompleted(ctx, db.UpdateAutopilotRunCompletedParams{ID: item.AutopilotRunID, Result: mustJSON(map[string]any{"workflow_run_id": uuidString(item.WorkflowRunID)})})
+			_, err = r.Queries.UpdateAutopilotRunTerminalWithQuota(ctx, db.UpdateAutopilotRunTerminalWithQuotaParams{RunID: item.AutopilotRunID, TerminalStatus: "completed", Consume: true, Result: mustJSON(map[string]any{"workflow_run_id": uuidString(item.WorkflowRunID)})})
 		} else {
 			reason := item.FailureReason.String
 			if reason == "" {
@@ -122,7 +122,7 @@ func (r *Reconciler) Sweep(ctx context.Context) error {
 			if reason == "" {
 				reason = ReasonInvariantViolation
 			}
-			_, err = r.Queries.UpdateAutopilotRunFailed(ctx, db.UpdateAutopilotRunFailedParams{ID: item.AutopilotRunID, FailureReason: textOrNull(reason)})
+			_, err = r.Queries.UpdateAutopilotRunTerminalWithQuota(ctx, db.UpdateAutopilotRunTerminalWithQuotaParams{RunID: item.AutopilotRunID, TerminalStatus: "failed", FailureReason: textOrNull(reason)})
 		}
 		r.record(reconcileOutcome(err))
 		if err != nil {

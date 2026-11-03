@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AgentTaskSchema,
   AppConfigSchema,
   WecomInstallationSchema,
   ListWecomInstallationsResponseSchema,
@@ -14,6 +15,7 @@ import {
   EMPTY_LIST_TELEGRAM_INSTALLATIONS_RESPONSE,
   EMPTY_REDEEM_TELEGRAM_BINDING_TOKEN_RESPONSE,
   AgentTaskListSchema,
+  AgentActivityBucketListSchema,
   TaskMessageListSchema,
   AutopilotQuotaUsageSchema,
   AutopilotRunSchema,
@@ -29,7 +31,6 @@ import {
   ChatPendingTaskSchema,
   ChatSessionListSchema,
   ChatSessionSchema,
-  CommentSchema,
   PrioritizeQueuedChatTaskResponseSchema,
   CreateFeedbackResponseSchema,
   DuplicateIssueErrorBodySchema,
@@ -45,6 +46,8 @@ import {
   InboxItemListSchema,
   InboxUnreadSummarySchema,
   IssueTriggerPreviewSchema,
+  MarkIssueInboxReadResultSchema,
+  UNKNOWN_MARK_ISSUE_INBOX_READ_RESULT,
   ListIssuesResponseSchema,
   ListPropertiesResponseSchema,
   MALFORMED_RUNTIME_MODEL_LIST_REQUEST,
@@ -67,14 +70,66 @@ import {
   EMPTY_PLUGIN_INSTALLATION_LIST,
   EMPTY_PLUGIN_PREVIEW,
 } from "./schemas";
-import { IssueViewSchema, IssueViewListSchema } from "./schemas";
+import { IssueViewSchema, IssueViewListSchema, SidebarProjectPrefsDocSchema } from "./schemas";
+import type { SidebarIssueAssignee } from "../issues/stores/sidebar-tree-store";
 import {
   ListIssueStatusesResponseSchema,
   IssueStatusEntrySchema,
   EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
   EMPTY_ISSUE_STATUS_ENTRY,
 } from "./schemas";
+import { IssueUnreadPageSchema, EMPTY_ISSUE_UNREAD_PAGE } from "./schemas";
 import { parseWithFallback } from "./schema";
+
+describe("MarkIssueInboxReadResultSchema", () => {
+  const endpoint = { endpoint: "POST /api/inbox/issues/:id/read" };
+
+  it("keeps the server's count", () => {
+    expect(
+      parseWithFallback({ count: 3 }, MarkIssueInboxReadResultSchema, UNKNOWN_MARK_ISSUE_INBOX_READ_RESULT, endpoint),
+    ).toEqual({ count: 3 });
+  });
+
+  it("reports an unknown count for a malformed reply", () => {
+    for (const raw of [null, "<html>", { count: "3" }, {}]) {
+      expect(
+        parseWithFallback(raw, MarkIssueInboxReadResultSchema, UNKNOWN_MARK_ISSUE_INBOX_READ_RESULT, endpoint),
+      ).toEqual({ count: null });
+    }
+  });
+});
+
+describe("IssueUnreadPageSchema", () => {
+  const endpoint = "GET /api/issues/unread";
+
+  it("defaults a missing agent_id and next_cursor to null", () => {
+    const parsed = parseWithFallback(
+      {
+        items: [
+          { issue_id: "i-1", outcome: "completed", agent_id: "a-1", created_at: "2026-01-01T00:00:00Z" },
+          { issue_id: "i-2", outcome: "manual", created_at: "2026-01-01T00:00:00Z", extra: true },
+        ],
+      },
+      IssueUnreadPageSchema,
+      EMPTY_ISSUE_UNREAD_PAGE,
+      { endpoint },
+    );
+    expect(parsed.items.map((u) => [u.issue_id, u.agent_id])).toEqual([
+      ["i-1", "a-1"],
+      ["i-2", null],
+    ]);
+    expect(parsed.next_cursor).toBeNull();
+  });
+
+  it("falls back to an empty last page for a malformed body", () => {
+    expect(parseWithFallback({ items: "nope" }, IssueUnreadPageSchema, EMPTY_ISSUE_UNREAD_PAGE, { endpoint })).toEqual(
+      EMPTY_ISSUE_UNREAD_PAGE,
+    );
+    expect(parseWithFallback(null, IssueUnreadPageSchema, EMPTY_ISSUE_UNREAD_PAGE, { endpoint })).toEqual(
+      EMPTY_ISSUE_UNREAD_PAGE,
+    );
+  });
+});
 
 const baseIssue = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -542,52 +597,23 @@ describe("IssueTriggerPreviewSchema", () => {
 });
 
 describe("TimelineEntriesSchema", () => {
-  it("preserves optional and nullable delivery task ids across server versions", () => {
-    const baseComment = {
+  it("preserves run-bound supplement delivery receipts", () => {
+    const parsed = TimelineEntriesSchema.parse([{
       type: "comment",
-      id: "comment-1",
+      id: "supplement-1",
       actor_type: "member",
       actor_id: "user-1",
       created_at: "2026-01-01T00:00:00Z",
-      content: "Steered input",
-    };
-    const parsed = TimelineEntriesSchema.parse([
-      {
-        ...baseComment,
-        agent_deliveries: [
-          { agent_id: "a1", agent_name: "Walt", task_id: "task-1", status: "delivered" },
-          { agent_id: "a2", agent_name: "Bob", task_id: null, status: "follow_up" },
-          { agent_id: "a3", agent_name: "Kim", status: "pending" },
-        ],
-      },
-    ]);
-
-    expect(parsed[0]?.agent_deliveries?.map((delivery) => delivery.task_id)).toEqual([
-      "task-1",
-      null,
-      undefined,
-    ]);
-  });
-
-  it("keeps old comment responses valid when delivery task_id is absent", () => {
-    const parsed = CommentSchema.parse({
-      id: "comment-1",
-      issue_id: "issue-1",
-      author_type: "member",
-      author_id: "user-1",
-      content: "Legacy receipt",
-      type: "comment",
-      parent_id: null,
-      reactions: [],
-      attachments: [],
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-      agent_deliveries: [
-        { agent_id: "a1", agent_name: "Walt", status: "delivered" },
-      ],
+      content: "also cover rollback",
+      supplement_task_id: "task-1",
+      supplement_status: "delivered",
+      supplement_delivered_at: "2026-01-01T00:00:01Z",
+    }]);
+    expect(parsed[0]).toMatchObject({
+      supplement_task_id: "task-1",
+      supplement_status: "delivered",
+      supplement_delivered_at: "2026-01-01T00:00:01Z",
     });
-
-    expect(parsed.agent_deliveries?.[0]?.task_id).toBeUndefined();
   });
 
   it("preserves source_task_id for agent failure comments", () => {
@@ -662,6 +688,20 @@ describe("TimelineEntriesSchema", () => {
 });
 
 describe("AgentTaskListSchema", () => {
+  it("preserves negotiated supplement capability, ordered coverage and permission", () => {
+    const parsed = AgentTaskListSchema.parse([{
+      id: "run",
+      supplement_capability: "task-supplement-v1",
+      supplement_comment_ids: ["comment-1", "comment-2"],
+      can_supplement: true,
+    }]);
+    expect(parsed[0]).toMatchObject({
+      supplement_capability: "task-supplement-v1",
+      supplement_comment_ids: ["comment-1", "comment-2"],
+      can_supplement: true,
+    });
+  });
+
   it.each([true, false, undefined, null, "true", 1])("safely parses comment cancellation metadata: %s", (value) => {
     const parsed = AgentTaskListSchema.parse([{ id: "run", cancelled_by_comment_change: value }]);
     expect(parsed).toHaveLength(1);
@@ -1329,6 +1369,26 @@ describe("AppConfigSchema agent_conversation_starters_supported drift", () => {
   });
 });
 
+describe("AppConfigSchema issue_create_properties_supported drift", () => {
+  it("defaults to false when the server predates atomic create properties", () => {
+    expect(AppConfigSchema.parse({}).issue_create_properties_supported).toBe(false);
+  });
+
+  it("coerces a malformed declaration to false", () => {
+    expect(
+      AppConfigSchema.parse({ issue_create_properties_supported: "yes" })
+        .issue_create_properties_supported,
+    ).toBe(false);
+  });
+
+  it("carries a genuine declaration through", () => {
+    expect(
+      AppConfigSchema.parse({ issue_create_properties_supported: true })
+        .issue_create_properties_supported,
+    ).toBe(true);
+  });
+});
+
 describe("AppConfigSchema cdn_signed drift", () => {
   it("defaults cdn_signed to false when the server omits it (pre-MUL-3254 servers)", () => {
     const parsed = AppConfigSchema.parse({ cdn_domain: "cdn.example.com" });
@@ -1929,6 +1989,48 @@ describe("IssueViewSchema", () => {
   });
 });
 
+describe("SidebarProjectPrefsDocSchema", () => {
+  it("keeps every setting this client knows", () => {
+    const doc = {
+      projects: { ordering: "name", statuses: ["planned"], onlyMine: true, showCount: false },
+      issues: { sortBy: "priority", sortDirection: "asc", hiddenStatuses: ["done"], assignee: "me", showSubIssues: false },
+      order: ["p2", "p1"],
+    };
+    expect(SidebarProjectPrefsDocSchema.parse(doc)).toEqual(doc);
+  });
+
+  it.each(["anyone", "me", "my_agents", "me_and_my_agents"] satisfies SidebarIssueAssignee[])(
+    "keeps the %s assignee setting",
+    (assignee) => {
+      expect(SidebarProjectPrefsDocSchema.parse({ issues: { assignee } }).issues.assignee).toBe(assignee);
+    },
+  );
+
+  it("drops settings saved by another client version instead of failing the document", () => {
+    const parsed = SidebarProjectPrefsDocSchema.parse({
+      projects: { ordering: "future-order", statuses: "planned", onlyMine: "no", showCount: true },
+      issues: { sortBy: "magic", sortDirection: "up", hiddenStatuses: null, assignee: 1, showSubIssues: "yes" },
+      order: ["p1", 2, null],
+    });
+    expect(parsed.projects).toEqual({ ordering: undefined, statuses: undefined, onlyMine: undefined, showCount: true });
+    expect(parsed.issues).toEqual({
+      sortBy: undefined,
+      sortDirection: undefined,
+      hiddenStatuses: null,
+      assignee: undefined,
+      showSubIssues: undefined,
+    });
+    expect(parsed.order).toEqual(["p1"]);
+  });
+
+  it.each([{}, { projects: null, issues: "x", order: {} }])("parses an empty or malformed document %j", (doc) => {
+    const parsed = SidebarProjectPrefsDocSchema.parse(doc);
+    expect(parsed.order).toEqual([]);
+    expect(Object.values(parsed.projects).every((v) => v === undefined)).toBe(true);
+    expect(Object.values(parsed.issues).every((v) => v === undefined)).toBe(true);
+  });
+});
+
 // WeCom smart-bot installation schemas. These gate UI affordances (the Connect
 // dialog, the "ask your operator" state, the revoked-vs-active badge), so a
 // malformed response must degrade to the safe state rather than a broken one.
@@ -2332,5 +2434,50 @@ describe("TaskMessageListSchema", () => {
   it("downgrades an unknown message type instead of dropping the transcript", () => {
     const parsed = TaskMessageListSchema.parse([{ ...row, type: "video" }]);
     expect(parsed[0]?.type).toBe("text");
+  });
+});
+
+
+describe("AgentActivityBucketListSchema duration", () => {
+  const bucket = { agent_id: "a", bucket_at: "2026-09-24T00:00:00Z", task_count: 201,
+    completed_count: 201, failed_count: 0, cancelled_count: 0 };
+  it("accepts optional aggregate duration from new and old servers", () => {
+    expect(AgentActivityBucketListSchema.parse([bucket])[0]?.duration_ms).toBeUndefined();
+    expect(AgentActivityBucketListSchema.parse([{ ...bucket, duration_ms: 12600000, duration_count: 201 }])[0]?.duration_count).toBe(201);
+  });
+  it("does not discard activity counts when duration is malformed", () => {
+    const parsed = AgentActivityBucketListSchema.parse([{ ...bucket, duration_ms: "slow", duration_count: -1 }]);
+    expect(parsed[0]?.task_count).toBe(201);
+    expect(parsed[0]?.duration_ms).toBeUndefined();
+    expect(parsed[0]?.duration_count).toBeUndefined();
+  });
+});
+
+describe("task usage credits", () => {
+  const slice = {
+    provider: "qoder_cloud",
+    model: "",
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_write_tokens: 0,
+  };
+
+  it("keeps credits and treats a missing field as token-only usage", () => {
+    const parsed = AgentTaskSchema.parse({
+      id: "run",
+      usage: [{ ...slice, credits_micros: 1_250_000 }, { ...slice, provider: "anthropic" }],
+    });
+    expect(parsed.usage?.[0]?.credits_micros).toBe(1_250_000);
+    expect(parsed.usage?.[1]?.credits_micros).toBeUndefined();
+  });
+
+  it("drops malformed credits without losing the usage row", () => {
+    const parsed = AgentTaskSchema.parse({
+      id: "run",
+      usage: [{ ...slice, credits_micros: "lots" }],
+    });
+    expect(parsed.usage).toHaveLength(1);
+    expect(parsed.usage?.[0]?.credits_micros).toBeUndefined();
   });
 });

@@ -1,0 +1,1 @@
+ALTER TABLE issue_pr_automation ADD CONSTRAINT issue_pr_automation_pkey PRIMARY KEY USING INDEX issue_pr_automation_pkey;

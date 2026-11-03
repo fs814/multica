@@ -10,6 +10,7 @@ import {
   registerActiveHostElement,
   registerCoordinatorQueryClient,
 } from "@/platform/tab-coordinator";
+import { initIssueViewTabs } from "@/platform/issue-view-tabs";
 
 /**
  * Renders the active tab session through THE single app router
@@ -36,8 +37,9 @@ export function TabContent() {
   // Ensure the current Coordinator is connected before rendering its router.
   // Fast Refresh preserves hook state while replacing the Coordinator module,
   // so a useState initializer would leave the replacement unsubscribed.
-  // The call is idempotent and does no work once connected.
+  // Both calls are idempotent and do no work once connected.
   initTabCoordinator();
+  initIssueViewTabs();
 
   useEffect(() => {
     registerCoordinatorQueryClient(qc);

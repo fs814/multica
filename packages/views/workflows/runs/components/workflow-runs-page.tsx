@@ -1,22 +1,13 @@
 "use client";
 
-import { AlertCircle, Play } from "lucide-react";
+import { AlertCircle, Play } from "@multica/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { workflowRunPageOptions } from "@multica/core/workflows";
 import type { WorkflowRun } from "@multica/core/workflows";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { Button } from "@multica/ui/components/ui/button";
-import {
-  LIST_GRID_BOTTOM_CLEARANCE,
-  ListGrid,
-  ListGridCell,
-  ListGridHeader,
-  ListGridHeaderCell,
-  ListGridRow,
-} from "@multica/ui/components/ui/list-grid";
-import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { useRowLink } from "../../../navigation";
+import { CollectionList } from "../../../layout/collection-list";
 import { formatInTimeZone } from "../../../common/format-in-time-zone";
 import { formatDuration } from "../../../dashboard/utils";
 import {
@@ -45,44 +36,6 @@ import { WorkflowRunStatusBadge } from "./run-status-badge";
  * server-side (`limit`/`offset`) rather than unbounded, so the DOM cost is
  * capped by the page size.
  */
-
-// Core set below @2xl is status + workflow: the run has no name of its own, so
-// the template is its identity, and everything else is detail a narrow pane can
-// defer to the detail page.
-const GRID_COLS =
-  "grid-cols-[0.75rem_7rem_minmax(120px,1fr)_0.75rem] " +
-  "@2xl:grid-cols-[0.75rem_7rem_minmax(180px,1fr)_10rem_8rem_6rem_0.75rem]";
-
-// Fixed tracks (edges 12+12, status 112, workflow min 180, current step 160,
-// started 128, duration 96) plus the 6 gap-x-3 gaps between the wide
-// template's 7 tracks. A CSS var so the min-width and the track list derive
-// from the same numbers - Tailwind only sees literal classes.
-const TRACK_VARS = {
-  "--wfr-minw": `${24 + 112 + 180 + 160 + 128 + 96 + 6 * 12}px`,
-} as React.CSSProperties;
-
-function RunsListHeader() {
-  const { t } = useT("workflows");
-  return (
-    <ListGridHeader>
-      <ListGridHeaderCell>
-        {t(($) => $.runs.page.table.status)}
-      </ListGridHeaderCell>
-      <ListGridHeaderCell>
-        {t(($) => $.runs.page.table.workflow)}
-      </ListGridHeaderCell>
-      <ListGridHeaderCell className="hidden @2xl:flex">
-        {t(($) => $.runs.page.table.current_node)}
-      </ListGridHeaderCell>
-      <ListGridHeaderCell className="hidden @2xl:flex">
-        {t(($) => $.runs.page.table.started)}
-      </ListGridHeaderCell>
-      <ListGridHeaderCell className="hidden @2xl:flex" align="right">
-        {t(($) => $.runs.page.table.duration)}
-      </ListGridHeaderCell>
-    </ListGridHeader>
-  );
-}
 
 /**
  * Elapsed time for one row.
@@ -115,56 +68,10 @@ function DurationCell({ run }: { run: WorkflowRun }) {
   );
 }
 
-function LoadingSkeleton() {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto @container">
-      <ListGrid className={GRID_COLS}>
-        <ListGridHeader>
-          <ListGridHeaderCell>
-            <Skeleton className="h-3 w-12" />
-          </ListGridHeaderCell>
-          <ListGridHeaderCell>
-            <Skeleton className="h-3 w-16" />
-          </ListGridHeaderCell>
-          <ListGridHeaderCell className="hidden @2xl:flex">
-            <Skeleton className="h-3 w-16" />
-          </ListGridHeaderCell>
-          <ListGridHeaderCell className="hidden @2xl:flex">
-            <Skeleton className="h-3 w-12" />
-          </ListGridHeaderCell>
-          <ListGridHeaderCell className="hidden @2xl:flex">
-            <Skeleton className="h-3 w-12" />
-          </ListGridHeaderCell>
-        </ListGridHeader>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <ListGridRow key={i} className="hover:bg-transparent">
-            <ListGridCell>
-              <Skeleton className="h-5 w-16 rounded-full" />
-            </ListGridCell>
-            <ListGridCell>
-              <Skeleton className="h-3.5 w-40 max-w-full" />
-            </ListGridCell>
-            <ListGridCell className="hidden @2xl:flex">
-              <Skeleton className="h-3 w-24" />
-            </ListGridCell>
-            <ListGridCell className="hidden @2xl:flex">
-              <Skeleton className="h-3 w-20" />
-            </ListGridCell>
-            <ListGridCell className="hidden justify-end @2xl:flex">
-              <Skeleton className="h-3 w-10" />
-            </ListGridCell>
-          </ListGridRow>
-        ))}
-      </ListGrid>
-    </div>
-  );
-}
-
 export function WorkflowRunsPage({ templateId }: { templateId?: string } = {}) {
   const { t, i18n } = useT("workflows");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
-  const rowLink = useRowLink();
   const location = useWorkflowLocation();
   const status = location.params.get("status") ?? "";
   const offset = workflowListOffset(location.params.get("run_offset"));
@@ -191,8 +98,7 @@ export function WorkflowRunsPage({ templateId }: { templateId?: string } = {}) {
         <CollectionPageHeader
           icon={Play}
           title={t(($) => $.runs.page.title)}
-          count={total}
-        />
+          />
       )}
       <div className="flex flex-wrap items-center gap-3 border-b px-4 py-2">
         <select
@@ -257,73 +163,20 @@ export function WorkflowRunsPage({ templateId }: { templateId?: string } = {}) {
             </Button>
           }
         />
-      ) : isLoading ? (
-        <LoadingSkeleton />
-      ) : runs.length === 0 ? (
+      ) : !isLoading && runs.length === 0 ? (
         <CollectionPageState
           icon={Play}
           title={t(($) => $.runs.page.empty.title)}
           description={t(($) => $.runs.page.empty.hint)}
         />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto @container">
-          <ListGrid
-            className={`${GRID_COLS} @2xl:min-w-[var(--wfr-minw)]`}
-            style={{
-              ...TRACK_VARS,
-              paddingBottom: LIST_GRID_BOTTOM_CLEARANCE,
-            }}
-          >
-            <RunsListHeader />
-            {runs.map((run) => (
-              <ListGridRow
-                key={run.id}
-                className="cursor-pointer"
-                {...rowLink(
-                  wsPaths.workflowRunDetail(run.id) +
-                    "?return_to=" +
-                    encodeURIComponent(location.current),
-                )}
-              >
-                <ListGridCell>
-                  <WorkflowRunStatusBadge status={run.status} />
-                </ListGridCell>
-                <ListGridCell>
-                  <div className="min-w-0 flex-1">
-                    <span className="block min-w-0 truncate text-body font-medium">
-                      {run.template_name}
-                    </span>
-                    <span className="block min-w-0 truncate font-mono text-caption text-muted-foreground">
-                      {run.template_key}
-                    </span>
-                  </div>
-                </ListGridCell>
-                <ListGridCell className="hidden @2xl:flex">
-                  {/* A terminal run has no current node, and a dash is the
-                      honest rendering: naming the last node it touched would
-                      read as "still there". */}
-                  <span className="min-w-0 truncate font-mono text-caption text-muted-foreground">
-                    {run.current_node_key ?? t(($) => $.runs.page.not_started)}
-                  </span>
-                </ListGridCell>
-                <ListGridCell className="hidden @2xl:flex">
-                  <span className="text-caption tabular-nums text-muted-foreground">
-                    {run.started_at
-                      ? formatInTimeZone(
-                          run.started_at,
-                          undefined,
-                          i18n.language,
-                        )
-                      : t(($) => $.runs.page.not_started)}
-                  </span>
-                </ListGridCell>
-                <ListGridCell className="hidden justify-end @2xl:flex">
-                  <DurationCell run={run} />
-                </ListGridCell>
-              </ListGridRow>
-            ))}
-          </ListGrid>
-        </div>
+<CollectionList label={t(($) => $.runs.page.title)} rows={runs} loading={isLoading} getRowId={(run)=>run.id} getRowHref={(run)=>wsPaths.workflowRunDetail(run.id)+"?return_to="+encodeURIComponent(location.current)} getRowTitle={(run)=>run.template_name} columns={[
+      {key:"name", header:t(($) => $.runs.page.table.workflow), cell:(run)=><span>{run.template_name}<span className="text-muted-foreground"> {run.template_key}</span></span>},
+      {key:"status", header:t(($) => $.runs.page.table.status), cell:(run)=><WorkflowRunStatusBadge status={run.status} />, width:120, core:true},
+      {key:"node", header:t(($) => $.runs.page.table.current_node), cell:(run)=>run.current_node_key ?? t(($) => $.runs.page.not_started), width:160},
+      {key:"started", header:t(($) => $.runs.page.table.started), cell:(run)=>run.started_at ? formatInTimeZone(run.started_at, undefined, i18n.language) : t(($) => $.runs.page.not_started), width:160},
+      {key:"duration", header:t(($) => $.runs.page.table.duration), cell:(run)=><DurationCell run={run}/>, width:100}
+    ]} />
       )}
     </div>
   );
