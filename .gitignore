@@ -20,6 +20,9 @@ dist-electron
 # env
 .env*
 !.env.example
+# Tracked for this fork: the local center launch needs a fixed
+# MULTICA_DEV_VERIFICATION_CODE, which re-deriving from .env.example loses.
+!.env
 # Desktop production config is public (backend URL, etc.) — track it so
 # `pnpm package` produces a release-ready build without extra setup.
 !apps/desktop/.env.production
