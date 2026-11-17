@@ -29,6 +29,7 @@
     "./my-issues": "./my-issues/index.ts",
     "./clis": "./clis/index.ts",
     "./tools": "./tools/index.ts",
+    "./zotero": "./zotero/index.ts",
     "./skills": "./skills/index.ts",
     "./agents": "./agents/index.ts",
     "./agents/agent-detail-page": "./agents/components/agent-detail-page.tsx",

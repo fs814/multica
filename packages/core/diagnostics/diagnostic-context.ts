@@ -90,6 +90,7 @@ const WORKSPACE_ROUTES: readonly RoutePattern[] = [
   ["tools"],
   ["web"],
   ["web", ":id"],
+  ["zotero"],
   ["skills"],
   ["skills", ":id"],
   ["settings"],

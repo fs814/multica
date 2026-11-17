@@ -29,6 +29,7 @@ describe("spaceForPath", () => {
     [ws.clis(), "clis"],
     [ws.tools(), "tools"],
     [ws.web(), "web"],
+    [ws.zotero(), "zotero"],
     [`${ws.clis()}/codex?tab=details`, "clis"],
     [`${ws.tools()}/tool-1`, "tools"],
     [`${ws.web()}/link-1`, "web"],

@@ -125,7 +125,7 @@ describe("AppRail spaces", () => {
     state.pathname = "/acme/projects/p-1";
     renderRail();
 
-    for (const href of ["/acme/inbox", "/acme/issues", "/acme/agents", "/acme/chat", "/acme/autopilots", "/acme/clis", "/acme/tools", "/acme/web"]) {
+    for (const href of ["/acme/inbox", "/acme/issues", "/acme/agents", "/acme/chat", "/acme/autopilots", "/acme/clis", "/acme/tools", "/acme/web", "/acme/zotero"]) {
       expect(link(href)).not.toBeNull();
     }
     // Projects belong to the work space, which links to Issues.
@@ -137,6 +137,7 @@ describe("AppRail spaces", () => {
     ["clis", "CLI"],
     ["tools", "Tools"],
     ["web", "Web"],
+    ["zotero", "Zotero"],
   ])("shows %s as its own rail destination instead of Team", (segment, label) => {
     state.pathname = `/acme/${segment}`;
     renderRail();

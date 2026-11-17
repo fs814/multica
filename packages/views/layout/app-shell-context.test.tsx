@@ -80,6 +80,7 @@ describe("AppShellProvider", () => {
       ["/acme/clis", "clis", false],
       ["/acme/tools", "tools", false],
       ["/acme/web", "web", false],
+      ["/acme/zotero", "zotero", false],
       ["/acme/attachments/a-1", null, false],
     ];
     for (const [pathname, space, hasPanel] of cases) {

@@ -31,6 +31,7 @@ import { SkillsPage } from "@multica/views/skills";
 import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { ClisPage } from "@multica/views/clis";
 import { DesktopToolsPage } from "./components/desktop-tools-page";
+import { DesktopZoteroPage } from "./components/desktop-zotero-page";
 import { DesktopWebPage } from "./components/desktop-web-page";
 import { DesktopWebSitePage } from "./components/desktop-web-site-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
@@ -265,6 +266,11 @@ export const appRoutes: RouteObject[] = [
             path: "web",
             element: <DesktopWebPage />,
             handle: { title: "Web" },
+          },
+          {
+            path: "zotero",
+            element: <DesktopZoteroPage />,
+            handle: { title: "Zotero" },
           },
           {
             path: "tools",

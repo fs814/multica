@@ -1,0 +1,9 @@
+{
+  "Papers": ["arxiv", "论文", "paper", "proceedings", ".caj"],
+  "Books": ["oceanofpdf", "ebook", "电子书"],
+  "Talks/Slides": ["talk", "slides", "分享", "演讲", "keynote"],
+  "Recruiting/Resumes": ["简历", "resume", "_cv", "cv_"],
+  "Work/Reports": ["周报", "月报", "汇报", "report"],
+  "Work/Specs": ["需求", "设计文档", "spec", "方案"],
+  "Admin": ["发票", "invoice", "合同", "contract", "报销"]
+}

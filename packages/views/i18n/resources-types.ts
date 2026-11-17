@@ -25,6 +25,7 @@ import type modals from "../locales/en/modals.json";
 import type runtimes from "../locales/en/runtimes.json";
 import type clis from "../locales/en/clis.json";
 import type tools from "../locales/en/tools.json";
+import type zotero from "../locales/en/zotero.json";
 import type webLinks from "../locales/en/web-links.json";
 import type layout from "../locales/en/layout.json";
 import type usage from "../locales/en/usage.json";
@@ -70,6 +71,7 @@ declare global {
     runtimes: typeof runtimes;
     clis: typeof clis;
     tools: typeof tools;
+    zotero: typeof zotero;
     "web-links": typeof webLinks;
     layout: typeof layout;
     usage: typeof usage;

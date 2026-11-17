@@ -228,6 +228,12 @@ export function AppRail({
       label: t(($) => $.nav.web),
       fullLabel: t(($) => $.nav.web),
     },
+    zotero: {
+      href: p.zotero(),
+      icon: routeIconForPath(p.zotero()),
+      label: t(($) => $.nav.zotero),
+      fullLabel: t(($) => $.nav.zotero),
+    },
   };
 
   return (

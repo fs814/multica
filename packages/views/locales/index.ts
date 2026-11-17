@@ -21,6 +21,7 @@ import enModals from "./en/modals.json";
 import enRuntimes from "./en/runtimes.json";
 import enClis from "./en/clis.json";
 import enTools from "./en/tools.json";
+import enZotero from "./en/zotero.json";
 import enWebLinks from "./en/web-links.json";
 import enLayout from "./en/layout.json";
 import enUsage from "./en/usage.json";
@@ -50,6 +51,7 @@ import zhHansModals from "./zh-Hans/modals.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
 import zhHansClis from "./zh-Hans/clis.json";
 import zhHansTools from "./zh-Hans/tools.json";
+import zhHansZotero from "./zh-Hans/zotero.json";
 import zhHansWebLinks from "./zh-Hans/web-links.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansUsage from "./zh-Hans/usage.json";
@@ -78,6 +80,7 @@ import zhHantChat from "./zh-Hant/chat.json";
 import zhHantModals from "./zh-Hant/modals.json";
 import zhHantRuntimes from "./zh-Hant/runtimes.json";
 import zhHantLayout from "./zh-Hant/layout.json";
+import zhHantZotero from "./zh-Hant/zotero.json";
 import zhHantUsage from "./zh-Hant/usage.json";
 import zhHantUi from "./zh-Hant/ui.json";
 import zhHantSquads from "./zh-Hant/squads.json";
@@ -104,6 +107,7 @@ import koModals from "./ko/modals.json";
 import koRuntimes from "./ko/runtimes.json";
 import koClis from "./ko/clis.json";
 import koTools from "./ko/tools.json";
+import koZotero from "./ko/zotero.json";
 import koWebLinks from "./ko/web-links.json";
 import koLayout from "./ko/layout.json";
 import koUsage from "./ko/usage.json";
@@ -133,6 +137,7 @@ import jaModals from "./ja/modals.json";
 import jaRuntimes from "./ja/runtimes.json";
 import jaClis from "./ja/clis.json";
 import jaTools from "./ja/tools.json";
+import jaZotero from "./ja/zotero.json";
 import jaWebLinks from "./ja/web-links.json";
 import jaLayout from "./ja/layout.json";
 import jaUsage from "./ja/usage.json";
@@ -162,6 +167,7 @@ import frModals from "./fr/modals.json";
 import frRuntimes from "./fr/runtimes.json";
 import frClis from "./fr/clis.json";
 import frTools from "./fr/tools.json";
+import frZotero from "./fr/zotero.json";
 import frWebLinks from "./fr/web-links.json";
 import frLayout from "./fr/layout.json";
 import frUsage from "./fr/usage.json";
@@ -196,6 +202,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: enRuntimes,
     clis: enClis,
     tools: enTools,
+    zotero: enZotero,
     "web-links": enWebLinks,
     layout: enLayout,
     usage: enUsage,
@@ -227,6 +234,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: zhHansRuntimes,
     clis: zhHansClis,
     tools: zhHansTools,
+    zotero: zhHansZotero,
     "web-links": zhHansWebLinks,
     layout: zhHansLayout,
     usage: zhHansUsage,
@@ -257,6 +265,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     modals: zhHantModals,
     runtimes: zhHantRuntimes,
     layout: zhHantLayout,
+    zotero: zhHantZotero,
     usage: zhHantUsage,
     ui: zhHantUi,
     squads: zhHantSquads,
@@ -285,6 +294,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: koRuntimes,
     clis: koClis,
     tools: koTools,
+    zotero: koZotero,
     "web-links": koWebLinks,
     layout: koLayout,
     usage: koUsage,
@@ -316,6 +326,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: jaRuntimes,
     clis: jaClis,
     tools: jaTools,
+    zotero: jaZotero,
     "web-links": jaWebLinks,
     layout: jaLayout,
     usage: jaUsage,
@@ -347,6 +358,7 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: frRuntimes,
     clis: frClis,
     tools: frTools,
+    zotero: frZotero,
     "web-links": frWebLinks,
     layout: frLayout,
     usage: frUsage,

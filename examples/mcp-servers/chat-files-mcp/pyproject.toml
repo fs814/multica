@@ -1,0 +1,17 @@
+[project]
+name = "chat-files-mcp"
+version = "1.0.0"
+description = "MCP server: list the documents WeChat / WeCom keep from chats, categorize them, archive them to Zotero or a folder"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["mcp>=1.2,<2"]
+
+[project.optional-dependencies]
+pdf = ["pypdf>=4"]  # PDF previews when poppler's pdftotext isn't installed
+
+[project.scripts]
+chat-files = "chat_files.cli:main"
+
+[tool.setuptools]
+packages = ["chat_files"]
+py-modules = ["server"]

@@ -86,6 +86,7 @@
     "./chat/unread": "./chat/unread.ts",
     "./clis": "./clis/index.ts",
     "./tools": "./tools/index.ts",
+    "./zotero": "./zotero/index.ts",
     "./runtimes": "./runtimes/index.ts",
     "./runtimes/queries": "./runtimes/queries.ts",
     "./runtimes/mutations": "./runtimes/mutations.ts",

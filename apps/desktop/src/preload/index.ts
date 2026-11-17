@@ -116,6 +116,19 @@ const desktopAPI = {
     output: (id: string) => ipcRenderer.invoke("local-tools:output", id),
     stop: (id: string) => ipcRenderer.invoke("local-tools:stop", id),
   },
+  zotero: {
+    list: () => ipcRenderer.invoke("local-zotero:list"),
+    status: () => ipcRenderer.invoke("local-zotero:status"),
+    authorize: () => ipcRenderer.invoke("local-zotero:authorize"),
+    collections: () => ipcRenderer.invoke("local-zotero:collections"),
+    ensureCollection: (path: string) => ipcRenderer.invoke("local-zotero:ensure-collection", path),
+    importFile: (id: string, collectionKey: string, trashOriginal: boolean) =>
+      ipcRenderer.invoke("local-zotero:import", id, collectionKey, trashOriginal),
+    reveal: (id: string) => ipcRenderer.invoke("local-zotero:reveal", id),
+    preview: (id: string) => ipcRenderer.invoke("local-zotero:preview", id),
+    trash: (id: string) => ipcRenderer.invoke("local-zotero:trash", id),
+    rename: (id: string, name: string) => ipcRenderer.invoke("local-zotero:rename", id, name),
+  },
   /** App version + normalized OS. Read once at preload time so the renderer
    *  can use it synchronously when initializing the API client. */
   appInfo,

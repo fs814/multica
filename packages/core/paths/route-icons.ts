@@ -37,6 +37,7 @@ export type RouteIconName =
   | "Terminal"
   | "Wrench"
   | "Globe"
+  | "BookCheck"
   | "BookOpenText"
   | "Settings"
   | "File"
@@ -68,6 +69,7 @@ export type NavLabelKey =
   | "clis"
   | "tools"
   | "web"
+  | "zotero"
   | "skills"
   | "settings";
 
@@ -91,6 +93,7 @@ export type WorkspacePageKey =
   | "clis"
   | "tools"
   | "web"
+  | "zotero"
   | "skills"
   | "settings";
 
@@ -140,6 +143,7 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   clis: { segment: "clis", icon: "Terminal", navKey: "clis" },
   tools: { segment: "tools", icon: "Wrench", navKey: "tools" },
   web: { segment: "web", icon: "Globe", navKey: "web" },
+  zotero: { segment: "zotero", icon: "BookCheck", navKey: "zotero" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
 };

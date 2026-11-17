@@ -20,6 +20,7 @@ import type { TabSelectionShortcutKey } from "../shared/main-renderer-messages";
 
 interface DesktopAPI {
   tools: import("@multica/core/tools").LocalToolsBridge;
+  zotero: import("@multica/core/zotero").LocalZoteroBridge;
   center: {
     initialMode: 'choose' | 'center';
     get: () => Promise<import('../shared/center-settings').CenterSettingsState>;

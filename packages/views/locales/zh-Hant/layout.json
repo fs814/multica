@@ -19,7 +19,8 @@
     "clis": "CLI",
     "tools": "工具",
     "workflow_instances": "工作流例項",
-    "web": "網頁"
+    "web": "網頁",
+    "zotero": "Zotero"
   },
   "tab": {
     "issue": "任務",
