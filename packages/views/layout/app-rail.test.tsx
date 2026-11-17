@@ -125,11 +125,23 @@ describe("AppRail spaces", () => {
     state.pathname = "/acme/projects/p-1";
     renderRail();
 
-    for (const href of ["/acme/inbox", "/acme/issues", "/acme/agents", "/acme/chat", "/acme/autopilots"]) {
+    for (const href of ["/acme/inbox", "/acme/issues", "/acme/agents", "/acme/chat", "/acme/autopilots", "/acme/clis", "/acme/tools", "/acme/web"]) {
       expect(link(href)).not.toBeNull();
     }
     // Projects belong to the work space, which links to Issues.
     expect(link("/acme/issues")).toHaveAttribute("aria-current", "page");
+    expect(link("/acme/agents")).not.toHaveAttribute("aria-current");
+  });
+
+  it.each([
+    ["clis", "CLI"],
+    ["tools", "Tools"],
+    ["web", "Web"],
+  ])("shows %s as its own rail destination instead of Team", (segment, label) => {
+    state.pathname = `/acme/${segment}`;
+    renderRail();
+    expect(screen.getByRole("link", { name: label })).toHaveAttribute("href", `/acme/${segment}`);
+    expect(link(`/acme/${segment}`)).toHaveAttribute("aria-current", "page");
     expect(link("/acme/agents")).not.toHaveAttribute("aria-current");
   });
 

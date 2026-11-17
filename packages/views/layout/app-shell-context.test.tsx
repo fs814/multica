@@ -77,6 +77,9 @@ describe("AppShellProvider", () => {
       ["/acme/inbox", "inbox", false],
       ["/acme/chat", "chat", false],
       ["/acme/settings", "settings", false],
+      ["/acme/clis", "clis", false],
+      ["/acme/tools", "tools", false],
+      ["/acme/web", "web", false],
       ["/acme/attachments/a-1", null, false],
     ];
     for (const [pathname, space, hasPanel] of cases) {

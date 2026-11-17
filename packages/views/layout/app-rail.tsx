@@ -158,7 +158,7 @@ function RailSpaceLink({
 }
 
 /**
- * The app rail: workspaces, New issue and search, the five spaces, then help,
+ * The app rail: workspaces, New issue and search, the workspace spaces, then help,
  * settings and the account. It sits on the app shell, outside the content
  * card, and stays put while the panel beside it collapses. Desktop passes
  * `globalActions={false}`: its title bar carries New issue and search.
@@ -209,6 +209,24 @@ export function AppRail({
       icon: routeIconForPath(p.autopilots()),
       label: t(($) => $.rail.autopilots),
       fullLabel: t(($) => $.nav.autopilots),
+    },
+    clis: {
+      href: p.clis(),
+      icon: routeIconForPath(p.clis()),
+      label: t(($) => $.nav.clis),
+      fullLabel: t(($) => $.nav.clis),
+    },
+    tools: {
+      href: p.tools(),
+      icon: routeIconForPath(p.tools()),
+      label: t(($) => $.nav.tools),
+      fullLabel: t(($) => $.nav.tools),
+    },
+    web: {
+      href: p.web(),
+      icon: routeIconForPath(p.web()),
+      label: t(($) => $.nav.web),
+      fullLabel: t(($) => $.nav.web),
     },
   };
 

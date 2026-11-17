@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, BookOpenText, Bot, Globe, Monitor, Plus, Terminal, User, UserPlus, Users, Wrench } from "@multica/ui/icons";
+import { BarChart3, BookOpenText, Bot, Monitor, Plus, User, UserPlus, Users } from "@multica/ui/icons";
 import { cn } from "@multica/ui/lib/utils";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
 import { IconButton } from "@multica/ui/components/common/icon-button";
@@ -290,24 +290,6 @@ export function TeamPanel() {
                   </span>
                 ) : undefined
               }
-            />
-            <PanelLink
-              href={p.clis()}
-              icon={<Terminal />}
-              label={t(($) => $.nav.clis)}
-              active={isPathWithin(pathname, p.clis())}
-            />
-            <PanelLink
-              href={p.tools()}
-              icon={<Wrench />}
-              label={t(($) => $.nav.tools)}
-              active={isPathWithin(pathname, p.tools())}
-            />
-            <PanelLink
-              href={p.web()}
-              icon={<Globe />}
-              label={t(($) => $.nav.web)}
-              active={isPathWithin(pathname, p.web())}
             />
             <PanelLink
               href={p.usage()}
