@@ -30,6 +30,8 @@ import { deriveProfileName } from "./daemon-profile";
 import { setupLocalDirectory } from "./local-directory";
 import { setupLocalTools } from "./local-tools";
 import { setupLocalZotero } from "./local-zotero";
+import { setupLocalApps } from "./local-apps";
+import { setupLocalContainers } from "./local-containers";
 import { installWebSites } from "./web-sites";
 import { configureLinuxFileDialogs } from "./linux-file-dialog";
 import { openExternalSafely, downloadURLSafely } from "./external-url";
@@ -1211,6 +1213,8 @@ if (!gotTheLock) {
     setupLocalDirectory(() => mainWindows.mostRecent());
     setupLocalTools(() => mainWindows.mostRecent());
     setupLocalZotero(() => mainWindows.mostRecent());
+    setupLocalApps(() => mainWindows.mostRecent());
+    setupLocalContainers(() => mainWindows.mostRecent());
 
     // Registered after the updater and daemon gates, so a quit they hold
     // (busy daemon, pending install) leaves the session writable; only the

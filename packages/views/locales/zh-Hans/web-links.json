@@ -6,6 +6,8 @@
   "cancel": "取消",
   "name": "名称",
   "url": "网址",
+  "category": "分类",
+  "category_placeholder": "可选，例如 Embedded",
   "open": "在 Multica 中打开",
   "opening": "正在打开...",
   "open_browser": "在浏览器中打开",
@@ -18,5 +20,6 @@
   "back": "后退",
   "forward": "前进",
   "reload": "重新加载",
-  "site_missing": "此网站已被移除。请打开网页菜单重新添加。"
+  "site_missing": "此网站已被移除。请打开网页菜单重新添加。",
+  "uncategorized": "其他"
 }

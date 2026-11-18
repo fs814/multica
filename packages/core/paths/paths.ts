@@ -100,6 +100,8 @@ function workspaceScoped(slug: string) {
     tools: () => `${ws}/tools`,
     web: () => `${ws}/web`,
     zotero: () => `${ws}/zotero`,
+    apps: () => `${ws}/apps`,
+    containers: () => `${ws}/containers`,
     webSite: (id: string) => `${ws}/web/${encode(id)}`,
     runtimeDetail: (id: string) => `${ws}/runtimes/${encode(id)}`,
     runtimeSettings: (machineId: string, runtimeId: string) =>

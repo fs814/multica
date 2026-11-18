@@ -40,6 +40,8 @@ const PAGE_KEYWORDS: Record<WorkspacePageKey, string[]> = {
   clis: ["cli", "clis", "command", "tool", "local", "命令行", "工具", "本机"],
   tools: ["tools", "scripts", "build", "local", "工具", "脚本", "本机"],
   web: ["web", "websites", "links", "jenkins", "网页", "网站"],
+  apps: ["apps", "applications", "programs", "launch", "installed", "应用", "程序", "软件"],
+  containers: ["containers", "docker", "podman", "orbstack", "images", "volumes", "compose", "容器", "镜像"],
   zotero: ["zotero", "papers", "pdf", "library", "wecom", "wechat", "downloads", "文献", "论文", "企业微信", "微信", "下载"],
 
   inbox: ["inbox", "notifications", "收件箱", "通知"],

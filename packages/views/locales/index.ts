@@ -22,6 +22,8 @@ import enRuntimes from "./en/runtimes.json";
 import enClis from "./en/clis.json";
 import enTools from "./en/tools.json";
 import enZotero from "./en/zotero.json";
+import enApps from "./en/apps.json";
+import enContainers from "./en/containers.json";
 import enWebLinks from "./en/web-links.json";
 import enLayout from "./en/layout.json";
 import enUsage from "./en/usage.json";
@@ -52,6 +54,8 @@ import zhHansRuntimes from "./zh-Hans/runtimes.json";
 import zhHansClis from "./zh-Hans/clis.json";
 import zhHansTools from "./zh-Hans/tools.json";
 import zhHansZotero from "./zh-Hans/zotero.json";
+import zhHansApps from "./zh-Hans/apps.json";
+import zhHansContainers from "./zh-Hans/containers.json";
 import zhHansWebLinks from "./zh-Hans/web-links.json";
 import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansUsage from "./zh-Hans/usage.json";
@@ -81,6 +85,8 @@ import zhHantModals from "./zh-Hant/modals.json";
 import zhHantRuntimes from "./zh-Hant/runtimes.json";
 import zhHantLayout from "./zh-Hant/layout.json";
 import zhHantZotero from "./zh-Hant/zotero.json";
+import zhHantApps from "./zh-Hant/apps.json";
+import zhHantContainers from "./zh-Hant/containers.json";
 import zhHantUsage from "./zh-Hant/usage.json";
 import zhHantUi from "./zh-Hant/ui.json";
 import zhHantSquads from "./zh-Hant/squads.json";
@@ -108,6 +114,8 @@ import koRuntimes from "./ko/runtimes.json";
 import koClis from "./ko/clis.json";
 import koTools from "./ko/tools.json";
 import koZotero from "./ko/zotero.json";
+import koApps from "./ko/apps.json";
+import koContainers from "./ko/containers.json";
 import koWebLinks from "./ko/web-links.json";
 import koLayout from "./ko/layout.json";
 import koUsage from "./ko/usage.json";
@@ -138,6 +146,8 @@ import jaRuntimes from "./ja/runtimes.json";
 import jaClis from "./ja/clis.json";
 import jaTools from "./ja/tools.json";
 import jaZotero from "./ja/zotero.json";
+import jaApps from "./ja/apps.json";
+import jaContainers from "./ja/containers.json";
 import jaWebLinks from "./ja/web-links.json";
 import jaLayout from "./ja/layout.json";
 import jaUsage from "./ja/usage.json";
@@ -168,6 +178,8 @@ import frRuntimes from "./fr/runtimes.json";
 import frClis from "./fr/clis.json";
 import frTools from "./fr/tools.json";
 import frZotero from "./fr/zotero.json";
+import frApps from "./fr/apps.json";
+import frContainers from "./fr/containers.json";
 import frWebLinks from "./fr/web-links.json";
 import frLayout from "./fr/layout.json";
 import frUsage from "./fr/usage.json";
@@ -203,6 +215,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     clis: enClis,
     tools: enTools,
     zotero: enZotero,
+    apps: enApps,
+    containers: enContainers,
     "web-links": enWebLinks,
     layout: enLayout,
     usage: enUsage,
@@ -235,6 +249,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     clis: zhHansClis,
     tools: zhHansTools,
     zotero: zhHansZotero,
+    apps: zhHansApps,
+    containers: zhHansContainers,
     "web-links": zhHansWebLinks,
     layout: zhHansLayout,
     usage: zhHansUsage,
@@ -266,6 +282,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     runtimes: zhHantRuntimes,
     layout: zhHantLayout,
     zotero: zhHantZotero,
+    apps: zhHantApps,
+    containers: zhHantContainers,
     usage: zhHantUsage,
     ui: zhHantUi,
     squads: zhHantSquads,
@@ -295,6 +313,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     clis: koClis,
     tools: koTools,
     zotero: koZotero,
+    apps: koApps,
+    containers: koContainers,
     "web-links": koWebLinks,
     layout: koLayout,
     usage: koUsage,
@@ -327,6 +347,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     clis: jaClis,
     tools: jaTools,
     zotero: jaZotero,
+    apps: jaApps,
+    containers: jaContainers,
     "web-links": jaWebLinks,
     layout: jaLayout,
     usage: jaUsage,
@@ -359,6 +381,8 @@ export const RESOURCES: Record<SupportedLocale, LocaleResources> = {
     clis: frClis,
     tools: frTools,
     zotero: frZotero,
+    apps: frApps,
+    containers: frContainers,
     "web-links": frWebLinks,
     layout: frLayout,
     usage: frUsage,

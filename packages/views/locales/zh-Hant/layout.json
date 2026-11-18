@@ -20,7 +20,9 @@
     "tools": "工具",
     "workflow_instances": "工作流例項",
     "web": "網頁",
-    "zotero": "Zotero"
+    "zotero": "Zotero",
+    "apps": "應用程式",
+    "containers": "容器"
   },
   "tab": {
     "issue": "任務",

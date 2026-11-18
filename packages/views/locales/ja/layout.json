@@ -20,6 +20,8 @@
     "workflow_instances": "ワークフローインスタンス",
     "web": "Web",
     "zotero": "Zotero",
+    "apps": "アプリ",
+    "containers": "コンテナ",
     "views": "ビュー"
   },
   "tab": {

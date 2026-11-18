@@ -2,6 +2,15 @@ export interface WebLink {
   id: string;
   name: string;
   url: string;
+  /** Optional group heading in the Web tab, e.g. "Embedded". */
+  category?: string;
+}
+
+/** Trimmed category, or undefined when blank or not a string. */
+export function normalizeCategory(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const category = value.trim().slice(0, 60);
+  return category || undefined;
 }
 
 /** Accept web pages only; never persist credentials in a bookmark URL. */
@@ -26,6 +35,7 @@ export function parseWebLinks(value: unknown): WebLink[] {
     if (typeof item.id !== "string" || !item.id || seen.has(item.id) ||
         typeof item.name !== "string" || !item.name.trim() || !url) return [];
     seen.add(item.id);
-    return [{ id: item.id, name: item.name.trim(), url }];
+    const category = normalizeCategory(item.category);
+    return [{ id: item.id, name: item.name.trim(), url, ...(category ? { category } : {}) }];
   });
 }

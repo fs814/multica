@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { I18nProvider } from "@multica/core/i18n/react";
 import { useWebLinksStore } from "@multica/core/web-links";
@@ -11,7 +11,7 @@ vi.mock("../platform/open-external", () => ({ openExternal: external }));
 function mount(openSite?: (url: string) => Promise<void>) {
   return render(<I18nProvider locale="en" resources={{ en: { "web-links": en } }}><WebPage openSite={openSite} /></I18nProvider>);
 }
-beforeEach(() => { useWebLinksStore.setState({ links: [] }); external.mockReset(); });
+beforeEach(() => { useWebLinksStore.setState({ links: [], collapsed: [] }); external.mockReset(); });
 
 it("adds, opens, edits and removes a saved site", async () => {
   const openSite = vi.fn().mockResolvedValue(undefined);
@@ -46,4 +46,49 @@ it("opens sites in the browser on web", () => {
   mount();
   fireEvent.click(screen.getByRole("button", { name: en.open_browser }));
   expect(external).toHaveBeenCalledWith("https://ci.example.com/");
+});
+
+it("groups sites under category headings and saves a category from the form", () => {
+  useWebLinksStore.setState({ links: [
+    { id: "1", name: "Memos", url: "http://m.local/", category: "Self-hosted" },
+    { id: "2", name: "Mine", url: "http://mine.local/" },
+    { id: "3", name: "Sipeed", url: "https://sipeed.com/", category: "Embedded" },
+    { id: "4", name: "Radxa", url: "https://www.radxa.cn/", category: "Embedded" },
+  ] });
+  mount();
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Other 1", "Self-hosted 1", "Embedded 2"]);
+  const embedded = screen.getByRole("region", { name: "Embedded" });
+  expect(within(embedded).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["Sipeed", "Radxa"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit Mine" }));
+  fireEvent.change(screen.getByLabelText(en.category), { target: { value: " Embedded " } });
+  fireEvent.click(screen.getByRole("button", { name: en.save }));
+  expect(useWebLinksStore.getState().links.find((l) => l.id === "2")?.category).toBe("Embedded");
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Self-hosted 1", "Embedded 3"]);
+});
+
+it("shows no category headings when nothing is categorized", () => {
+  useWebLinksStore.setState({ links: [{ id: "1", name: "CI", url: "https://ci.example.com/" }] });
+  mount();
+  expect(screen.queryAllByRole("heading", { level: 2 })).toEqual([]);
+});
+
+it("folds and unfolds a category, remembering the choice", () => {
+  useWebLinksStore.setState({ collapsed: [], links: [
+    { id: "1", name: "Memos", url: "http://m.local/", category: "Self-hosted" },
+    { id: "3", name: "Sipeed", url: "https://sipeed.com/", category: "Embedded" },
+  ] });
+  const view = mount();
+  const toggle = screen.getByRole("button", { name: "Embedded 1" });
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(toggle);
+  expect(screen.queryByRole("heading", { name: "Sipeed" })).toBeNull();
+  expect(screen.getByRole("heading", { name: "Memos" })).toBeVisible();
+  expect(useWebLinksStore.getState().collapsed).toEqual(["Embedded"]);
+  view.unmount();
+  mount();
+  expect(screen.getByRole("button", { name: "Embedded 1" })).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(screen.getByRole("button", { name: "Embedded 1" }));
+  expect(screen.getByRole("heading", { name: "Sipeed" })).toBeVisible();
+  expect(useWebLinksStore.getState().collapsed).toEqual([]);
 });

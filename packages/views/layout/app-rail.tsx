@@ -234,6 +234,18 @@ export function AppRail({
       label: t(($) => $.nav.zotero),
       fullLabel: t(($) => $.nav.zotero),
     },
+    apps: {
+      href: p.apps(),
+      icon: routeIconForPath(p.apps()),
+      label: t(($) => $.nav.apps),
+      fullLabel: t(($) => $.nav.apps),
+    },
+    containers: {
+      href: p.containers(),
+      icon: routeIconForPath(p.containers()),
+      label: t(($) => $.nav.containers),
+      fullLabel: t(($) => $.nav.containers),
+    },
   };
 
   return (

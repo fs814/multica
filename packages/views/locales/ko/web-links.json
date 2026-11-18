@@ -6,6 +6,8 @@
   "cancel": "취소",
   "name": "이름",
   "url": "URL",
+  "category": "카테고리",
+  "category_placeholder": "선택 사항, 예: Embedded",
   "open": "Multica에서 열기",
   "opening": "여는 중...",
   "open_browser": "브라우저에서 열기",
@@ -18,5 +20,6 @@
   "back": "뒤로",
   "forward": "앞으로",
   "reload": "새로고침",
-  "site_missing": "저장된 사이트가 없습니다. 웹 메뉴에서 다시 추가하세요."
+  "site_missing": "저장된 사이트가 없습니다. 웹 메뉴에서 다시 추가하세요.",
+  "uncategorized": "기타"
 }

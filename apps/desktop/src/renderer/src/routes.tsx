@@ -32,6 +32,8 @@ import { DesktopRuntimesPage } from "./components/desktop-runtimes-page";
 import { ClisPage } from "@multica/views/clis";
 import { DesktopToolsPage } from "./components/desktop-tools-page";
 import { DesktopZoteroPage } from "./components/desktop-zotero-page";
+import { DesktopAppsPage } from "./components/desktop-apps-page";
+import { DesktopContainersPage } from "./components/desktop-containers-page";
 import { DesktopWebPage } from "./components/desktop-web-page";
 import { DesktopWebSitePage } from "./components/desktop-web-site-page";
 import { DesktopAgentsPage } from "./components/desktop-agents-page";
@@ -266,6 +268,16 @@ export const appRoutes: RouteObject[] = [
             path: "web",
             element: <DesktopWebPage />,
             handle: { title: "Web" },
+          },
+          {
+            path: "apps",
+            element: <DesktopAppsPage />,
+            handle: { title: "Apps" },
+          },
+          {
+            path: "containers",
+            element: <DesktopContainersPage />,
+            handle: { title: "Containers" },
           },
           {
             path: "zotero",

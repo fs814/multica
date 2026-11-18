@@ -16,6 +16,8 @@ export type AppSpaceId =
   | "tools"
   | "web"
   | "zotero"
+  | "apps"
+  | "containers"
   | "settings";
 
 /** Settings lives in the rail footer rather than the space list. */
@@ -32,6 +34,8 @@ export const RAIL_SPACES: readonly RailSpaceId[] = [
   "tools",
   "web",
   "zotero",
+  "apps",
+  "containers",
 ];
 
 const SPACE_BY_SEGMENT: Record<string, AppSpaceId> = {
@@ -51,6 +55,8 @@ const SPACE_BY_SEGMENT: Record<string, AppSpaceId> = {
   tools: "tools",
   web: "web",
   zotero: "zotero",
+  apps: "apps",
+  containers: "containers",
   chat: "chat",
   autopilots: "autopilots",
   // Workflows are the other automation surface: they live beside Autopilot.

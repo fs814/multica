@@ -6,6 +6,8 @@
   "cancel": "取消",
   "name": "名稱",
   "url": "網址",
+  "category": "分類",
+  "category_placeholder": "選填，例如 Embedded",
   "open": "在 Multica 中開啟",
   "opening": "正在開啟...",
   "open_browser": "在瀏覽器中開啟",
@@ -18,5 +20,6 @@
   "back": "後退",
   "forward": "前進",
   "reload": "重新載入",
-  "site_missing": "此網站已被移除。請開啟網頁選單重新新增。"
+  "site_missing": "此網站已被移除。請開啟網頁選單重新新增。",
+  "uncategorized": "其他"
 }

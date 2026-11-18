@@ -15,4 +15,15 @@ describe("website URLs", () => {
       { id: "1", name: "Duplicate", url: "https://example.com" }, { id: "2", name: "Bad", url: "javascript:alert(1)" }]))
       .toEqual([{ id: "1", name: "Jenkins", url: "http://localhost:8080/" }]);
   });
+  it("keeps a trimmed category and drops blank or non-string ones", () => {
+    expect(parseWebLinks([
+      { id: "1", name: "A", url: "https://a.example", category: " Embedded " },
+      { id: "2", name: "B", url: "https://b.example", category: "   " },
+      { id: "3", name: "C", url: "https://c.example", category: 7 },
+    ])).toEqual([
+      { id: "1", name: "A", url: "https://a.example/", category: "Embedded" },
+      { id: "2", name: "B", url: "https://b.example/" },
+      { id: "3", name: "C", url: "https://c.example/" },
+    ]);
+  });
 });

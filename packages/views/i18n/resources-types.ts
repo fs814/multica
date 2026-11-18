@@ -26,6 +26,8 @@ import type runtimes from "../locales/en/runtimes.json";
 import type clis from "../locales/en/clis.json";
 import type tools from "../locales/en/tools.json";
 import type zotero from "../locales/en/zotero.json";
+import type apps from "../locales/en/apps.json";
+import type containers from "../locales/en/containers.json";
 import type webLinks from "../locales/en/web-links.json";
 import type layout from "../locales/en/layout.json";
 import type usage from "../locales/en/usage.json";
@@ -72,6 +74,8 @@ declare global {
     clis: typeof clis;
     tools: typeof tools;
     zotero: typeof zotero;
+    apps: typeof apps;
+    containers: typeof containers;
     "web-links": typeof webLinks;
     layout: typeof layout;
     usage: typeof usage;

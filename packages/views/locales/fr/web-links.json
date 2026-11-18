@@ -6,6 +6,8 @@
   "cancel": "Annuler",
   "name": "Nom",
   "url": "URL",
+  "category": "Catégorie",
+  "category_placeholder": "Facultatif, par ex. Embedded",
   "open": "Ouvrir dans Multica",
   "opening": "Ouverture...",
   "open_browser": "Ouvrir dans le navigateur",
@@ -18,5 +20,6 @@
   "back": "Précédent",
   "forward": "Suivant",
   "reload": "Actualiser",
-  "site_missing": "Ce site enregistré n’est plus disponible. Ouvrez Web pour l’ajouter à nouveau."
+  "site_missing": "Ce site enregistré n’est plus disponible. Ouvrez Web pour l’ajouter à nouveau.",
+  "uncategorized": "Autres"
 }

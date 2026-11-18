@@ -38,6 +38,8 @@ export type RouteIconName =
   | "Wrench"
   | "Globe"
   | "BookCheck"
+  | "AppWindow"
+  | "Box"
   | "BookOpenText"
   | "Settings"
   | "File"
@@ -70,6 +72,8 @@ export type NavLabelKey =
   | "tools"
   | "web"
   | "zotero"
+  | "apps"
+  | "containers"
   | "skills"
   | "settings";
 
@@ -94,6 +98,8 @@ export type WorkspacePageKey =
   | "tools"
   | "web"
   | "zotero"
+  | "apps"
+  | "containers"
   | "skills"
   | "settings";
 
@@ -144,6 +150,8 @@ export const WORKSPACE_PAGES: Record<WorkspacePageKey, WorkspacePage> = {
   tools: { segment: "tools", icon: "Wrench", navKey: "tools" },
   web: { segment: "web", icon: "Globe", navKey: "web" },
   zotero: { segment: "zotero", icon: "BookCheck", navKey: "zotero" },
+  apps: { segment: "apps", icon: "AppWindow", navKey: "apps" },
+  containers: { segment: "containers", icon: "Box", navKey: "containers" },
   skills: { segment: "skills", icon: "BookOpenText", navKey: "skills" },
   settings: { segment: "settings", icon: "Settings", navKey: "settings" },
 };

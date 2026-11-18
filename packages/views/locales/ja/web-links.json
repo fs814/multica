@@ -6,6 +6,8 @@
   "cancel": "キャンセル",
   "name": "名前",
   "url": "URL",
+  "category": "カテゴリ",
+  "category_placeholder": "任意（例: Embedded）",
   "open": "Multica で開く",
   "opening": "開いています...",
   "open_browser": "ブラウザーで開く",
@@ -18,5 +20,6 @@
   "back": "戻る",
   "forward": "進む",
   "reload": "再読み込み",
-  "site_missing": "このサイトは削除されました。Web メニューから追加し直してください。"
+  "site_missing": "このサイトは削除されました。Web メニューから追加し直してください。",
+  "uncategorized": "その他"
 }
