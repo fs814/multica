@@ -40,6 +40,7 @@
   "trash_confirm": "Move to Trash?",
   "trash_selected": "Move {{count}} to Trash",
   "trashed_result": "{{count}} moved to Trash.",
+  "trash_progress": "Moving {{done}} of {{total}} to Trash…",
   "menu_preview": "Preview",
   "menu_rename": "Rename…",
   "menu_trash": "Move to Trash",

@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  containersKeys, engineStatusOptions, groupContainers, isPaused, isRunning, matchesQuery, resourceListOptions, shortId,
-  splitCommand, splitEntries, RESOURCE_KINDS,
+  containersKeys, engineStatusOptions, groupContainers, isPaused, isRunning, matchesQuery, parseRelatedPlan, parseRelatedResult,
+  resourceListOptions, shortId, splitCommand, splitEntries, RESOURCE_KINDS,
   type ContainerAction, type ContainerInfo, type EngineKind, type ImageInfo, type LocalContainersBridge, type NetworkInfo,
-  type ResourceKind, type VolumeInfo,
+  type RelatedOptions, type ResourceKind, type VolumeInfo,
 } from "@multica/core/containers";
 import { Button } from "@multica/ui/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@multica/ui/components/ui/context-menu";
@@ -32,7 +32,49 @@ type MenuTarget =
   | { type: "image"; row: ImageInfo }
   | { type: "volume"; row: VolumeInfo }
   | { type: "network"; row: NetworkInfo };
-interface Confirm { title: string; force?: boolean; forceLabel?: string; run: (force: boolean) => Promise<unknown>; label: string }
+/** One confirmable operation: `run` goes through act() as a single step; `bulk` (multi-select) reports its own progress. */
+interface Confirm { title: string; force?: boolean; forceLabel?: string; run?: (force: boolean) => Promise<unknown>; bulk?: (force: boolean) => void; label: string }
+
+/** A visible row as the selection sees it: stable key, display name, and the id the engine acts on. */
+interface SelRow { key: string; name: string; id: string; container?: ContainerInfo; builtin?: boolean }
+const imageKey = (r: ImageInfo) => `${r.id}-${r.ref}`;
+const networkKey = (r: NetworkInfo) => r.id || r.name;
+
+/** Rows of the current tab in on-screen order (containers follow their project grouping), so a Shift range matches what you see. */
+function visibleRows(tab: ResourceKind, data: unknown, search: string, runningOnly: boolean): SelRow[] {
+  if (!data) return [];
+  if (tab === "containers") {
+    const shown = (data as ContainerInfo[]).filter((r) => (!runningOnly || isRunning(r) || isPaused(r)) && matchesQuery(r, search));
+    return groupContainers(shown).flatMap((g) => g.containers).map((r) => ({ key: r.id, name: r.name, id: r.id, container: r }));
+  }
+  if (tab === "images") return (data as ImageInfo[]).filter((r) => matchesQuery(r, search)).map((r) => ({ key: imageKey(r), name: r.ref, id: r.ref }));
+  if (tab === "volumes") return (data as VolumeInfo[]).filter((r) => matchesQuery(r, search)).map((r) => ({ key: r.name, name: r.name, id: r.name }));
+  return (data as NetworkInfo[]).filter((r) => matchesQuery(r, search))
+    .map((r) => ({ key: networkKey(r), name: r.name, id: networkKey(r), builtin: BUILTIN_NETWORKS.has(r.name) }));
+}
+
+/** Clicks on a row's own controls (buttons, inputs, links) never change the selection. */
+const isInteractive = (target: EventTarget) => target instanceof Element && target.closest("button, input, select, textarea, a, label") !== null;
+
+interface Selection {
+  has: (key: string) => boolean;
+  click: (key: string, event: React.MouseEvent) => void;
+  /** Select a whole group (a compose project); Ctrl/Cmd adds it to the selection. */
+  group: (keys: string[], event: React.MouseEvent) => void;
+}
+
+/** Row props shared by every table: file-manager selection (click / Ctrl-click / Shift-click) and highlight. */
+function selectableRow(selection: Selection, key: string, label: string) {
+  const selected = selection.has(key);
+  return {
+    "aria-selected": selected,
+    "aria-label": label,
+    className: `border-b last:border-0 ${selected ? "bg-accent" : "hover:bg-accent/40"}`,
+    // Shift+mousedown would otherwise extend the browser's text selection across the table.
+    onMouseDown: (event: React.MouseEvent) => { if (event.shiftKey && !isInteractive(event.target)) event.preventDefault(); },
+    onClick: (event: React.MouseEvent) => selection.click(key, event),
+  };
+}
 
 /** Built-in networks every engine refuses to remove. */
 const BUILTIN_NETWORKS = new Set(["bridge", "host", "none", "podman", "default"]);
@@ -65,6 +107,12 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
   const [logsFor, setLogsFor] = useState<ContainerInfo | null>(null);
   const [inspectFor, setInspectFor] = useState<{ resource: ResourceKind; id: string; name: string } | null>(null);
   const [renameFor, setRenameFor] = useState<ContainerInfo | null>(null);
+  // Removing containers goes through one dialog (single row or a selection)
+  // that can also take the images / volumes / networks only they use.
+  const [removeFor, setRemoveFor] = useState<{ ids: string[]; live: boolean } | null>(null);
+  const removeContainers = (rows: ContainerInfo[]) => {
+    if (rows.length) setRemoveFor({ ids: rows.map((r) => r.id), live: rows.some((r) => isRunning(r) || isPaused(r)) });
+  };
   const enabled = Boolean(activeEngine?.running);
   const lists = {
     containers: useQuery(resourceListOptions(bridge, active, "containers", enabled && tab === "containers")),
@@ -74,7 +122,91 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
   };
   const current = lists[tab];
 
+  // Multi-select, file-manager style: click selects one row, Ctrl/Cmd-click
+  // toggles a row, Shift-click selects from the anchor (last plain or Ctrl
+  // click) to here, Ctrl+Shift-click adds that range. Bulk actions act on the
+  // selected rows that are still visible, so filtering never touches hidden ones.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const visible = useMemo(() => visibleRows(tab, current.data, search, runningOnly), [tab, current.data, search, runningOnly]);
+  const chosen = visible.filter((r) => selected.has(r.key));
+  const clearSelection = () => { setSelected(new Set()); setAnchor(null); };
+  const selection: Selection = {
+    has: (key) => selected.has(key),
+    click: (key, event) => {
+      if (isInteractive(event.target)) return;
+      const additive = event.ctrlKey || event.metaKey;
+      const from = event.shiftKey && anchor !== null ? visible.findIndex((r) => r.key === anchor) : -1;
+      const to = from === -1 ? -1 : visible.findIndex((r) => r.key === key);
+      if (to !== -1) {
+        const range = visible.slice(Math.min(from, to), Math.max(from, to) + 1).map((r) => r.key);
+        setSelected((prev) => new Set(additive ? [...prev, ...range] : range));
+        return; // the anchor stays put, so the range can be re-dragged from it
+      }
+      setAnchor(key);
+      setSelected((prev) => {
+        if (!additive) return new Set([key]);
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    },
+    group: (keys, event) => {
+      if (keys.length === 0) return;
+      const additive = event.ctrlKey || event.metaKey;
+      setAnchor(keys[0]!);
+      setSelected((prev) => new Set(additive ? [...prev, ...keys] : keys));
+    },
+  };
+
   const refresh = () => queryClient.invalidateQueries({ queryKey: containersKeys.all });
+  /** Runs one operation per selected row, one at a time, with a live "what: done of total" line; failures are listed after. */
+  async function bulk(what: string, rows: SelRow[], run: (row: SelRow) => Promise<unknown>) {
+    setNotice(null);
+    const failures: string[] = [];
+    let ok = 0;
+    try {
+      for (const [i, row] of rows.entries()) {
+        setBusy(t(($) => $.bulk_progress, { what, done: i, total: rows.length }));
+        try {
+          await run(row);
+          ok += 1;
+        } catch (error) {
+          failures.push(`${row.name}: ${errorText(error)}`);
+        }
+      }
+    } finally {
+      setBusy(null);
+      const result = t(($) => $.bulk_result, { what, ok, total: rows.length });
+      setNotice(failures.length ? { kind: "error", text: [result, ...failures].join("\n") } : { kind: "info", text: result });
+      await refresh();
+    }
+  }
+  const bulkContainers = (action: ContainerAction) => {
+    void bulk(t(($) => $.actions[action]), chosen, (row) => bridge.containerAction(row.id, action));
+  };
+  const bulkRemove = () => {
+    const rows = chosen.filter((r) => !r.builtin);
+    if (rows.length === 0) return;
+    if (tab === "containers") { removeContainers(rows.flatMap((r) => (r.container ? [r.container] : []))); return; }
+    const resource = tab;
+    setConfirm({
+      title: t(($) => $.confirm_remove_selected, { count: rows.length }), label: t(($) => $.actions.remove),
+      force: false, forceLabel: resource === "networks" ? undefined : t(($) => $.force),
+      bulk: (force) => void bulk(t(($) => $.actions.remove), rows, (row) => bridge.remove(resource, row.id, force)),
+    });
+  };
+  /** Containers plus, as chosen, their images / volumes / networks; one summary line, then any failures. */
+  const removeWithRelated = (ids: string[], options: RelatedOptions) => act(t(($) => $.actions.remove), async () => {
+    const result = parseRelatedResult(await bridge.removeWithRelated(ids, options));
+    const { removed, failed } = result;
+    const summary = t(($) => $.related_result, {
+      containers: removed.containers.length, images: removed.images.length, volumes: removed.volumes.length, networks: removed.networks.length,
+    });
+    if (failed.length) throw new Error([summary, ...failed.map((f) => `${f.name}: ${f.error}`)].join("\n"));
+    clearSelection();
+    return summary;
+  }, (summary) => String(summary));
   /** Runs one engine operation, reports the outcome, and refreshes every list. */
   async function act(label: string, run: () => Promise<unknown>, success?: (result: unknown) => string) {
     setBusy(label);
@@ -105,10 +237,7 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
     copy: (id) => {
       void navigator.clipboard?.writeText(id).then(() => setNotice({ kind: "info", text: t(($) => $.copied, { what: shortId(id) }) }));
     },
-    removeContainer: (row) => setConfirm({
-      title: t(($) => $.confirm_remove, { name: row.name }), label: t(($) => $.actions.remove), force: isRunning(row) || isPaused(row),
-      forceLabel: t(($) => $.force), run: (force) => bridge.removeContainer(row.id, force),
-    }),
+    removeContainer: (row) => removeContainers([row]),
     remove: (resource, id, name) => setConfirm({
       title: resource === "volumes" ? t(($) => $.confirm_remove_volume, { name }) : t(($) => $.confirm_remove, { name }),
       label: t(($) => $.actions.remove), force: false, forceLabel: resource === "networks" ? undefined : t(($) => $.force),
@@ -153,7 +282,7 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
       <div role="tablist" className="flex rounded-md border p-0.5">
         {RESOURCE_KINDS.map((kind) => <button key={kind} role="tab" type="button" aria-selected={tab === kind}
           className={`rounded px-3 py-1 text-body ${tab === kind ? "bg-accent font-medium" : "text-muted-foreground"}`}
-          onClick={() => { setTab(kind); setSearch(""); }}>{t(($) => $.tabs[kind])}</button>)}
+          onClick={() => { setTab(kind); setSearch(""); clearSelection(); }}>{t(($) => $.tabs[kind])}</button>)}
       </div>
       <Input className="h-8 w-56" value={search} placeholder={t(($) => $.search)} aria-label={t(($) => $.search)} onChange={(e) => setSearch(e.target.value)} />
       {tab === "containers" && <label className="flex items-center gap-1.5 text-body">
@@ -174,24 +303,36 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
       })}><Trash2 className="size-4" />{t(($) => $.prune)}</Button>
     </div>
 
+    {chosen.length > 0 && <div role="toolbar" aria-label={t(($) => $.selected, { count: chosen.length })} className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+      <span className="text-label font-medium tabular-nums">{t(($) => $.selected, { count: chosen.length })}</span>
+      {tab === "containers" && <>
+        <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => bulkContainers("start")}><Play className="size-4" />{t(($) => $.actions.start)}</Button>
+        <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => bulkContainers("stop")}><Square className="size-4" />{t(($) => $.actions.stop)}</Button>
+        <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => bulkContainers("restart")}><RotateCw className="size-4" />{t(($) => $.actions.restart)}</Button>
+      </>}
+      <Button size="sm" variant="destructive" disabled={Boolean(busy) || chosen.every((r) => r.builtin)} onClick={bulkRemove}>
+        <Trash2 className="size-4" />{t(($) => $.actions.remove)}
+      </Button>
+      <Button size="sm" variant="ghost" className="ml-auto" onClick={clearSelection}>{t(($) => $.clear_selection)}</Button>
+    </div>}
     {busy && <p role="status" className="flex items-center gap-2 text-body text-muted-foreground"><Loader2 className="size-4 animate-spin" />{busy}</p>}
-    {!busy && notice && <p role={notice.kind === "error" ? "alert" : "status"} className={`text-body ${notice.kind === "error" ? "text-destructive" : "text-muted-foreground"}`}>{notice.text}</p>}
+    {!busy && notice && <p role={notice.kind === "error" ? "alert" : "status"} className={`whitespace-pre-line text-body ${notice.kind === "error" ? "text-destructive" : "text-muted-foreground"}`}>{notice.text}</p>}
     {current.error && <p role="alert" className="text-body text-destructive">{current.error.message}</p>}
 
     <div className="min-h-0 flex-1 overflow-auto">
       {enabled && current.isPending && <p className="text-body text-muted-foreground">{t(($) => $.loading)}</p>}
-      {tab === "containers" && lists.containers.data && <ContainersTable rows={lists.containers.data} search={search} runningOnly={runningOnly} actions={actions} openMenu={openMenu} locale={i18n.language} />}
-      {tab === "images" && lists.images.data && <ImagesTable rows={lists.images.data} search={search} actions={actions} openMenu={openMenu} locale={i18n.language} />}
-      {tab === "volumes" && lists.volumes.data && <SimpleTable rows={lists.volumes.data} search={search}
+      {tab === "containers" && lists.containers.data && <ContainersTable rows={lists.containers.data} search={search} runningOnly={runningOnly} actions={actions} openMenu={openMenu} locale={i18n.language} selection={selection} />}
+      {tab === "images" && lists.images.data && <ImagesTable rows={lists.images.data} search={search} actions={actions} openMenu={openMenu} locale={i18n.language} selection={selection} />}
+      {tab === "volumes" && lists.volumes.data && <SimpleTable rows={lists.volumes.data} search={search} selection={selection} rowName={(r) => r.name}
         columns={[[t(($) => $.columns.name), (r) => r.name], [t(($) => $.columns.driver), (r) => r.driver], [t(($) => $.columns.mountpoint), (r) => <span className="break-all font-mono text-caption">{r.mountpoint}</span>]]}
         rowKey={(r) => r.name} onMenu={(row, x, y) => openMenu({ type: "volume", row }, x, y)}
         buttons={(r) => <>
           <IconButton label={t(($) => $.actions.inspect)} onClick={() => actions.inspect("volumes", r.name, r.name)}><Info /></IconButton>
           <IconButton label={t(($) => $.actions.remove)} onClick={() => actions.remove("volumes", r.name, r.name)}><Trash2 /></IconButton>
         </>} />}
-      {tab === "networks" && lists.networks.data && <SimpleTable rows={lists.networks.data} search={search}
+      {tab === "networks" && lists.networks.data && <SimpleTable rows={lists.networks.data} search={search} selection={selection} rowName={(r) => r.name}
         columns={[[t(($) => $.columns.name), (r) => r.name], [t(($) => $.columns.driver), (r) => r.driver], [t(($) => $.columns.scope), (r) => r.scope], [t(($) => $.columns.id), (r) => <span className="font-mono text-caption">{shortId(r.id)}</span>]]}
-        rowKey={(r) => r.id || r.name} onMenu={(row, x, y) => openMenu({ type: "network", row }, x, y)}
+        rowKey={networkKey} onMenu={(row, x, y) => openMenu({ type: "network", row }, x, y)}
         buttons={(r) => <>
           <IconButton label={t(($) => $.actions.inspect)} onClick={() => actions.inspect("networks", r.id || r.name, r.name)}><Info /></IconButton>
           <IconButton label={t(($) => $.actions.remove)} disabled={BUILTIN_NETWORKS.has(r.name)} onClick={() => actions.remove("networks", r.id || r.name, r.name)}><Trash2 /></IconButton>
@@ -202,7 +343,8 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
     {confirm && <ConfirmDialog confirm={confirm} onClose={() => setConfirm(null)} onConfirm={(force) => {
       const c = confirm;
       setConfirm(null);
-      void act(c.label, () => c.run(force), (r) => (typeof r === "string" && r.trim() ? r.trim().split("\n").slice(-1)[0]! : t(($) => $.done, { what: c.label })));
+      if (c.bulk) { c.bulk(force); return; }
+      if (c.run) void act(c.label, () => c.run!(force), (r) => (typeof r === "string" && r.trim() ? r.trim().split("\n").slice(-1)[0]! : t(($) => $.done, { what: c.label })));
     }} />}
     {runFor && <RunDialog image={runFor.image} interactive={runFor.interactive} onClose={() => setRunFor(null)} onRun={(request) => {
       setRunFor(null);
@@ -211,6 +353,8 @@ function LocalContainers({ bridge }: { bridge: LocalContainersBridge }) {
     }} />}
     {logsFor && <LogsDialog bridge={bridge} container={logsFor} onClose={() => setLogsFor(null)} />}
     {inspectFor && <InspectDialog bridge={bridge} target={inspectFor} onClose={() => setInspectFor(null)} />}
+    {removeFor && <RemoveRelatedDialog bridge={bridge} ids={removeFor.ids} live={removeFor.live} onClose={() => setRemoveFor(null)}
+      onRemove={(options) => { const ids = removeFor.ids; setRemoveFor(null); void removeWithRelated(ids, options); }} />}
     {renameFor && <RenameDialog container={renameFor} onClose={() => setRenameFor(null)} onRename={(name) => {
       const row = renameFor;
       setRenameFor(null);
@@ -256,8 +400,8 @@ function StateBadge({ row }: { row: ContainerInfo }) {
 const th = "px-2 py-1.5 text-left text-caption font-medium text-muted-foreground";
 const td = "px-2 py-1.5 align-top";
 
-function ContainersTable({ rows, search, runningOnly, actions, openMenu, locale }: {
-  rows: ContainerInfo[]; search: string; runningOnly: boolean; actions: Actions; openMenu: OpenMenu; locale: string;
+function ContainersTable({ rows, search, runningOnly, actions, openMenu, locale, selection }: {
+  rows: ContainerInfo[]; search: string; runningOnly: boolean; actions: Actions; openMenu: OpenMenu; locale: string; selection: Selection;
 }) {
   const { t } = useT("containers");
   const shown = rows.filter((r) => (!runningOnly || isRunning(r) || isPaused(r)) && matchesQuery(r, search));
@@ -273,8 +417,10 @@ function ContainersTable({ rows, search, runningOnly, actions, openMenu, locale 
         <th className={th}>{t(($) => $.columns.created)}</th><th className={th}>{t(($) => $.columns.actions)}</th>
       </tr></thead>
       {groups.map((group) => <tbody key={group.project ?? ""} aria-label={group.project ?? t(($) => $.no_project)}>
-        {hasProjects && <tr><td colSpan={6} className="px-2 pt-3 pb-1 text-caption font-medium">{group.project ?? t(($) => $.no_project)}</td></tr>}
-        {group.containers.map((row) => <tr key={row.id} className="border-b last:border-0 hover:bg-accent/40"
+        {hasProjects && <tr className="cursor-pointer" title={t(($) => $.select_group)} onClick={(event) => selection.group(group.containers.map((c) => c.id), event)}>
+          <td colSpan={6} className="px-2 pt-3 pb-1 text-caption font-medium">{group.project ?? t(($) => $.no_project)}</td>
+        </tr>}
+        {group.containers.map((row) => <tr key={row.id} {...selectableRow(selection, row.id, t(($) => $.select_row, { name: row.name }))}
           onContextMenu={(event) => { event.preventDefault(); openMenu({ type: "container", row }, event.clientX, event.clientY); }}
           onDoubleClick={() => actions.logs(row)}>
           <td className={td}><div className="font-medium">{row.name}</div><div className="font-mono text-caption text-muted-foreground" title={row.id}>{shortId(row.id)}</div></td>
@@ -302,7 +448,9 @@ function ContainersTable({ rows, search, runningOnly, actions, openMenu, locale 
   </>;
 }
 
-function ImagesTable({ rows, search, actions, openMenu, locale }: { rows: ImageInfo[]; search: string; actions: Actions; openMenu: OpenMenu; locale: string }) {
+function ImagesTable({ rows, search, actions, openMenu, locale, selection }: {
+  rows: ImageInfo[]; search: string; actions: Actions; openMenu: OpenMenu; locale: string; selection: Selection;
+}) {
   const { t } = useT("containers");
   const shown = rows.filter((r) => matchesQuery(r, search));
   return <>
@@ -314,7 +462,7 @@ function ImagesTable({ rows, search, actions, openMenu, locale }: { rows: ImageI
         <th className={th}>{t(($) => $.columns.size)}</th><th className={th}>{t(($) => $.columns.created)}</th>
         <th className={th}>{t(($) => $.columns.used_by)}</th><th className={th}>{t(($) => $.columns.actions)}</th>
       </tr></thead>
-      <tbody>{shown.map((row) => <tr key={`${row.id}-${row.ref}`} className="border-b last:border-0 hover:bg-accent/40"
+      <tbody>{shown.map((row) => <tr key={imageKey(row)} {...selectableRow(selection, imageKey(row), t(($) => $.select_row, { name: row.ref }))}
         onContextMenu={(event) => { event.preventDefault(); openMenu({ type: "image", row }, event.clientX, event.clientY); }}
         onDoubleClick={() => actions.run(row.ref, true)}>
         <td className={`${td} break-all`}>{row.repository}</td><td className={td}>{row.tag}</td>
@@ -332,9 +480,9 @@ function ImagesTable({ rows, search, actions, openMenu, locale }: { rows: ImageI
   </>;
 }
 
-function SimpleTable<R extends object>({ rows, search, columns, rowKey, buttons, onMenu }: {
-  rows: R[]; search: string; columns: [string, (row: R) => ReactNode][]; rowKey: (row: R) => string;
-  buttons: (row: R) => ReactNode; onMenu: (row: R, x: number, y: number) => void;
+function SimpleTable<R extends object>({ rows, search, columns, rowKey, rowName, buttons, onMenu, selection }: {
+  rows: R[]; search: string; columns: [string, (row: R) => ReactNode][]; rowKey: (row: R) => string; rowName: (row: R) => string;
+  buttons: (row: R) => ReactNode; onMenu: (row: R, x: number, y: number) => void; selection: Selection;
 }) {
   const { t } = useT("containers");
   const shown = rows.filter((r) => matchesQuery(r, search));
@@ -343,7 +491,7 @@ function SimpleTable<R extends object>({ rows, search, columns, rowKey, buttons,
     {shown.length === 0 && <p className="text-body text-muted-foreground">{t(($) => $.empty)}</p>}
     {shown.length > 0 && <table className="w-full text-body">
       <thead><tr className="border-b">{columns.map(([label]) => <th key={label} className={th}>{label}</th>)}<th className={th}>{t(($) => $.columns.actions)}</th></tr></thead>
-      <tbody>{shown.map((row) => <tr key={rowKey(row)} className="border-b last:border-0 hover:bg-accent/40"
+      <tbody>{shown.map((row) => <tr key={rowKey(row)} {...selectableRow(selection, rowKey(row), t(($) => $.select_row, { name: rowName(row) }))}
         onContextMenu={(event) => { event.preventDefault(); onMenu(row, event.clientX, event.clientY); }}>
         {columns.map(([label, cell]) => <td key={label} className={td}>{cell(row)}</td>)}
         <td className={`${td} whitespace-nowrap`}>{buttons(row)}</td>
@@ -423,6 +571,64 @@ function ConfirmDialog({ confirm, onClose, onConfirm }: { confirm: Confirm; onCl
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>{t(($) => $.cancel)}</Button>
         <Button variant="destructive" onClick={() => onConfirm(force)}>{confirm.label}</Button>
+      </div>
+    </DialogContent>
+  </Dialog>;
+}
+
+/**
+ * Remove containers and, optionally, the images / volumes / networks that only
+ * they use. The plan comes from Desktop (it inspects every container), so the
+ * lists show exactly what would go, and what is kept because another
+ * container still uses it. Volumes default off: they hold data.
+ */
+function RemoveRelatedDialog({ bridge, ids, live, onClose, onRemove }: {
+  bridge: LocalContainersBridge; ids: string[]; live: boolean; onClose: () => void; onRemove: (options: RelatedOptions) => void;
+}) {
+  const { t } = useT("containers");
+  const plan = useQuery({
+    queryKey: [...containersKeys.all, "related", ...ids],
+    queryFn: async () => parseRelatedPlan(await bridge.relatedPlan(ids)),
+    staleTime: 0,
+  });
+  const [force, setForce] = useState(live);
+  const [images, setImages] = useState(true);
+  const [volumes, setVolumes] = useState(false);
+  const [networks, setNetworks] = useState(true);
+  const p = plan.data;
+  const names = (list: string[]) => (list.length ? list.join(", ") : t(($) => $.related_none));
+  const kind = (k: "image" | "volume" | "network") => t(($) => $.tabs[`${k}s`]);
+  const option = (label: string, checked: boolean, set: (on: boolean) => void, list: string[]) =>
+    <label className="flex items-start gap-2">
+      <input type="checkbox" className="mt-1" checked={checked && list.length > 0} disabled={list.length === 0} onChange={(e) => set(e.target.checked)} />
+      <span className="min-w-0"><span className="block">{label}</span>
+        <span className="block break-all font-mono text-caption text-muted-foreground">{names(list)}</span></span>
+    </label>;
+  return <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+    <DialogContent className="sm:max-w-lg">
+      <DialogHeader><DialogTitle>{t(($) => $.remove_related_title, { count: ids.length })}</DialogTitle><DialogDescription>{" "}</DialogDescription></DialogHeader>
+      {plan.isPending && <p className="flex items-center gap-2 text-body text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t(($) => $.loading)}</p>}
+      {plan.error && <p role="alert" className="text-body text-destructive">{plan.error.message}</p>}
+      {p && <div className="flex flex-col gap-2 text-body">
+        <div><span className="text-muted-foreground">{t(($) => $.related_containers)}: </span>
+          <span className="break-all font-mono text-caption">{names(p.containers.map((c) => c.name))}</span></div>
+        {option(t(($) => $.related_images), images, setImages, p.images.map((i) => i.name))}
+        {option(t(($) => $.related_volumes), volumes, setVolumes, p.volumes)}
+        {option(t(($) => $.related_networks), networks, setNetworks, p.networks)}
+        {p.kept.length > 0 && <div className="text-caption text-muted-foreground">
+          <p>{t(($) => $.related_kept)}</p>
+          <ul className="ml-4 list-disc">{p.kept.map((k) => <li key={`${k.kind}:${k.name}`} className="break-all">
+            {kind(k.kind)} · {t(($) => $.related_used_by, { name: k.name, users: k.usedBy.join(", ") })}
+          </li>)}</ul>
+        </div>}
+        <label className="flex items-center gap-2"><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />{t(($) => $.force)}</label>
+      </div>}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>{t(($) => $.cancel)}</Button>
+        <Button variant="destructive" disabled={!p} onClick={() => onRemove({
+          images: images && (p?.images.length ?? 0) > 0, volumes: volumes && (p?.volumes.length ?? 0) > 0,
+          networks: networks && (p?.networks.length ?? 0) > 0, force,
+        })}>{t(($) => $.actions.remove)}</Button>
       </div>
     </DialogContent>
   </Dialog>;

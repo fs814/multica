@@ -75,6 +75,23 @@ describe("Zotero page", () => {
     expect(screen.queryByText("old.pdf")).toBeNull();
   });
 
+  it("shift-click selects and clears the range from the last clicked row", async () => {
+    mount(makeBridge());
+    await screen.findByText("paper.pdf");
+    const box = (name: string) => screen.getByRole("checkbox", { name: `Select ${name}` });
+    fireEvent.click(box("paper.pdf"));
+    fireEvent.click(box("old.pdf"), { shiftKey: true });
+    expect(screen.getByText("3 selected")).toBeVisible();
+    expect(box("deck.pptx")).toBeChecked();
+    // Shift-unchecking clears the range back to the new anchor.
+    fireEvent.click(box("deck.pptx"), { shiftKey: true });
+    expect(screen.getByText("1 selected")).toBeVisible();
+    expect(box("paper.pdf")).toBeChecked();
+    // Shift-click on the row itself (the name cell) extends the selection too.
+    fireEvent.click(screen.getByText("old.pdf"), { shiftKey: true });
+    expect(screen.getByText("3 selected")).toBeVisible();
+  });
+
   it("filters collections by what is typed and transfers into the chosen one", async () => {
     const bridge = makeBridge();
     mount(bridge);
@@ -157,6 +174,28 @@ describe("Zotero page", () => {
     expect(await screen.findByText("1 moved to Trash.")).toBeVisible();
     expect(screen.getByText("deck.pptx: Operation not permitted")).toBeVisible();
     expect(screen.getByText("1 selected")).toBeVisible(); // the failed one stays selected
+  });
+
+  it("shows progress and drops trashed rows while a big batch is still running", async () => {
+    const pending = new Map<string, () => void>();
+    const bridge = makeBridge({
+      trash: vi.fn((id: string) => new Promise<{ id: string; trashed: true }>((resolve) => pending.set(id, () => resolve({ id, trashed: true })))),
+    });
+    mount(bridge);
+    await screen.findByText("paper.pdf");
+    fireEvent.click(screen.getByRole("checkbox", { name: enZotero.select_all }));
+    fireEvent.click(screen.getByRole("button", { name: "Move 3 to Trash" }));
+    fireEvent.click(screen.getByRole("button", { name: "Move to Trash?" }));
+    expect(await screen.findByText("Moving 0 of 3 to Trash…")).toBeVisible();
+    await waitFor(() => expect(pending.size).toBe(3)); // run concurrently, not one by one
+    pending.get("a")!();
+    expect(await screen.findByText("Moving 1 of 3 to Trash…")).toBeVisible();
+    await waitFor(() => expect(screen.queryByText("paper.pdf")).toBeNull());
+    expect(screen.getByText("2 selected")).toBeVisible();
+    pending.get("b")!();
+    pending.get("c")!();
+    expect(await screen.findByText("3 moved to Trash.")).toBeVisible();
+    expect(screen.queryByText(/Moving \d+ of 3/)).toBeNull();
   });
 
   it("opens a right-click menu whose items preview, reveal and trash that file", async () => {

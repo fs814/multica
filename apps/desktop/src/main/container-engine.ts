@@ -302,6 +302,104 @@ export function normalizeNetworks(kind: EngineKind, records: Record<string, unkn
     : { id: str(r.ID), name: str(r.Name), driver: str(r.Driver), scope: str(r.Scope), internal: str(r.Internal) === "true" }));
 }
 
+// -- removing containers together with what they use ------------------------
+
+/** What `container inspect` says one container uses (Docker, Podman and nerdctl share these fields). */
+export interface InspectedContainer {
+  id: string;
+  name: string;
+  /** Image id without the "sha256:" prefix, for comparing across containers. */
+  imageId: string;
+  /** The image as the container was created from it ("nginx:1.27"); falls back to the short id. */
+  imageName: string;
+  /** Named and anonymous volumes (bind mounts are host paths and never removed). */
+  volumes: string[];
+  networks: string[];
+}
+
+export interface RelatedItem { id: string; name: string }
+export interface KeptItem { kind: "image" | "volume" | "network"; name: string; usedBy: string[] }
+/** Containers to remove, and the images / volumes / networks only they use; `kept` are those another container still needs. */
+export interface RelatedPlan {
+  containers: RelatedItem[];
+  images: RelatedItem[];
+  volumes: string[];
+  networks: string[];
+  kept: KeptItem[];
+}
+export interface RelatedOptions { images: boolean; volumes: boolean; networks: boolean; force: boolean }
+export interface RelatedResult {
+  removed: { containers: string[]; images: string[]; volumes: string[]; networks: string[] };
+  kept: KeptItem[];
+  failed: { kind: "container" | "image" | "volume" | "network"; name: string; error: string }[];
+}
+
+/** Networks every engine creates itself and refuses to remove. */
+export const BUILTIN_NETWORKS = new Set(["bridge", "host", "none", "podman", "default", "nat"]);
+
+const stripSha = (id: string) => id.replace(/^sha256:/, "");
+
+export function parseInspectedContainers(text: string): InspectedContainer[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.trim() || "[]");
+  } catch {
+    return [];
+  }
+  const records = (Array.isArray(parsed) ? parsed : [parsed]).filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object");
+  return records.map((r) => {
+    const config = (r.Config ?? {}) as Record<string, unknown>;
+    const settings = (r.NetworkSettings ?? {}) as Record<string, unknown>;
+    const host = (r.HostConfig ?? {}) as Record<string, unknown>;
+    const imageId = stripSha(str(r.Image));
+    const mounts = Array.isArray(r.Mounts) ? (r.Mounts as Record<string, unknown>[]) : [];
+    const networks = new Set(Object.keys((settings.Networks ?? {}) as Record<string, unknown>));
+    // A user-defined NetworkMode ("shop_default") counts even when the container is stopped and Networks is empty.
+    const mode = str(host.NetworkMode);
+    if (mode && !/^(default|bridge|host|none|container:|ns:|slirp4netns|pasta|private)/.test(mode)) networks.add(mode);
+    return {
+      id: str(r.Id || r.ID),
+      name: str(r.Name).replace(/^\//, ""),
+      imageId,
+      imageName: str(config.Image) || str(r.ImageName) || imageId.slice(0, 12),
+      volumes: mounts.filter((m) => str(m.Type) === "volume" && str(m.Name)).map((m) => str(m.Name)),
+      networks: [...networks],
+    };
+  });
+}
+
+/**
+ * Pure: given the containers being removed and every other container, which
+ * images / volumes / networks can go with them. Anything another container
+ * still uses is kept (with who uses it), so removing a container never breaks
+ * one you didn't select. Built-in networks are never offered.
+ */
+export function planRelated(targets: InspectedContainer[], others: InspectedContainer[]): RelatedPlan {
+  const kept: KeptItem[] = [];
+  const usersOf = (pick: (c: InspectedContainer) => string[], key: string) => others.filter((o) => pick(o).includes(key)).map((o) => o.name || o.id.slice(0, 12));
+  const images = new Map<string, string>();
+  const volumes = new Set<string>();
+  const networks = new Set<string>();
+  for (const t of targets) {
+    if (t.imageId) images.set(t.imageId, images.get(t.imageId) ?? t.imageName);
+    for (const v of t.volumes) volumes.add(v);
+    for (const n of t.networks) if (!BUILTIN_NETWORKS.has(n)) networks.add(n);
+  }
+  const free = <T>(items: T[], kind: KeptItem["kind"], key: (x: T) => string, name: (x: T) => string, pick: (c: InspectedContainer) => string[]) =>
+    items.filter((x) => {
+      const usedBy = usersOf(pick, key(x));
+      if (usedBy.length) kept.push({ kind, name: name(x), usedBy });
+      return usedBy.length === 0;
+    });
+  return {
+    containers: targets.map((t) => ({ id: t.id, name: t.name || t.id.slice(0, 12) })),
+    images: free([...images].map(([id, name]) => ({ id, name })), "image", (x) => x.id, (x) => x.name, (c) => [c.imageId]),
+    volumes: free([...volumes], "volume", (x) => x, (x) => x, (c) => c.volumes),
+    networks: free([...networks], "network", (x) => x, (x) => x, (c) => c.networks),
+    kept,
+  };
+}
+
 /** First meaningful line of a CLI failure. */
 export function cliError(result: ExecResult, fallback: string): Error {
   const line = (result.stderr || result.stdout).split(/\r?\n/).map((l) => l.trim()).find(Boolean);
@@ -485,6 +583,72 @@ export class ContainerEngine {
   async prune(resource: ResourceKind, all: boolean): Promise<string> {
     const sub = { containers: "container", images: "image", volumes: "volume", networks: "network" }[resource];
     return (await this.cli([sub, "prune", "-f", ...(all && resource === "images" ? ["-a"] : [])], TIMEOUT.pull)).output;
+  }
+
+  /** `container inspect` for many ids; if one vanished meanwhile (the batch call fails), inspects them one by one and skips the missing. */
+  private async inspectMany(ids: string[]): Promise<InspectedContainer[]> {
+    if (ids.length === 0) return [];
+    const { path } = await this.active();
+    const batch = await this.run(path, ["container", "inspect", ...ids], TIMEOUT.list);
+    if (batch.code === 0) return parseInspectedContainers(batch.stdout);
+    const one = await Promise.all(ids.map((id) => this.run(path, ["container", "inspect", id], TIMEOUT.list)));
+    return one.flatMap((r) => (r.code === 0 ? parseInspectedContainers(r.stdout) : []));
+  }
+
+  /** What removing these containers would also free: images, volumes and networks no other container uses. */
+  async relatedPlan(ids: string[]): Promise<RelatedPlan> {
+    const targets = await this.inspectMany(ids);
+    if (targets.length === 0) throw new Error("These containers no longer exist; refresh the list");
+    const targetIds = new Set(targets.map((t) => t.id));
+    const all = (await this.cli(["ps", "-a", "-q", "--no-trunc"], TIMEOUT.list)).stdout.split(/\s+/).filter(Boolean);
+    const others = await this.inspectMany(all.filter((id) => !targetIds.has(id)));
+    return planRelated(targets, others);
+  }
+
+  /**
+   * Removes the containers, then (as chosen) their networks, volumes and
+   * images, in that order (a network or volume can't go while a container
+   * holds it; an image can't go while a container was made from it).
+   * Resources a container that failed to go still uses are kept, not tried.
+   * Every step is attempted; failures are reported, not thrown.
+   */
+  async removeWithRelated(ids: string[], options: RelatedOptions): Promise<RelatedResult> {
+    const targets = await this.inspectMany(ids);
+    const targetIds = new Set(targets.map((t) => t.id));
+    const all = (await this.cli(["ps", "-a", "-q", "--no-trunc"], TIMEOUT.list)).stdout.split(/\s+/).filter(Boolean);
+    const others = await this.inspectMany(all.filter((id) => !targetIds.has(id)));
+    const result: RelatedResult = { removed: { containers: [], images: [], volumes: [], networks: [] }, kept: [], failed: [] };
+    const gone: InspectedContainer[] = [];
+    const stuck: InspectedContainer[] = [];
+    for (const t of targets) {
+      try {
+        // -v also drops the container's anonymous volumes when volumes are wanted.
+        await this.cli(["rm", ...(options.force ? ["-f"] : []), ...(options.volumes ? ["-v"] : []), t.id]);
+        gone.push(t);
+        result.removed.containers.push(t.name || t.id.slice(0, 12));
+      } catch (error) {
+        stuck.push(t);
+        result.failed.push({ kind: "container", name: t.name || t.id.slice(0, 12), error: (error as Error).message });
+      }
+    }
+    const plan = planRelated(gone, [...others, ...stuck]);
+    result.kept = plan.kept;
+    const attempt = async (kind: "image" | "volume" | "network", name: string, args: string[], into: string[]) => {
+      try {
+        await this.cli(args);
+        into.push(name);
+      } catch (error) {
+        const message = (error as Error).message;
+        // `rm -v` may already have taken an anonymous volume.
+        if (kind === "volume" && /no such volume/i.test(message)) return;
+        result.failed.push({ kind, name, error: message });
+      }
+    };
+    if (options.networks) for (const n of plan.networks) await attempt("network", n, ["network", "rm", n], result.removed.networks);
+    if (options.volumes) for (const v of plan.volumes) await attempt("volume", v, ["volume", "rm", v], result.removed.volumes);
+    // By id with -f: one image can carry several tags, and nothing else uses it (checked above).
+    if (options.images) for (const i of plan.images) await attempt("image", i.name, ["rmi", "-f", i.id], result.removed.images);
+    return result;
   }
 
   /** argv for an interactive terminal: the CLI path first. */

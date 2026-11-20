@@ -40,6 +40,14 @@ function makeBridge(over: Partial<LocalContainersBridge> = {}) {
     } as Record<string, unknown>)[resource]),
     containerAction: vi.fn().mockResolvedValue(true),
     removeContainer: vi.fn().mockResolvedValue(true),
+    relatedPlan: vi.fn(async (ids: string[]) => ({
+      containers: ids.map((id) => ({ id, name: ({ c1: "web", c2: "db", c3: "scratch" } as Record<string, string>)[id] ?? id })),
+      images: [{ id: "i1", name: "web:latest" }], volumes: ["web-data"], networks: [],
+      kept: [{ kind: "network", name: "shop_default", usedBy: ["db"] }],
+    })),
+    removeWithRelated: vi.fn(async (ids: string[], o: { images: boolean; volumes: boolean }) => ({
+      removed: { containers: ids, images: o.images ? ["web:latest"] : [], volumes: o.volumes ? ["web-data"] : [], networks: [] }, kept: [], failed: [],
+    })),
     renameContainer: vi.fn().mockResolvedValue(true),
     logs: vi.fn().mockResolvedValue("hello from web\n"),
     inspect: vi.fn().mockResolvedValue('{ "Id": "c1" }'),
@@ -75,6 +83,72 @@ describe("Containers page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Start podman/ }));
     await waitFor(() => expect(bridge.startEngine).toHaveBeenCalledWith("podman"));
     expect(await screen.findByText("Machine started")).toBeInTheDocument();
+  });
+
+  it("selects rows with click, Shift-click and Ctrl-click, then stops and removes them in bulk", async () => {
+    const bridge = makeBridge({
+      containerAction: vi.fn(async (id: string) => { if (id === "c3") throw new Error("boom"); return true; }),
+    });
+    mount(bridge);
+    // On-screen order: project "shop" (web running first, then db), then the ungrouped scratch.
+    fireEvent.click(await screen.findByText("web"));
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("scratch"), { shiftKey: true });
+    expect(screen.getByText("3 selected")).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Select db" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByText("db"), { ctrlKey: true });
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Select db" })).toHaveAttribute("aria-selected", "false");
+    // A row's own buttons act on that row only and leave the selection alone.
+    fireEvent.click(screen.getByRole("button", { name: "Logs db" }));
+    fireEvent.click(screen.getByRole("button", { name: "close dialog" }));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(bridge.containerAction).toHaveBeenCalledTimes(2));
+    expect(bridge.containerAction).toHaveBeenCalledWith("c1", "stop");
+    expect(bridge.containerAction).toHaveBeenCalledWith("c3", "stop");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Stop: 1 of 2 done.");
+    expect(alert).toHaveTextContent("scratch: boom");
+
+    // Removing containers offers what only they use; volumes (data) must be opted into.
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Remove 2 container(s)")).toBeInTheDocument();
+    await waitFor(() => expect(bridge.relatedPlan).toHaveBeenCalledWith(["c1", "c3"]));
+    const volumes = await within(dialog).findByRole("checkbox", { name: /Also remove their volumes/ });
+    expect(volumes).not.toBeChecked();
+    fireEvent.click(volumes);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(bridge.removeWithRelated).toHaveBeenCalledWith(["c1", "c3"], { images: true, volumes: true, networks: false, force: true }));
+    expect(await screen.findByText("Removed 2 container(s), 1 image(s), 1 volume(s), 0 network(s).")).toBeInTheDocument();
+    expect(bridge.removeContainer).not.toHaveBeenCalled();
+    expect(screen.queryByText(/ selected$/)).toBeNull(); // done: selection cleared
+  });
+
+  it("selects a whole compose project from its header", async () => {
+    mount(makeBridge());
+    fireEvent.click(await screen.findByText("shop"));
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Select web" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("row", { name: "Select scratch" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("never removes a built-in network in a bulk remove, and clears the selection on tab change", async () => {
+    const bridge = makeBridge();
+    mount(bridge);
+    await screen.findByText("web");
+    fireEvent.click(screen.getByRole("tab", { name: "Networks" }));
+    fireEvent.click(await screen.findByRole("row", { name: "Select bridge" }));
+    fireEvent.click(screen.getByRole("row", { name: "Select shop_default" }), { shiftKey: true });
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "2 selected" })).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(bridge.remove).toHaveBeenCalledTimes(1));
+    expect(bridge.remove).toHaveBeenCalledWith("networks", "n2", false);
+    fireEvent.click(screen.getByRole("tab", { name: "Volumes" }));
+    expect(screen.queryByText(/selected$/)).toBeNull();
   });
 
   it("lists containers by compose project, filters them, and starts / stops / opens a shell", async () => {
@@ -115,10 +189,13 @@ describe("Containers page", () => {
     ]);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Remove" }));
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Remove web?");
+    expect(dialog).toHaveTextContent("Remove 1 container(s)");
+    expect(await within(dialog).findByText("web:latest")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("shop_default — used by db"); // kept, with who still uses it
+    expect(within(dialog).getByRole("checkbox", { name: /Also remove their networks/ })).toBeDisabled(); // nothing to free
     expect(within(dialog).getByLabelText("Force (even if running or in use)")).toBeChecked();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
-    await waitFor(() => expect(bridge.removeContainer).toHaveBeenCalledWith("c1", true));
+    await waitFor(() => expect(bridge.removeWithRelated).toHaveBeenCalledWith(["c1"], { images: true, volumes: false, networks: false, force: true }));
 
     fireEvent.contextMenu(screen.getByText("web"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));

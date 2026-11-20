@@ -40,6 +40,7 @@
   "trash_confirm": "确认移到废纸篓？",
   "trash_selected": "把 {{count}} 个移到废纸篓",
   "trashed_result": "已将 {{count}} 个文件移到废纸篓。",
+  "trash_progress": "正在移到废纸篓 {{done}}/{{total}}…",
   "menu_preview": "预览",
   "menu_rename": "重命名…",
   "menu_trash": "移到废纸篓",

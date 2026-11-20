@@ -21,6 +21,8 @@ function fakeEngine() {
     containerAction: vi.fn(async () => undefined), removeContainer: vi.fn(async () => undefined), rename: vi.fn(async () => undefined),
     logs: vi.fn(async () => "log"), inspect: vi.fn(async () => "{}"), runDetached: vi.fn(async () => "newid"),
     pull: vi.fn(async () => "pulled"), remove: vi.fn(async () => undefined), prune: vi.fn(async () => "reclaimed"),
+    relatedPlan: vi.fn(async () => ({ containers: [], images: [], volumes: [], networks: [], kept: [] })),
+    removeWithRelated: vi.fn(async () => ({ removed: { containers: [], images: [], volumes: [], networks: [] }, kept: [], failed: [] })),
     terminalArgv: vi.fn(async (args: string[]) => ["/usr/bin/docker", ...args]), startPodmanMachine: vi.fn(async () => "started"),
   };
 }
@@ -40,8 +42,8 @@ beforeEach(() => {
 describe("Containers native boundary", () => {
   it("serves only the main window's top frame", () => {
     expect([...mocks.handlers.keys()].sort()).toEqual([
-      "attach", "container-action", "exec", "inspect", "list", "logs", "prune", "pull", "remove", "remove-container",
-      "rename-container", "run", "start-engine", "status", "use-engine",
+      "attach", "container-action", "exec", "inspect", "list", "logs", "prune", "pull", "related-plan", "remove", "remove-container",
+      "remove-with-related", "rename-container", "run", "start-engine", "status", "use-engine",
     ].map((c) => `local-containers:${c}`));
     for (const handler of mocks.handlers.values()) {
       expect(() => handler({ sender: {} } as IpcMainInvokeEvent, "x")).toThrow("main Desktop window");
@@ -57,8 +59,19 @@ describe("Containers native boundary", () => {
     expect(() => call("remove", "containers", "web")).toThrow("Invalid resource");
     expect(() => call("use-engine", "lxc")).toThrow("Invalid engine");
     expect(() => call("run", { image: "alpine", ports: ["x"] })).toThrow("Invalid port mapping");
+    expect(() => call("related-plan", [])).toThrow("Invalid container list");
+    expect(() => call("related-plan", "web")).toThrow("Invalid container list");
+    expect(() => call("remove-with-related", ["web", "--all"], {})).toThrow("Invalid id");
     expect(engine.containerAction).not.toHaveBeenCalled();
     expect(engine.runDetached).not.toHaveBeenCalled();
+    expect(engine.removeWithRelated).not.toHaveBeenCalled();
+  });
+
+  it("removes containers with what they use, passing only boolean options", async () => {
+    await call("related-plan", ["web", "db"]);
+    expect(engine.relatedPlan).toHaveBeenCalledWith(["web", "db"]);
+    await call("remove-with-related", ["web"], { images: true, volumes: "yes", networks: true, force: 1 });
+    expect(engine.removeWithRelated).toHaveBeenCalledWith(["web"], { images: true, volumes: false, networks: true, force: false });
   });
 
   it("routes actions, and opens interactive commands in a terminal", async () => {

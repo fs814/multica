@@ -32,6 +32,7 @@ vi.mock("@multica/core/api", () => ({
     listWorkflowInstanceRuns: vi.fn(),
     saveWorkflowInputInstance: vi.fn(),
     deleteWorkflowInputInstance: vi.fn(),
+    archiveWorkflowInstance: vi.fn(),
     runWorkflowInstance: vi.fn(),
     runWorkflowTemplate: vi.fn(),
     getBaseUrl: () => "",
@@ -264,7 +265,7 @@ describe("instance detail execution", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
       target: { value: "Input B" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Run saved inputs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
     await waitFor(() =>
       expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance", {
         mode: "saved",
@@ -281,7 +282,7 @@ describe("instance detail execution", () => {
       target: { value: "Input B" },
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Run these edits only" }),
+      screen.getByRole("button", { name: "Run once without saving" }),
     );
     await waitFor(() =>
       expect(api.runWorkflowInstance).toHaveBeenCalledWith(
@@ -448,8 +449,10 @@ describe("directory script instance actions", () => {
   vi.mocked(api.validateWorkflowInstance).mockResolvedValue({ready:false,problems:["instance needs a published version binding"],revision:1});
   mount(<WorkflowInstanceDetailPage instanceId="instance" />);
   const directory = await screen.findByLabelText(enWorkflows.scripts.directory);
-  expect(screen.getByRole("button",{name:enWorkflows.input_instances.update})).toBeDisabled();
+  // Nothing to save until something is edited: the save bar only appears then.
+  expect(screen.queryByRole("button",{name:enWorkflows.input_instances.update})).not.toBeInTheDocument();
   expect(screen.getByRole("button",{name:enWorkflows.instances.run_saved})).toBeDisabled();
+  expect(screen.getByText(enWorkflows.instances.status_unbound)).toBeInTheDocument();
   expect(screen.getByRole("link",{name:enWorkflows.instances.configure_workflow})).toHaveAttribute("href","/acme/workflows/template?section=canvas");
   fireEvent.change(directory,{target:{value:"C:/scripts/acpui"}});
   expect(screen.getByRole("button",{name:enWorkflows.input_instances.update})).toBeEnabled();
@@ -473,52 +476,95 @@ describe("directory script instance actions", () => {
 });
 
 
-describe("instance deletion", () => {
-  it("names the instance and allows cancelling without sending a request", async () => {
+describe("archiving (the one way to put an instance away)", () => {
+  it("archives from the page's menu, then offers Restore in a banner", async () => {
+    vi.mocked(api.archiveWorkflowInstance).mockImplementation(async (_id, _revision, archive) =>
+      ({ ...row(), revision: 2, archivedAt: archive ? "2026-09-10T00:00:00Z" : null }) as Awaited<ReturnType<typeof api.archiveWorkflowInstance>>);
     mount(<WorkflowInstanceDetailPage instanceId="instance" />);
-    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
-    const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Scenario A");
-    expect(dialog).toHaveTextContent("Include archived");
-    fireEvent.click(within(dialog).getByRole("button", {name:"Cancel"}));
+    await screen.findByRole("textbox", { name: "Description" });
+    expect(screen.queryByRole("button", { name: "Delete instance" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.more }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: enWorkflows.instances.archive }));
+    await waitFor(() => expect(api.archiveWorkflowInstance).toHaveBeenCalledWith("instance", 1, true));
+    expect(await screen.findByText(enWorkflows.instances.archived_banner)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.restore }));
+    await waitFor(() => expect(api.archiveWorkflowInstance).toHaveBeenLastCalledWith("instance", 2, false));
+    await waitFor(() => expect(screen.queryByText(enWorkflows.instances.archived_banner)).not.toBeInTheDocument());
     expect(api.deleteWorkflowInputInstance).not.toHaveBeenCalled();
-    expect(replace).not.toHaveBeenCalled();
   });
-  it("refreshes the active list after the server confirms deletion", async () => {
-    vi.mocked(api.listWorkflowTemplates).mockResolvedValue({templates:[],total:0});
-    vi.mocked(api.browseWorkflowInstances).mockResolvedValue({instances:[row()],total:1});
-    vi.mocked(api.deleteWorkflowInputInstance).mockImplementation(async () => {
-      vi.mocked(api.browseWorkflowInstances).mockResolvedValue({instances:[],total:0});
+
+  it("archives from a list row and refreshes the list", async () => {
+    vi.mocked(api.listWorkflowTemplates).mockResolvedValue({ templates: [], total: 0 });
+    vi.mocked(api.browseWorkflowInstances).mockResolvedValue({ instances: [row()], total: 1 });
+    vi.mocked(api.archiveWorkflowInstance).mockImplementation(async () => {
+      vi.mocked(api.browseWorkflowInstances).mockResolvedValue({ instances: [], total: 0 });
+      return { ...row(), archivedAt: "2026-09-10T00:00:00Z" } as Awaited<ReturnType<typeof api.archiveWorkflowInstance>>;
     });
     mount(<WorkflowInstancesPage />);
-    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
-    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", {name:"Delete instance"}));
-    await waitFor(() => expect(api.deleteWorkflowInputInstance).toHaveBeenCalledWith("template", "instance"));
-    await waitFor(() => expect(screen.queryByRole("link", {name:"Scenario A"})).not.toBeInTheDocument());
+    expect(await screen.findByText(enWorkflows.instances.status_ready)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.more }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: enWorkflows.instances.archive }));
+    await waitFor(() => expect(api.archiveWorkflowInstance).toHaveBeenCalledWith("instance", 1, true));
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Scenario A" })).not.toBeInTheDocument());
     expect(api.browseWorkflowInstances).toHaveBeenCalledTimes(2);
   });
-  it("keeps a failed deletion open and navigates only after successful retry", async () => {
-    vi.mocked(api.deleteWorkflowInputInstance).mockRejectedValueOnce(new Error("Deletion failed"));
+
+  it("does not archive over unsaved edits, but can duplicate them", async () => {
     mount(<WorkflowInstanceDetailPage instanceId="instance" />);
-    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
-    const dialog = await screen.findByRole("alertdialog");
-    fireEvent.click(within(dialog).getByRole("button", {name:"Delete instance"}));
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Deletion failed");
-    expect(replace).not.toHaveBeenCalled();
-    fireEvent.click(within(dialog).getByRole("button", {name:"Delete instance"}));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/acme/workflow-instances"));
-    expect(api.deleteWorkflowInputInstance).toHaveBeenCalledTimes(2);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Description" }), { target: { value: "Edited" } });
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.more }));
+    expect(await screen.findByRole("menuitem", { name: enWorkflows.instances.archive })).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("menuitem", { name: enWorkflows.instances.duplicate }));
+    await waitFor(() => expect(api.saveWorkflowInputInstance).toHaveBeenCalledWith(
+      "template", expect.objectContaining({ name: "Scenario A (copy)", input: { title: "A", description: "Edited" } }), undefined));
   });
-  it("prevents duplicate deletion requests while waiting for the server", async () => {
-    vi.mocked(api.deleteWorkflowInputInstance).mockImplementation(() => new Promise(() => {}));
+});
+
+describe("editing bar", () => {
+  it("appears only with edits; Discard restores the saved values", async () => {
     mount(<WorkflowInstanceDetailPage instanceId="instance" />);
-    fireEvent.click(await screen.findByRole("button", {name:"Delete instance"}));
-    const dialog = await screen.findByRole("alertdialog");
-    const confirm = within(dialog).getByRole("button", {name:"Delete instance"});
-    fireEvent.click(confirm);
-    fireEvent.click(confirm);
-    await waitFor(() => expect(api.deleteWorkflowInputInstance).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(confirm).toBeDisabled());
-    expect(replace).not.toHaveBeenCalled();
+    const description = await screen.findByRole("textbox", { name: "Description" });
+    expect(screen.queryByText(enWorkflows.instances.unsaved)).not.toBeInTheDocument();
+    fireEvent.change(description, { target: { value: "Input B" } });
+    expect(screen.getByText(enWorkflows.instances.unsaved)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.discard }));
+    expect(description).toHaveValue("Input A");
+    expect(screen.queryByText(enWorkflows.instances.unsaved)).not.toBeInTheDocument();
   });
+
+  it("Save and run saves, then runs the revision it just saved", async () => {
+    vi.mocked(api.saveWorkflowInputInstance).mockResolvedValue({ ...row(), revision: 2, input: { title: "A", description: "Input B" } });
+    mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Description" }), { target: { value: "Input B" } });
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.save_and_run }));
+    await waitFor(() => expect(api.runWorkflowInstance).toHaveBeenCalledWith("instance", { mode: "saved", revision: 2, idempotency_key: expect.any(String) }));
+    expect(api.saveWorkflowInputInstance).toHaveBeenCalledWith("template", expect.objectContaining({ revision: 1, input: { title: "A", description: "Input B" } }), "instance");
+    expect(vi.mocked(api.saveWorkflowInputInstance).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(api.runWorkflowInstance).mock.invocationCallOrder[0]!);
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/acme/workflow-runs/run-a"));
+  });
+
+  it("does not run when the save fails", async () => {
+    vi.mocked(api.saveWorkflowInputInstance).mockRejectedValue(new Error("revision conflict"));
+    mount(<WorkflowInstanceDetailPage instanceId="instance" />);
+    fireEvent.change(await screen.findByRole("textbox", { name: "Description" }), { target: { value: "Input B" } });
+    fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.save_and_run }));
+    await screen.findByText("revision conflict");
+    expect(api.runWorkflowInstance).not.toHaveBeenCalled();
+  });
+});
+
+it("starts a new instance from the instances page by choosing its workflow", async () => {
+  vi.mocked(api.listWorkflowTemplates).mockResolvedValue({
+    templates: [{ id: "template", name: "Template", status: "published" }, { id: "old", name: "Old", status: "archived" }],
+    total: 2,
+  } as unknown as Awaited<ReturnType<typeof api.listWorkflowTemplates>>);
+  vi.mocked(api.browseWorkflowInstances).mockResolvedValue({ instances: [], total: 0 });
+  mount(<WorkflowInstancesPage />);
+  expect(await screen.findByText(enWorkflows.instances.empty_hint)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: enWorkflows.instances.new }));
+  expect(screen.queryByRole("menuitem", { name: "Old" })).not.toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Template" }));
+  expect(await screen.findByText(enWorkflows.instances.create)).toBeInTheDocument();
+  expect(api.getWorkflowTemplate).toHaveBeenCalledWith("template", { definition: "draft" });
 });

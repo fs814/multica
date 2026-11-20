@@ -40,6 +40,7 @@
   "trash_confirm": "Mettre à la corbeille ?",
   "trash_selected": "Mettre {{count}} à la corbeille",
   "trashed_result": "{{count}} mis à la corbeille.",
+  "trash_progress": "Mise à la corbeille : {{done}} sur {{total}}…",
   "menu_preview": "Aperçu",
   "menu_rename": "Renommer…",
   "menu_trash": "Mettre à la corbeille",

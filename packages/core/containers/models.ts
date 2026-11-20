@@ -96,6 +96,38 @@ export function parseResourceList<K extends ResourceKind>(resource: K, value: un
   return parseWithFallback<ResourceRows[K]>(value, listSchemas[resource], [] as unknown as ResourceRows[K], { endpoint: `local-containers:list:${resource}` });
 }
 
+// -- removing containers with their images / volumes / networks --------------
+
+const relatedItemSchema = z.object({ id: z.string(), name: z.string() });
+const keptItemSchema = z.object({ kind: z.enum(["image", "volume", "network"]), name: z.string(), usedBy: z.array(z.string()).default([]) });
+export type KeptItem = z.infer<typeof keptItemSchema>;
+
+export const relatedPlanSchema = z.object({
+  containers: z.array(relatedItemSchema).default([]),
+  images: z.array(relatedItemSchema).default([]),
+  volumes: z.array(z.string()).default([]),
+  networks: z.array(z.string()).default([]),
+  kept: z.array(keptItemSchema).default([]),
+});
+export type RelatedPlan = z.infer<typeof relatedPlanSchema>;
+
+export const relatedResultSchema = z.object({
+  removed: z.object({
+    containers: z.array(z.string()).default([]),
+    images: z.array(z.string()).default([]),
+    volumes: z.array(z.string()).default([]),
+    networks: z.array(z.string()).default([]),
+  }),
+  kept: z.array(keptItemSchema).default([]),
+  failed: z.array(z.object({ kind: z.enum(["container", "image", "volume", "network"]), name: z.string(), error: z.string() })).default([]),
+});
+export type RelatedResult = z.infer<typeof relatedResultSchema>;
+
+export interface RelatedOptions { images: boolean; volumes: boolean; networks: boolean; force: boolean }
+
+export const parseRelatedPlan = (value: unknown): RelatedPlan => relatedPlanSchema.parse(value);
+export const parseRelatedResult = (value: unknown): RelatedResult => relatedResultSchema.parse(value);
+
 export interface RunRequest {
   image: string;
   /** Open in a terminal (`run -it`) rather than in the background (`run -d`). */
@@ -118,6 +150,10 @@ export interface LocalContainersBridge {
   list(resource: ResourceKind): Promise<unknown>;
   containerAction(id: string, action: ContainerAction): Promise<unknown>;
   removeContainer(id: string, force: boolean): Promise<unknown>;
+  /** Which images / volumes / networks only these containers use (see RelatedPlan). */
+  relatedPlan(ids: string[]): Promise<unknown>;
+  /** Remove the containers and, as chosen, what only they use (see RelatedResult). */
+  removeWithRelated(ids: string[], options: RelatedOptions): Promise<unknown>;
   renameContainer(id: string, name: string): Promise<unknown>;
   logs(id: string, tail: number, timestamps: boolean): Promise<unknown>;
   inspect(resource: ResourceKind, id: string): Promise<unknown>;

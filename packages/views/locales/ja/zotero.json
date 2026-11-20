@@ -40,6 +40,7 @@
   "trash_confirm": "ゴミ箱に移動しますか？",
   "trash_selected": "{{count}} 件をゴミ箱に移動",
   "trashed_result": "{{count}} 件をゴミ箱に移動しました。",
+  "trash_progress": "{{total}} 件中 {{done}} 件をゴミ箱に移動中…",
   "menu_preview": "プレビュー",
   "menu_rename": "名前を変更…",
   "menu_trash": "ゴミ箱に移動",

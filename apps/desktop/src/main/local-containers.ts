@@ -73,6 +73,16 @@ export function setupLocalContainers(windowGetter: () => BrowserWindow | null, e
     const ref = validRef(id);
     return engine.removeContainer(ref, force === true).then(() => true);
   });
+  const idList = (value: unknown) => {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 500) throw new Error("Invalid container list");
+    return value.map((id) => validRef(id));
+  };
+  handle("related-plan", (ids) => engine.relatedPlan(idList(ids)));
+  handle("remove-with-related", (ids, options) => {
+    const list = idList(ids);
+    const o = (options && typeof options === "object" ? options : {}) as Record<string, unknown>;
+    return engine.removeWithRelated(list, { images: o.images === true, volumes: o.volumes === true, networks: o.networks === true, force: o.force === true });
+  });
   handle("rename-container", (id, name) => {
     const ref = validRef(id);
     if (typeof name !== "string") throw new Error("Invalid container name");

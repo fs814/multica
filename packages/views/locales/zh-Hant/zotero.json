@@ -40,6 +40,7 @@
   "trash_confirm": "確認移到垃圾桶？",
   "trash_selected": "把 {{count}} 個移到垃圾桶",
   "trashed_result": "已將 {{count}} 個檔案移到垃圾桶。",
+  "trash_progress": "正在移到垃圾桶 {{done}}/{{total}}…",
   "menu_preview": "預覽",
   "menu_rename": "重新命名…",
   "menu_trash": "移到垃圾桶",

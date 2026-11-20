@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ZOTERO_KINDS, ZOTERO_SOURCES, countZoteroSources, filterZoteroFiles, parseZoteroCollection, parseZoteroFile, parseZoteroImportResult,
@@ -35,6 +35,9 @@ function formatSize(bytes: number): string {
 }
 
 interface TransferRun { done: number; total: number; results: ZoteroImportResult[]; running: boolean }
+
+/** How many files are moved to the Trash at once (each is its own IPC + OS call). */
+const TRASH_CONCURRENCY = 4;
 
 function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
   const { t } = useT("zotero");
@@ -85,11 +88,26 @@ function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
     },
   });
 
-  const toggle = (id: string, on: boolean) => setSelected((prev) => {
-    const next = new Set(prev);
-    if (on) next.add(id); else next.delete(id);
-    return next;
-  });
+  // Shift-click selects a range like a file manager: every visible row between
+  // the last clicked row (the anchor) and this one takes the clicked row's new
+  // state. The anchor is in the current filtered order; if it has been
+  // filtered out, the click acts on the single row.
+  const anchor = useRef<string | null>(null);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  const toggle = useCallback((id: string, on: boolean, range = false) => {
+    const order = shownRef.current;
+    const from = range && anchor.current !== null ? order.findIndex((f) => f.id === anchor.current) : -1;
+    const to = from === -1 ? -1 : order.findIndex((f) => f.id === id);
+    const ids = to === -1 ? [id] : order.slice(Math.min(from, to), Math.max(from, to) + 1).map((f) => f.id);
+    anchor.current = id;
+    setSelected((prev) => {
+      if (ids.every((x) => prev.has(x) === on)) return prev;
+      const next = new Set(prev);
+      for (const x of ids) if (on) next.add(x); else next.delete(x);
+      return next;
+    });
+  }, []);
   const toggleShown = (on: boolean) => setSelected((prev) => {
     const next = new Set(prev);
     for (const f of shown) if (on) next.add(f.id); else next.delete(f.id);
@@ -103,25 +121,60 @@ function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
 
   const preview = useMutation({ mutationFn: (id: string) => bridge.preview(id) });
   const [trashed, setTrashed] = useState<{ count: number; failed: { id: string; error: string }[] } | null>(null);
+  const [trashRun, setTrashRun] = useState<{ done: number; total: number } | null>(null);
+  // Trashing hundreds of files used to look frozen: one IPC round trip per
+  // file, no progress, and the list only changed after a full rescan at the
+  // end. Now a few run at once, a counter shows progress, and trashed rows
+  // leave the list (and the selection) as they go, flushed every ~250 ms so a
+  // big batch doesn't re-render the table once per file. The rescan still
+  // runs at the end; the trimmed list stays on screen meanwhile.
   const moveToTrash = useMutation({
     mutationFn: async (ids: string[]) => {
-      let count = 0;
+      const total = ids.length;
       const failed: { id: string; error: string }[] = [];
-      for (const id of ids) {
-        try {
-          await bridge.trash(id);
-          count += 1;
-        } catch (e) {
-          failed.push({ id, error: (e as Error).message });
+      let count = 0;
+      let done = 0;
+      let next = 0;
+      let gone: string[] = [];
+      let flushedAt = 0;
+      const flush = () => {
+        if (gone.length === 0) return;
+        const removed = new Set(gone);
+        gone = [];
+        flushedAt = Date.now();
+        client.setQueryData(zoteroCatalogOptions(bridge).queryKey, (old) => old && { ...old, files: old.files.filter((f) => !removed.has(f.id)) });
+        setSelected((prev) => {
+          const left = new Set(prev);
+          for (const id of removed) left.delete(id);
+          return left;
+        });
+      };
+      const worker = async () => {
+        while (next < total) {
+          const id = ids[next++]!;
+          try {
+            await bridge.trash(id);
+            count += 1;
+            gone.push(id);
+          } catch (e) {
+            failed.push({ id, error: (e as Error).message });
+          }
+          done += 1;
+          setTrashRun({ done, total });
+          if (Date.now() - flushedAt > 250) flush();
         }
+      };
+      setTrashed(null);
+      setTrashRun({ done: 0, total });
+      try {
+        await Promise.all(Array.from({ length: Math.min(TRASH_CONCURRENCY, total) }, worker));
+      } finally {
+        flush();
+        setTrashRun(null);
       }
-      return { count, failed, ids };
+      return { count, failed };
     },
-    onSuccess: ({ count, failed, ids }) => {
-      setTrashed({ count, failed });
-      const gone = new Set(ids.filter((id) => !failed.some((f) => f.id === id)));
-      setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
-    },
+    onSuccess: ({ count, failed }) => setTrashed({ count, failed }),
     onSettled: () => client.invalidateQueries({ queryKey: zoteroKeys.catalog }),
   });
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -143,6 +196,22 @@ function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
     setMenu({ file, x: event.clientX, y: event.clientY });
     setMenuOpen(true);
   };
+  // Rows get one stable actions object so React.memo(FileRow) can skip every
+  // row whose own props didn't change. Without it, ticking one checkbox
+  // re-rendered the whole table (every Checkbox/Button/t() call), which is
+  // what made selecting an item slow in a big catalog. The ref always holds
+  // this render's closures, so the stable wrappers never call stale state.
+  const latest = useRef({ bridge, preview, moveToTrash, rename, openMenu });
+  latest.current = { bridge, preview, moveToTrash, rename, openMenu };
+  const rowActions = useMemo<RowActions>(() => ({
+    toggle,
+    reveal: (id) => void latest.current.bridge.reveal(id),
+    preview: (id) => latest.current.preview.mutate(id),
+    trash: (id) => latest.current.moveToTrash.mutate([id]),
+    contextMenu: (file, event) => latest.current.openMenu(file, event),
+    rename: (file, name) => (name && name !== file.name ? latest.current.rename.mutate({ id: file.id, name }) : setRenamingId(null)),
+    cancelRename: () => setRenamingId(null),
+  }), [toggle]);
   const error = catalog.error ?? status.error ?? collections.error ?? authorize.error ?? transfer.error ?? preview.error ?? moveToTrash.error ?? rename.error;
   const canTransfer = reachable && chosen.length > 0 && !transfer.isPending;
   const state = status.data?.state;
@@ -195,6 +264,9 @@ function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
       onTrash={() => moveToTrash.mutate(chosen)} trashPending={moveToTrash.isPending}
     />
     {run && <TransferSummary run={run} byId={byId} />}
+    {trashRun && <p role="status" className="flex items-center gap-2 text-body">
+      <Loader2 className="size-4 animate-spin" />{t(($) => $.trash_progress, { done: trashRun.done, total: trashRun.total })}
+    </p>}
     {trashed && <div role="status" className="text-body">
       <p>{t(($) => $.trashed_result, { count: trashed.count })}</p>
       {trashed.failed.length > 0 && <ul className="mt-1 text-caption text-destructive">
@@ -226,10 +298,8 @@ function LocalZotero({ bridge }: { bridge: LocalZoteroBridge }) {
             </tr>
           </thead>
           <tbody>
-            {shown.map((file) => <FileRow key={file.id} file={file} checked={selected.has(file.id)} toggle={toggle} reveal={() => void bridge.reveal(file.id)} preview={() => preview.mutate(file.id)}
-              onTrash={() => moveToTrash.mutate([file.id])} trashPending={moveToTrash.isPending} onContextMenu={(event) => openMenu(file, event)}
-              renaming={renamingId === file.id} onRename={(name) => (name && name !== file.name ? rename.mutate({ id: file.id, name }) : setRenamingId(null))}
-              onCancelRename={() => setRenamingId(null)} />)}
+            {shown.map((file) => <FileRow key={file.id} file={file} checked={selected.has(file.id)} actions={rowActions}
+              trashPending={moveToTrash.isPending} renaming={renamingId === file.id} />)}
           </tbody>
         </table>
         {shown.length === 0 && <p className="px-3 py-6 text-body text-muted-foreground">{t(($) => $.empty)}</p>}
@@ -282,20 +352,36 @@ function RenameInput({ file, onRename, onCancel }: { file: ZoteroFile; onRename:
     onBlur={() => finish(true)} />;
 }
 
-function FileRow({ file, checked, toggle, reveal, preview, onTrash, trashPending, onContextMenu, renaming, onRename, onCancelRename }: {
-  file: ZoteroFile; checked: boolean; toggle: (id: string, on: boolean) => void; reveal: () => void; preview: () => void;
-  onTrash: () => void; trashPending: boolean; onContextMenu: (event: React.MouseEvent) => void;
-  renaming: boolean; onRename: (name: string) => void; onCancelRename: () => void;
+interface RowActions {
+  toggle: (id: string, on: boolean, range?: boolean) => void;
+  reveal: (id: string) => void;
+  preview: (id: string) => void;
+  trash: (id: string) => void;
+  contextMenu: (file: ZoteroFile, event: React.MouseEvent) => void;
+  rename: (file: ZoteroFile, name: string) => void;
+  cancelRename: () => void;
+}
+
+const FileRow = memo(function FileRow({ file, checked, actions, trashPending, renaming }: {
+  file: ZoteroFile; checked: boolean; actions: RowActions; trashPending: boolean; renaming: boolean;
 }) {
   const { t } = useT("zotero");
-  return <tr className="border-b last:border-0 hover:bg-muted/50" onContextMenu={renaming ? undefined : onContextMenu}>
+  const reveal = () => actions.reveal(file.id);
+  // Shift-click on the row itself (not its buttons/inputs) also extends the
+  // selection. Shift+mousedown is cancelled so the browser doesn't
+  // highlight the table text between the two clicks instead.
+  const interactive = (target: EventTarget) => target instanceof Element && target.closest("button, input, a, [role=checkbox]") !== null;
+  return <tr className="border-b last:border-0 hover:bg-muted/50" onContextMenu={renaming ? undefined : (event) => actions.contextMenu(file, event)}
+    onMouseDown={(event) => { if (event.shiftKey && !interactive(event.target)) event.preventDefault(); }}
+    onClick={(event) => { if (event.shiftKey && !renaming && !interactive(event.target)) actions.toggle(file.id, true, true); }}>
     <td className="px-3 py-1.5">
-      <Checkbox aria-label={t(($) => $.select_file, { name: file.name })} checked={checked} onCheckedChange={(on) => toggle(file.id, on === true)} />
+      <Checkbox aria-label={t(($) => $.select_file, { name: file.name })} checked={checked}
+        onCheckedChange={(on, details) => actions.toggle(file.id, on === true, (details.event as MouseEvent | KeyboardEvent | undefined)?.shiftKey === true)} />
     </td>
     <td className="max-w-[28rem] px-2 py-1.5">{renaming
-      ? <RenameInput file={file} onRename={onRename} onCancel={onCancelRename} />
+      ? <RenameInput file={file} onRename={(name) => actions.rename(file, name)} onCancel={actions.cancelRename} />
       : <span className="block cursor-default truncate select-none" title={t(($) => $.preview_hint, { path: file.path })}
-        onDoubleClick={preview}>{file.name}</span>}</td>
+        onDoubleClick={() => actions.preview(file.id)}>{file.name}</span>}</td>
     <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{t(($) => $.sources[file.source])}</td>
     <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground tabular-nums">{file.month}</td>
     <td className="px-2 py-1.5 text-right whitespace-nowrap text-muted-foreground tabular-nums">{formatSize(file.size)}</td>
@@ -305,11 +391,11 @@ function FileRow({ file, checked, toggle, reveal, preview, onTrash, trashPending
     <td className="px-2 py-1.5">
       <div className="flex items-center justify-end gap-0.5">
         <Button size="icon-sm" variant="ghost" aria-label={t(($) => $.reveal)} title={t(($) => $.reveal)} onClick={reveal}><FolderOpen className="size-4" /></Button>
-        <TrashButton label={t(($) => $.trash_file, { name: file.name })} disabled={trashPending} onConfirm={onTrash} />
+        <TrashButton label={t(($) => $.trash_file, { name: file.name })} disabled={trashPending} onConfirm={() => actions.trash(file.id)} />
       </div>
     </td>
   </tr>;
-}
+});
 
 /**
  * Two-step trash: the first click arms the button ("Move to Trash?"), the second

@@ -2,7 +2,7 @@
 import { AppLink } from "../../navigation";
 
 import { useState } from "react";
-import { AlertCircle, Plus, Workflow } from "@multica/ui/icons";
+import { AlertCircle, Layers, Plus, Workflow } from "@multica/ui/icons";
 import { useQuery } from "@tanstack/react-query";
 import { workflowTemplateListOptions } from "@multica/core/workflows";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -37,11 +37,14 @@ export function WorkflowsPage() {
         icon={Workflow}
         title={t(($) => $.page.title)}
         actions={
-          <Button size="sm" onClick={() => setCreateOpen(true)}><Plus />{t(($) => $.page.create.action)}</Button>
+          <>
+            <Button size="sm" variant="outline" render={<AppLink href={wsPaths.workflowInstances()} />}>
+              <Layers />{t(($) => $.instances.all)}
+            </Button>
+            <Button size="sm" onClick={() => setCreateOpen(true)}><Plus />{t(($) => $.page.create.action)}</Button>
+          </>
         }
       />
-
-      <div className="border-b px-4 py-2"><AppLink href={wsPaths.workflowInstances()}>{t($=>$.instances.all)}</AppLink></div>
       {listError ? (
         <CollectionPageState
           role="alert"
