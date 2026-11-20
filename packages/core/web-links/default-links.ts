@@ -2,6 +2,7 @@ import type { WebLink } from "./models";
 
 const SELF_HOSTED = "Self-hosted";
 const EMBEDDED = "Embedded";
+const STM32 = "STM32";
 const ROBOT = "Robot";
 const UAV = "UAV";
 const HUMANOID = "Humanoid robot";
@@ -49,6 +50,8 @@ export const DEFAULT_WEB_LINKS: readonly WebLink[] = [
   { id: "default:luckfox", name: "Luckfox", url: "https://www.luckfox.com/", category: EMBEDDED },
   { id: "default:100ask", name: "100ASK (百问网) hardware", url: "https://www.100ask.net/hardware/", category: EMBEDDED },
   { id: "default:embedfire", name: "EmbedFire (野火)", url: "https://embedfire.com/", category: EMBEDDED },
+
+  { id: "default:weact", name: "WeAct Studio (微行创新)", url: "https://www.weact-tc.cn/", category: STM32 },
 
   { id: "default:yahboom", name: "Yahboom (亚博智能)", url: "https://www.yahboom.com/", category: ROBOT },
   { id: "default:hiwonder", name: "Hiwonder (幻尔)", url: "https://www.hiwonder.com/", category: ROBOT },
