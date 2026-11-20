@@ -52,6 +52,7 @@ export const DEFAULT_WEB_LINKS: readonly WebLink[] = [
   { id: "default:embedfire", name: "EmbedFire (野火)", url: "https://embedfire.com/", category: EMBEDDED },
 
   { id: "default:weact", name: "WeAct Studio (微行创新)", url: "https://www.weact-tc.cn/", category: STM32 },
+  { id: "default:openedv", name: "OpenEdv (正点原子论坛)", url: "https://www.openedv.com/", category: STM32 },
 
   { id: "default:yahboom", name: "Yahboom (亚博智能)", url: "https://www.yahboom.com/", category: ROBOT },
   { id: "default:hiwonder", name: "Hiwonder (幻尔)", url: "https://www.hiwonder.com/", category: ROBOT },
