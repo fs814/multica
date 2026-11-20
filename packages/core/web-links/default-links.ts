@@ -49,10 +49,10 @@ export const DEFAULT_WEB_LINKS: readonly WebLink[] = [
   { id: "default:milkv", name: "Milk-V", url: "https://milkv.io/zh/", category: EMBEDDED },
   { id: "default:luckfox", name: "Luckfox", url: "https://www.luckfox.com/", category: EMBEDDED },
   { id: "default:100ask", name: "100ASK (百问网) hardware", url: "https://www.100ask.net/hardware/", category: EMBEDDED },
-  { id: "default:embedfire", name: "EmbedFire (野火)", url: "https://embedfire.com/", category: EMBEDDED },
 
   { id: "default:weact", name: "WeAct Studio (微行创新)", url: "https://www.weact-tc.cn/", category: STM32 },
   { id: "default:openedv", name: "OpenEdv (正点原子论坛)", url: "https://www.openedv.com/", category: STM32 },
+  { id: "default:embedfire", name: "EmbedFire (野火)", url: "https://embedfire.com/", category: STM32 },
 
   { id: "default:yahboom", name: "Yahboom (亚博智能)", url: "https://www.yahboom.com/", category: ROBOT },
   { id: "default:hiwonder", name: "Hiwonder (幻尔)", url: "https://www.hiwonder.com/", category: ROBOT },
@@ -109,6 +109,7 @@ export const DEFAULT_WEB_LINKS: readonly WebLink[] = [
 const CATEGORY_MOVES: readonly { id: string; from: string; to: string; marker: string }[] = [
   { id: "default:dmbot", from: ROBOT, to: HUMANOID, marker: "move:dmbot-humanoid" },
   { id: "default:feetech", from: ROBOT, to: HUMANOID, marker: "move:feetech-humanoid" },
+  { id: "default:embedfire", from: EMBEDDED, to: STM32, marker: "move:embedfire-stm32" },
 ];
 
 /**
